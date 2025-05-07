@@ -23,6 +23,7 @@ class SquareFetcher:
         'climbing technique':'programming',
         'comp':'programming',
         'class':'programming',
+        'camp':'progamming',
         'event': 'Event Booking',
         'birthday': 'Event Booking',
         'retreat': 'Event Booking',

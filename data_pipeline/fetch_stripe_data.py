@@ -22,6 +22,7 @@ class StripeFetcher:
         'transformation':'programming',
         'climbing technique':'programming',
         'comp':'programming',
+        'camp':'progamming',
         'class':'programming',
         'booking': 'Event Booking',
         'event': 'Event Booking',
