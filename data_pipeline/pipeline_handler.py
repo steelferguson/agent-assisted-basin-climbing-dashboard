@@ -26,18 +26,16 @@ def fetch_stripe_and_square_and_combine(days=2, end_date=datetime.datetime.now()
     df_combined = pd.concat([stripe_df, square_df], ignore_index=True)
     return df_combined
 
-def add_new_transactions_to_combined_df(days=2, end_date=datetime.datetime.now()):
+def add_new_transactions_to_combined_df(days=2, end_date=datetime.datetime.now(), save_local=False):
     """
     Fetches the last 2 days of data from the APIs and adds it to the combined df.
     """
     print(f"pulling last {days} days of data from APIs from {end_date}")
     df_today = fetch_stripe_and_square_and_combine(days=days, end_date=end_date)
-    df_path = config.df_path_recent_days
-    df_today.to_csv(df_path, index=False)
 
     print("uploading to s3")
     uploader = upload_data.DataUploader()
-    uploader.upload_to_s3(df_path, config.aws_bucket_name, config.s3_path_recent_days)
+    uploader.upload_to_s3(df_today, config.aws_bucket_name, config.s3_path_recent_days)
     
     print("downloading previous day's combined df from s3 from config path: ", config.s3_path_combined)
     csv_content_yesterday = uploader.download_from_s3(config.aws_bucket_name, config.s3_path_combined)
@@ -49,11 +47,15 @@ def add_new_transactions_to_combined_df(days=2, end_date=datetime.datetime.now()
     print("dropping duplicates")
     df_combined = df_combined.drop_duplicates()
     
-    print("saving to csv at path: ", config.df_path_combined)
-    df_combined.to_csv(config.df_path_combined, index=False)
+    if save_local:
+        df_path = config.df_path_recent_days
+        print("saving recent dayslocally at path: ", config.df_path_recent_days)
+        df_today.to_csv(df_path, index=False)
+        print("saving full file locally at path: ", config.df_path_combined)
+        df_combined.to_csv(config.df_path_combined, index=False)
     
     print("uploading to s3 at path: ", config.s3_path_combined)
-    uploader.upload_to_s3(config.df_path_combined, config.aws_bucket_name, config.s3_path_combined)
+    uploader.upload_to_s3(df_combined, config.aws_bucket_name, config.s3_path_combined)
 
 
 if __name__ == "__main__":
