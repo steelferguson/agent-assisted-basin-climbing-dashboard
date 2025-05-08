@@ -267,6 +267,6 @@ if __name__ == "__main__":
     start_date = end_date - datetime.timedelta(days=365)
     stripe_key = os.getenv('STRIPE_PRODUCTION_API_KEY')
     stripe_fetcher = StripeFetcher(stripe_key=stripe_key)
-    df = stripe_fetcher.pull_and_transform_stripe_payment_data(stripe_key, start_date, end_date, save_json=True, save_csv=True)
+    df = stripe_fetcher.pull_and_transform_stripe_payment_data(stripe_key, start_date, end_date, save_json=False, save_csv=False)
     
 
