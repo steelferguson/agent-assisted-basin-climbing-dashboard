@@ -1,0 +1,32 @@
+name: Daily Data Update
+
+on:
+  schedule:
+    - cron: '0 6 * * *'  # runs daily at 6 AM UTC
+  workflow_dispatch:     # allows manual run from GitHub UI
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: 3.12
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run daily update
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          SQUARE_PRODUCTION_API_TOKEN: ${{ secrets.SQUARE_PRODUCTION_API_TOKEN }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_PRODUCTION_API_KEY }}
+        run: python data_pipeline/pipeline_handler.py
