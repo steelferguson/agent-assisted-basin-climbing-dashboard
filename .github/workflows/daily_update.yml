@@ -28,5 +28,5 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           SQUARE_PRODUCTION_API_TOKEN: ${{ secrets.SQUARE_PRODUCTION_API_TOKEN }}
-          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_PRODUCTION_API_KEY }}
+          STRIPE_PRODUCTION_API_KEY: ${{ secrets.STRIPE_PRODUCTION_API_KEY }} 
         run: python data_pipeline/pipeline_handler.py
