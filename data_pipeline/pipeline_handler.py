@@ -1,5 +1,6 @@
 import fetch_stripe_data
 import fetch_square_data
+import fetch_capitan_membership_data
 import upload_data as upload_data 
 import datetime
 import os
@@ -57,14 +58,37 @@ def add_new_transactions_to_combined_df(days=2, end_date=datetime.datetime.now()
     print("uploading to s3 at path: ", config.s3_path_combined)
     uploader.upload_to_s3(df_combined, config.aws_bucket_name, config.s3_path_combined)
 
-# def fetch_capitan_membership_data(save_local=False):
-#     """
-#     Fetches Capitan membership data from the Capitan API and saves it to a CSV file.
-#     """
-#     capitan_token = config.capitan_token
-#     capitan_fetcher = CapitanDataFetcher(capitan_token)
-#     capitan_df = capitan_fetcher.pull_and_transform_capitan_membership_data()
+def upload_new_capitan_membership_data(save_local=False):
+    """
+    Fetches Capitan membership data from the Capitan API and saves it to a CSV file.
+    """
+    capitan_token = config.capitan_token
+    capitan_fetcher = fetch_capitan_membership_data.CapitanDataFetcher(capitan_token)
+    json_response = capitan_fetcher.get_results_from_api('customer-memberships')
+    if json_response is None:
+        print("no data found in Capitan API")
+        return
+    capitan_memberships_df = capitan_fetcher.process_membership_data(json_response)
+    capitan_members_df = capitan_fetcher.process_member_data(json_response)
 
+    if save_local:
+        print("saving local files in data/outputs/capitan_memberships.csv and data/outputs/capitan_members.csv")
+        capitan_memberships_df.to_csv('data/outputs/capitan_memberships.csv', index=False)
+        capitan_members_df.to_csv('data/outputs/capitan_members.csv', index=False)
+
+    print("uploading Capitan memberhsip and member data to s3")
+    uploader = upload_data.DataUploader()
+    uploader.upload_to_s3(capitan_memberships_df, config.aws_bucket_name, config.s3_path_capitan_memberships)
+    uploader.upload_to_s3(capitan_members_df, config.aws_bucket_name, config.s3_path_capitan_members)
+    print("successfully uploaded Capitan memberhsip and member data to s3")
+    
+    # if it is the first day of the month, we upload the files to s3 with the date in the filename
+    today = datetime.datetime.now()
+    if today.day == 8:
+        print("uploading Capitan memberhsip and member data to s3 with date in the filename since it is the first day of the month")
+        uploader.upload_to_s3(capitan_memberships_df, config.aws_bucket_name, config.s3_path_capitan_memberships + f'_{today.strftime("%Y-%m-%d")}')
+        uploader.upload_to_s3(capitan_members_df, config.aws_bucket_name, config.s3_path_capitan_members + f'_{today.strftime("%Y-%m-%d")}')
 
 if __name__ == "__main__":
     add_new_transactions_to_combined_df()
+    upload_new_capitan_membership_data()

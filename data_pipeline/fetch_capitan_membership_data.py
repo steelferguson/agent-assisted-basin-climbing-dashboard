@@ -1,9 +1,9 @@
 import pandas as pd
 import requests
 import json
-from datetime import timedelta
+from datetime import timedelta, datetime
 import os 
-
+import config
 class CapitanDataFetcher:
     """
     A class for fetching and processing Capitan membership data.
@@ -11,10 +11,9 @@ class CapitanDataFetcher:
     def __init__(self, capitan_token: str):
         self.capitan_token = capitan_token
         self.base_url = 'https://api.hellocapitan.com/api/'
-        self.headers = {'Authorization': f'token {self.my_token}'}
+        self.headers = {'Authorization': f'token {self.capitan_token}'}
 
-    @staticmethod
-    def save_raw_response(data, filename):
+    def save_raw_response(self, data: dict, filename: str):
         """Save raw API response to a JSON file."""
         os.makedirs('data/raw_data', exist_ok=True)
         filepath = f'data/raw_data/{filename}.json'
@@ -22,10 +21,16 @@ class CapitanDataFetcher:
             json.dump(data, f, indent=2)
         print(f"Saved raw response to {filepath}")
 
-    def get_results_from_api(self, url):
+    def save_data(self, df: pd.DataFrame, file_name: str):
+        df.to_csv('data/outputs/' + file_name + '.csv', index=False)
+        print(file_name + ' saved in ' + '/data/outputs/')
+
+    def get_results_from_api(self, url: str) -> dict:
         """
         Make API request and handle response.
         """
+        url = self.base_url + url + '/?page=1&page_size=10000000000'
+        print(url)
         try:
             response = requests.get(url, headers=self.headers)
             if response.status_code == 200:
@@ -44,170 +49,201 @@ class CapitanDataFetcher:
             else:
                 filename = 'capitan_response'
             
-            # Save raw response
-            self.save_raw_response(json_data, filename)
-            
             return json_data
         except requests.exceptions.RequestException as e:
             print(f"Error making API request: {e}")
             return None
 
-    def calculate_membership_metrics(self, df):
-        # Filter out rows with amount <= 1 (invalid transactions)
-        df = df[df['amount'] > 1]
+    def extract_membership_features(self, membership: dict) -> dict:
+        """
+        Extracts and returns a dict of processed membership features.
+        """
+        interval = membership.get('interval', '').upper()
+        name = str(membership.get('name', '')).lower()
+        is_founder = 'founder' in name
+        is_college = 'college' in name
+        is_corporate = 'corporate' in name or 'tfnb' in name or 'founders business' in name
+        is_mid_day = 'mid-day' in name or 'mid day' in name
+        is_fitness_only = 'fitness only' in name or 'fitness-only' in name
+        has_fitness_addon = 'fitness' in name and not is_fitness_only
+        is_team_dues = 'team dues' in name or 'team-dues' in name
+        is_bcf = 'bcf' in name or 'staff' in name
 
-        # Convert 'created_at' to datetime and make sure it is timezone-naive
-        # df['created_at'] = pd.to_datetime(df['created_at']).dt.tz_localize(None)
-        df.loc[:, 'created_at'] = pd.to_datetime(df['created_at']).dt.tz_localize(None)
+        # Determine size
+        if 'family' in name:
+            size = 'family'
+        elif 'duo' in name:
+            size = 'duo'
+        elif 'corporate' in name or 'tfnb' in name or 'founders business' in name:
+            size = 'corporate'
+        else:
+            size = 'solo'  # Default to solo if not specified
 
-        # Create a list of dates from August 1 to today
-        start_date = pd.to_datetime('2024-08-01')
-        end_date = pd.to_datetime('today')
-        date_range = pd.date_range(start=start_date, end=end_date, freq='D')
+        # Determine frequency
+        if '3 month' in name or '3-month' in name:
+            frequency = 'prepaid_3mo'
+        elif '6 month' in name or '6-month' in name:
+            frequency = 'prepaid_6mo'
+        elif '12 month' in name or '12-month' in name:
+            frequency = 'prepaid_12mo'
+        elif is_mid_day:
+            frequency = 'bi_weekly'
+        elif is_bcf:
+            frequency = 'bi_weekly'
+        elif interval == 'BWK':
+            frequency = 'bi_weekly'
+        elif interval == 'MON':
+            frequency = 'monthly'
+        elif interval == 'YRL' or interval == 'YEA':
+            frequency = 'annual'
+        elif interval == '3MO':
+            frequency = 'prepaid_3mo'
+        elif interval == '6MO':
+            frequency = 'prepaid_6mo'
+        elif interval == '12MO':
+            frequency = 'prepaid_12mo'
+        else:
+            frequency = 'unknown'
 
-        # Create a dictionary to store results
-        results = []
+        return {
+            'frequency': frequency,
+            'size': size,
+            'is_founder': is_founder,
+            'is_college': is_college,
+            'is_corporate': is_corporate,
+            'is_mid_day': is_mid_day,
+            'is_fitness_only': is_fitness_only,
+            'has_fitness_addon': has_fitness_addon,
+            'is_team_dues': is_team_dues
+        }
 
-        # Loop over each date in the date range
-        for date in date_range:
-            # Ensure date is also timezone-naive to match the 'created_at' column
-            date = date.tz_localize(None)
-
-            # Get the past 370 days for yearly memberships, 40 days for monthly, and 21 days for weekly
-            df_yearly = df[(df['created_at'] >= date - timedelta(days=370)) & (df['created_at'] <= date)]
-            df_monthly = df[(df['created_at'] >= date - timedelta(days=40)) & (df['created_at'] <= date)]
-            df_weekly = df[(df['created_at'] >= date - timedelta(days=21)) & (df['created_at'] <= date)]
-
-            # Filter yearly solo memberships
-            yearly_solo = df_yearly[(df_yearly['membership_freq'] == 'annual') & (df_yearly['membership_size'] == 'Solo')]
-
-            # Filter yearly duo memberships
-            yearly_duo = df_yearly[(df_yearly['membership_freq'] == 'annual') & (df_yearly['membership_size'] == 'Duo')]
-
-            # Filter yearly family memberships
-            yearly_family = df_yearly[(df_yearly['membership_freq'] == 'annual') & (df_yearly['membership_size'] == 'Family')]
-
-            # Filter yearly corporate memberships
-            yearly_corporate = df_yearly[(df_yearly['membership_freq'] == 'annual') & (df_yearly['membership_size'] == 'Corporate')]
-
-            # Monthly solo memberships
-            monthly_solo = df_monthly[(df_monthly['membership_freq'] == 'monthly') & (df_monthly['membership_size'] == 'Solo')]
-
-            # Monthly duo memberships
-            monthly_duo = df_monthly[(df_monthly['membership_freq'] == 'monthly') & (df_monthly['membership_size'] == 'Duo')]
-
-            # Monthly family memberships
-            monthly_family = df_monthly[(df_monthly['membership_freq'] == 'monthly') & (df_monthly['membership_size'] == 'Family')]
-            
-            # Monthly corporate memberships
-            monthly_corporate = df_monthly[(df_monthly['membership_freq'] == 'monthly') & (df_monthly['membership_size'] == 'Corporate')]
-
-            # Weekly solo memberships
-            weekly_solo = df_weekly[(df_weekly['membership_freq'] == 'weekly') & (df_weekly['membership_size'] == 'Solo')]
-
-            # Weekly duo memberships
-            weekly_duo = df_weekly[(df_weekly['membership_freq'] == 'weekly') & (df_weekly['membership_size'] == 'Duo')]
-
-            # Weekly family memberships
-            weekly_family = df_weekly[(df_weekly['membership_freq'] == 'weekly') & (df_weekly['membership_size'] == 'Family')]
-
-            # Weekly corporate memberships
-            weekly_corporate = df_weekly[(df_weekly['membership_freq'] == 'weekly') & (df_weekly['membership_size'] == 'Corporate')]
-            
-            # Count unique customers for each category
-            yearly_solo_count = yearly_solo['customer_email'].nunique()
-            yearly_duo_count = yearly_duo['customer_email'].nunique()
-            yearly_family_count = yearly_family['customer_email'].nunique()
-            yearly_corporate_count = yearly_corporate['customer_email'].nunique()
-
-            monthly_solo_count = monthly_solo['customer_email'].nunique()
-            monthly_duo_count = monthly_duo['customer_email'].nunique()
-            monthly_family_count = monthly_family['customer_email'].nunique()
-            monthly_corporate_count = monthly_corporate['customer_email'].nunique()
-
-            weekly_solo_count = weekly_solo['customer_email'].nunique()
-            weekly_duo_count = weekly_duo['customer_email'].nunique()
-            weekly_family_count = weekly_family['customer_email'].nunique()
-            weekly_corporate_count = weekly_corporate['customer_email'].nunique()
-
-            # Create metrics dictionary
-            metrics = {
-                'yearly_solo': yearly_solo_count,
-                'yearly_duo': yearly_duo_count,
-                'yearly_family': yearly_family_count,
-                'yearly_corporate': yearly_corporate_count,
-                'monthly_solo': monthly_solo_count,
-                'monthly_duo': monthly_duo_count,
-                'monthly_family': monthly_family_count,
-                'monthly_corporate': monthly_corporate_count,
-                'weekly_solo': weekly_solo_count,
-                'weekly_duo': weekly_duo_count,
-                'weekly_family': weekly_family_count,
-                'weekly_corporate': weekly_corporate_count,
-            }
-            
-            # Append the results for this date
-            results.append({
-                'date': date,
-                'metrics': metrics
+    def process_membership_data(self, membership_data: dict) -> pd.DataFrame:
+        """
+        Process raw membership data into a DataFrame with processed membership data.
+        """
+        membership_data_list = []
+        for membership in membership_data.get('results', []):
+            features = self.extract_membership_features(membership)
+            start_date = pd.to_datetime(membership.get('start_date'), errors='coerce')
+            end_date = pd.to_datetime(membership.get('end_date'), errors='coerce')
+            if pd.isna(start_date) or pd.isna(end_date):
+                continue
+            membership_data_list.append({
+                'membership_id': membership.get('membership_id'),
+                'name': membership.get('name', ''),
+                'start_date': start_date,
+                'end_date': end_date,
+                'billing_amount': membership.get('billing_amount'),
+                'interval': membership.get('interval', ''),
+                'status': membership.get('status', ''),
+                **features
             })
+        return pd.DataFrame(membership_data_list)
 
-        # Convert results to a DataFrame
-        results_df = pd.DataFrame(results)
+    def process_member_data(self, membership_data: dict) -> pd.DataFrame:
+        """
+        Process raw membership data into a DataFrame with one row per member.
+        """
+        member_data_list = []
+        for membership in membership_data.get('results', []):
+            features = self.extract_membership_features(membership)
+            start_date = pd.to_datetime(membership.get('start_date'), errors='coerce')
+            end_date = pd.to_datetime(membership.get('end_date'), errors='coerce')
+            if pd.isna(start_date) or pd.isna(end_date):
+                continue
+            for member in membership.get('all_customers', []):
+                member_data_list.append({
+                    'membership_id': membership.get('membership_id'),
+                    'member_id': member.get('member_id'),
+                    'member_first_name': member.get('first_name'),
+                    'member_last_name': member.get('last_name'),
+                    'member_is_individually_frozen': member.get('is_individually_frozen'),
+                    'name': membership.get('name', ''),
+                    'start_date': start_date,
+                    'end_date': end_date,
+                    'billing_amount': membership.get('billing_amount'),
+                    'interval': membership.get('interval', ''),
+                    'status': membership.get('status', ''),
+                    **features
+                })
+        return pd.DataFrame(member_data_list)
 
-        return results_df
+    def get_active_memberships_for_date(self, df: pd.DataFrame, target_date: datetime) -> pd.DataFrame:
+        """
+        Get all active memberships for a specific date.
+        
+        Args:
+            df: DataFrame with processed membership data
+            target_date: datetime object for the target date
+        
+        Returns:
+            DataFrame with only the memberships active on the target date
+        """
+        return df[
+            (df['start_date'] <= target_date) & 
+            (df['end_date'] >= target_date)
+        ]
+
+    def get_membership_counts_by_frequency(self, df: pd.DataFrame, target_date: datetime) -> dict:
+        """
+        Get counts of active memberships by frequency for a specific date.
+        
+        Args:
+            df: DataFrame with processed membership data
+            target_date: datetime object for the target date
+        
+        Returns:
+            Dictionary with frequency counts
+        """
+        active_memberships = self.get_active_memberships_for_date(df, target_date)
+        return active_memberships['frequency'].value_counts().to_dict()
+
+    def get_membership_counts_by_size(self, df: pd.DataFrame, target_date: datetime) -> dict:
+        """
+        Get counts of active memberships by size for a specific date.
+        
+        Args:
+            df: DataFrame with processed membership data
+            target_date: datetime object for the target date
+        
+        Returns:
+            Dictionary with size counts
+        """
+        active_memberships = self.get_active_memberships_for_date(df, target_date)
+        return active_memberships['size'].value_counts().to_dict()
+
+    def get_membership_counts_by_category(self, df: pd.DataFrame, target_date: datetime) -> dict:
+        """
+        Get counts of active memberships by category for a specific date.
+        
+        Args:
+            df: DataFrame with processed membership data
+            target_date: datetime object for the target date
+        
+        Returns:
+            Dictionary with category counts
+        """
+        active_memberships = self.get_active_memberships_for_date(df, target_date)
+        
+        categories = {
+            'founder': active_memberships['is_founder'].sum(),
+            'college': active_memberships['is_college'].sum(),
+            'corporate': active_memberships['is_corporate'].sum(),
+            'mid_day': active_memberships['is_mid_day'].sum(),
+            'fitness_only': active_memberships['is_fitness_only'].sum(),
+            'has_fitness_addon': active_memberships['has_fitness_addon'].sum(),
+            'team_dues': active_memberships['is_team_dues'].sum()
+        }
+        
+        return categories
     
-    def save_data(self, df, file_name):
-        df.to_csv('data/outputs/' + file_name + '.csv', index=False)
-        print(file_name + ' saved in ' + '/data/outputs/')
-
-
-    def fetch_and_save_memberships(self, save_local=False):
-        """
-        Fetch memberships data from Capitan API and save as JSON.
-        """
-        url = self.url_base + 'customer-memberships/' + '?page=1&page_size=10000000000'
-        response = self.get_results_from_api(url)
-        
-        if not response:
-            print("Failed to get memberships from Capitan API")
-            return None
-            
-        if 'results' not in response:
-            print("No results found in memberships response")
-            return None
-            
-        memberships = response['results']
-        print(f"Total memberships retrieved: {len(memberships)}")
-        
-        # Save raw response
-        if save_local:
-            self.save_raw_response(response, 'capitan_customer_memberships')
-            pd.DataFrame(memberships).to_csv('data/outputs/capitan_customer_memberships.csv', index=False)
-        
-        return pd.DataFrame(memberships)
-
-    def get_memberships(self):
-        """
-        Get memberships from Capitan API.
-        """
-        # Get memberships data in a single request with large page size
-        url = self.url_base + 'customer-memberships/' + '?page=1&page_size=10000000000'
-        response = self.get_results_from_api(url)
-        
-        if not response:
-            print("Failed to get memberships from Capitan API")
-            return None
-            
-        if 'results' not in response:
-            print("No results found in memberships response")
-            return None
-            
-        memberships = response['results']
-        print(f"Total memberships retrieved: {len(memberships)}")
-        return pd.DataFrame(memberships)
-
+    
 if __name__ == "__main__":
-    pull_capitan = pullDataFromCapitan()
-    pull_capitan.pull_and_transform_payment_data()
+    capitan_token = config.capitan_token
+    capitan_fetcher = CapitanDataFetcher(capitan_token)
+    json_response = capitan_fetcher.get_results_from_api('customer-memberships')
+    df_memberships = capitan_fetcher.process_membership_data(json_response)
+    df_members = capitan_fetcher.process_member_data(json_response)
+    print(df_memberships.head())
+    print(df_members.head())
 
