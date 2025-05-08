@@ -397,4 +397,4 @@ if __name__ == "__main__":
     start_date = end_date - datetime.timedelta(days=365)
     square_token = os.getenv('SQUARE_PRODUCTION_API_TOKEN')
     square_fetcher = SquareFetcher(square_token, location_id = "L37KDMNNG84EA")
-    df = square_fetcher.pull_and_transform_square_payment_data(start_date, end_date, save_json=True, save_csv=True)
+    df = square_fetcher.pull_and_transform_square_payment_data(start_date, end_date, save_json=False, save_csv=False)

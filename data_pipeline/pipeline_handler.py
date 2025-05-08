@@ -16,12 +16,12 @@ def fetch_stripe_and_square_and_combine(days=2, end_date=datetime.datetime.now()
     # Fetch Stripe data
     stripe_key = config.stripe_key
     stripe_fetcher = fetch_stripe_data.StripeFetcher(stripe_key=stripe_key)
-    stripe_df = stripe_fetcher.pull_and_transform_stripe_payment_data(stripe_key, start_date, end_date, save_json=True, save_csv=True)
+    stripe_df = stripe_fetcher.pull_and_transform_stripe_payment_data(stripe_key, start_date, end_date, save_json=False, save_csv=False)
     
     # Fetch Square data
     square_token = config.square_token
     square_fetcher = fetch_square_data.SquareFetcher(square_token, location_id = "L37KDMNNG84EA")
-    square_df = square_fetcher.pull_and_transform_square_payment_data(start_date, end_date, save_json=True, save_csv=True)
+    square_df = square_fetcher.pull_and_transform_square_payment_data(start_date, end_date, save_json=False, save_csv=False)
     
     df_combined = pd.concat([stripe_df, square_df], ignore_index=True)
     return df_combined
@@ -56,6 +56,14 @@ def add_new_transactions_to_combined_df(days=2, end_date=datetime.datetime.now()
     
     print("uploading to s3 at path: ", config.s3_path_combined)
     uploader.upload_to_s3(df_combined, config.aws_bucket_name, config.s3_path_combined)
+
+# def fetch_capitan_membership_data(save_local=False):
+#     """
+#     Fetches Capitan membership data from the Capitan API and saves it to a CSV file.
+#     """
+#     capitan_token = config.capitan_token
+#     capitan_fetcher = CapitanDataFetcher(capitan_token)
+#     capitan_df = capitan_fetcher.pull_and_transform_capitan_membership_data()
 
 
 if __name__ == "__main__":
