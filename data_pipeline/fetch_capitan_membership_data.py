@@ -4,6 +4,7 @@ import json
 from datetime import timedelta, datetime
 import os 
 import config
+
 class CapitanDataFetcher:
     """
     A class for fetching and processing Capitan membership data.
@@ -116,6 +117,17 @@ class CapitanDataFetcher:
             'has_fitness_addon': has_fitness_addon,
             'is_team_dues': is_team_dues
         }
+    
+    def calculate_age(self, birthdate_str, ref_date=None):
+        if not birthdate_str:
+            return None
+        birthdate = pd.to_datetime(birthdate_str, errors='coerce')
+        if pd.isna(birthdate):
+            return None
+        if ref_date is None:
+            ref_date = pd.Timestamp.now()
+        age = ref_date.year - birthdate.year - ((ref_date.month, ref_date.day) < (birthdate.month, birthdate.day))
+        return age
 
     def process_membership_data(self, membership_data: dict) -> pd.DataFrame:
         """
@@ -128,14 +140,32 @@ class CapitanDataFetcher:
             end_date = pd.to_datetime(membership.get('end_date'), errors='coerce')
             if pd.isna(start_date) or pd.isna(end_date):
                 continue
+
+            billing_amount = float(membership.get('billing_amount', 0) or 0)
+            upcoming_bill_dates = membership.get('upcoming_bill_dates', [])
+            membership_unfreeze_date = membership.get('membership_unfreeze_date')
+            owner_birthday = membership.get('owner_birthday')
+            membership_owner_age = self.calculate_age(owner_birthday)
+
+            # Projected amount: billing_amount if not frozen, else 0
+            projected_amount = billing_amount
+            if membership_unfreeze_date:
+                unfreeze_dt = pd.to_datetime(membership_unfreeze_date, errors='coerce')
+                if pd.notna(unfreeze_dt) and unfreeze_dt > datetime.now():
+                    projected_amount = 0
+
             membership_data_list.append({
-                'membership_id': membership.get('membership_id'),
+                'membership_id': membership.get('id'),
+                'membership_type_id': membership.get('membership_id'),
                 'name': membership.get('name', ''),
                 'start_date': start_date,
                 'end_date': end_date,
-                'billing_amount': membership.get('billing_amount'),
+                'billing_amount': billing_amount,
+                'upcoming_bill_dates': ','.join(upcoming_bill_dates),
+                'projected_amount': projected_amount,
                 'interval': membership.get('interval', ''),
                 'status': membership.get('status', ''),
+                'membership_owner_age': membership_owner_age,
                 **features
             })
         return pd.DataFrame(membership_data_list)
@@ -238,12 +268,69 @@ class CapitanDataFetcher:
         return categories
     
     
+    def get_projected_amount(self, memberships_df, target_date):
+        """
+        Calculate the total projected billing amount for a given date.
+        
+        Args:
+            memberships_df: DataFrame with columns 'upcoming_bill_dates' (comma-separated string)
+                            and 'projected_amount' (float).
+            target_date: string or pd.Timestamp, e.g. '2025-06-07'
+        
+        Returns:
+            Total projected amount (float) for that date.
+        """
+        if not isinstance(target_date, str):
+            target_date = pd.to_datetime(target_date).strftime('%Y-%m-%d')
+        
+        total = 0.0
+        for _, row in memberships_df.iterrows():
+            bill_dates = [d.strip() for d in str(row['upcoming_bill_dates']).split(',') if d.strip()]
+            if target_date in bill_dates:
+                total += float(row.get('projected_amount', 0))
+        return total
+
+    def get_projection_table(self, memberships_df, months_ahead=3):
+        # Only include active memberships
+        active_df = memberships_df[memberships_df['status'] == 'ACT'].copy()
+
+        # 1. Build the set of all dates from today to end of this month + N months
+        today = pd.Timestamp.now().normalize()
+        last_date = (today + pd.offsets.MonthEnd(months_ahead + 1)).normalize()
+        all_dates = pd.date_range(today, last_date, freq='D')
+        date_dict = {d.strftime('%Y-%m-%d'): 0.0 for d in all_dates}
+
+        # 2. For each membership, add projected_amount to each of its bill dates (if in our date_dict)
+        for _, row in active_df.iterrows():
+            bill_dates = [x.strip() for x in str(row['upcoming_bill_dates']).split(',') if x.strip()]
+            for bill_date in bill_dates:
+                if bill_date in date_dict:
+                    date_dict[bill_date] += float(row.get('projected_amount', 0))
+
+        # 3. Convert to DataFrame and sort
+        projection = pd.DataFrame([
+            {'date': d, 'projected_total': total}
+            for d, total in date_dict.items()
+        ])
+        projection['date'] = pd.to_datetime(projection['date'])
+        projection = projection.sort_values('date').reset_index(drop=True)
+        return projection
+
 if __name__ == "__main__":
     capitan_token = config.capitan_token
     capitan_fetcher = CapitanDataFetcher(capitan_token)
-    json_response = capitan_fetcher.get_results_from_api('customer-memberships')
-    df_memberships = capitan_fetcher.process_membership_data(json_response)
-    df_members = capitan_fetcher.process_member_data(json_response)
-    print(df_memberships.head())
-    print(df_members.head())
+    # json_response = capitan_fetcher.get_results_from_api('customer-memberships')
 
+    # df_memberships = capitan_fetcher.process_membership_data(json_response)
+    # df_memberships.to_csv('data/outputs/capitan_memberships.csv', index=False)
+    # df_members = capitan_fetcher.process_member_data(json_response)
+    # df_members.to_csv('data/outputs/capitan_members.csv', index=False)
+    # print(df_memberships.head())
+    # print(df_members.head())
+    df_memberships = pd.read_csv('data/outputs/capitan_memberships.csv') 
+    
+
+
+    projection_df = capitan_fetcher.get_projection_table(df_memberships, months_ahead=3)
+    projection_df.to_csv('data/outputs/capitan_projection.csv', index=False)
+    print(projection_df)

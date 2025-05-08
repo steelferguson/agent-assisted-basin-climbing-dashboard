@@ -70,16 +70,19 @@ def upload_new_capitan_membership_data(save_local=False):
         return
     capitan_memberships_df = capitan_fetcher.process_membership_data(json_response)
     capitan_members_df = capitan_fetcher.process_member_data(json_response)
+    membership_revenue_projection_df = capitan_fetcher.get_projection_table(capitan_memberships_df, months_ahead=3)
 
     if save_local:
         print("saving local files in data/outputs/capitan_memberships.csv and data/outputs/capitan_members.csv")
         capitan_memberships_df.to_csv('data/outputs/capitan_memberships.csv', index=False)
         capitan_members_df.to_csv('data/outputs/capitan_members.csv', index=False)
+        membership_revenue_projection_df.to_csv('data/outputs/capitan_membership_revenue_projection.csv', index=False)
 
     print("uploading Capitan memberhsip and member data to s3")
     uploader = upload_data.DataUploader()
     uploader.upload_to_s3(capitan_memberships_df, config.aws_bucket_name, config.s3_path_capitan_memberships)
     uploader.upload_to_s3(capitan_members_df, config.aws_bucket_name, config.s3_path_capitan_members)
+    uploader.upload_to_s3(membership_revenue_projection_df, config.aws_bucket_name, config.s3_path_capitan_membership_revenue_projection)
     print("successfully uploaded Capitan memberhsip and member data to s3")
     
     # if it is the first day of the month, we upload the files to s3 with the date in the filename
@@ -88,7 +91,12 @@ def upload_new_capitan_membership_data(save_local=False):
         print("uploading Capitan memberhsip and member data to s3 with date in the filename since it is the first day of the month")
         uploader.upload_to_s3(capitan_memberships_df, config.aws_bucket_name, config.s3_path_capitan_memberships + f'_{today.strftime("%Y-%m-%d")}')
         uploader.upload_to_s3(capitan_members_df, config.aws_bucket_name, config.s3_path_capitan_members + f'_{today.strftime("%Y-%m-%d")}')
+        uploader.upload_to_s3(
+                membership_revenue_projection_df, 
+                config.aws_bucket_name, 
+                config.s3_path_capitan_membership_revenue_projection + f'_{today.strftime("%Y-%m-%d")}'
+        )
 
 if __name__ == "__main__":
-    add_new_transactions_to_combined_df()
+    # add_new_transactions_to_combined_df()
     upload_new_capitan_membership_data()
