@@ -250,7 +250,7 @@ class StripeFetcher:
             start_date: datetime.datetime, 
             end_date: datetime.datetime, 
             save_json: bool = False, 
-            save_csv: bool = True
+            save_csv: bool = False
         ) -> pd.DataFrame:
         all_charges = self.pull_stripe_payments_data_raw(stripe_key, start_date, end_date)
         if save_json:

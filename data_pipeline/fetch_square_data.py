@@ -350,7 +350,7 @@ class SquareFetcher:
             start_date: datetime.datetime, 
             end_date: datetime.datetime,
             save_json: bool = False,
-            save_csv: bool = True
+            save_csv: bool = False
         ) -> pd.DataFrame:
 
         save_json = save_json
