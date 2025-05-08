@@ -12,6 +12,7 @@ class SquareFetcher:
     def __init__(self, square_token: str, location_id = "L37KDMNNG84EA"):
         self.square_token = square_token
         self.location_id = location_id
+
     ## Dictionaries for processing string in decripitions
     revenue_category_keywords = {
         'day pass': 'Day Pass',
@@ -176,6 +177,7 @@ class SquareFetcher:
         """
         data = []
         for order in orders_list:
+            order_id = order.get('id', None)
             created_at = order.get('created_at')  # Order creation date
             line_items = order.get('line_items', [])
 
@@ -191,6 +193,7 @@ class SquareFetcher:
                 item_discount_money = item.get('total_discount_money', {}).get('amount', 0) / 100  # Discount for the item
 
                 data.append({
+                    'transaction_id': order_id,
                     'Description': description,
                     'Pre-Tax Amount': item_pre_tax_money,
                     'Tax Amount': item_tax_money,
@@ -264,24 +267,23 @@ class SquareFetcher:
     def create_invoices_dataframe(invoices_list):
         """
         Create a DataFrame from a list of Square invoices.
-        
-        Parameters:
-        invoices_list (list): List of Square invoice objects
-        
-        Returns:
-        pd.DataFrame: DataFrame containing the processed invoice data
         """
         data = []
         for invoice in invoices_list:
             if invoice.get('status') == 'PAID':  # Filter for paid invoices
                 created_at = invoice.get('created_at')
-                total_money = invoice.get('amount_paid', {}).get('amount', 0) / 100
+                payment_requests = invoice.get('payment_requests', [])
+                if payment_requests and isinstance(payment_requests, list):
+                    total_money = payment_requests[0].get('total_completed_amount_money', {}).get('amount', 0) / 100
+                else:
+                    total_money = 0
                 pre_tax_money = total_money / (1 + 0.0825)
                 tax_money = total_money - pre_tax_money
                 description = invoice.get('title', 'No Description')
-                name = invoice.get('customer_id', 'No Name')
-                
+                name = invoice.get('primary_recipient', {}).get('customer_id', 'No Name')
+                transaction_id = invoice.get('id', None)
                 data.append({
+                    'transaction_id': transaction_id,
                     'Description': description,
                     'Pre-Tax Amount': pre_tax_money,
                     'Tax Amount': tax_money,
@@ -289,10 +291,30 @@ class SquareFetcher:
                     'Discount Amount': 0,
                     'Name': name,
                     'Date': created_at,
-                    'base_price_amount': pre_tax_money
+                    'base_price_amount': pre_tax_money,
+                    'revenue_category': 'rental',
+                    'membership_size': None,
+                    'membership_freq': None,
+                    'is_founder': False,
+                    'is_free_membership': False,
+                    'sub_category': 'square_invoice_rental',
+                    'sub_category_detail': None,
+                    'date_': created_at,
+                    'Data Source': 'Square',
+                    'Day Pass Count': 0
                 })
-        
-        return pd.DataFrame(data)
+        # Ensure all expected columns exist (add missing ones as None)
+        df = pd.DataFrame(data)
+        expected_cols = [
+            'transaction_id', 'Description', 'Pre-Tax Amount', 'Tax Amount', 'Total Amount',
+            'Discount Amount', 'Name', 'Date', 'base_price_amount',
+            'revenue_category', 'membership_size', 'membership_freq', 'is_founder', 'is_free_membership',
+            'sub_category', 'sub_category_detail', 'date_', 'Data Source', 'Day Pass Count'
+        ]
+        for col in expected_cols:
+            if col not in df.columns:
+                df[col] = None
+        return df
 
     def pull_square_invoices(self, square_token, location_id):
         """
@@ -331,6 +353,8 @@ class SquareFetcher:
             save_csv: bool = True
         ) -> pd.DataFrame:
 
+        save_json = save_json
+        save_csv = save_csv
         # Format the dates in ISO 8601 format
         end_time = end_date.strftime('%Y-%m-%dT%H:%M:%SZ')
         begin_time = start_date.strftime('%Y-%m-%dT%H:%M:%SZ')

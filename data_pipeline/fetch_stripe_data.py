@@ -224,8 +224,10 @@ class StripeFetcher:
             currency = charge['currency']
             description = charge.get('description', 'No Description')
             name = charge.get('billing_details', {}).get('name', 'No Name')
+            transaction_id = charge.get('id', None)
             
             data.append({
+                'transaction_id': transaction_id,
                 'Description': description,
                 'Pre-Tax Amount': pre_tax_money,
                 'Tax Amount': tax_money,

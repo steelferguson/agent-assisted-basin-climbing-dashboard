@@ -1,10 +1,15 @@
 import pandas as pd
 
-# Load the CSV
-df = pd.read_csv('data/outputs/stripe_transaction_data.csv')
+# Load both CSVs
+stripe_df = pd.read_csv('data/outputs/stripe_transaction_data.csv')
+square_df = pd.read_csv('data/outputs/square_transaction_data.csv')
 
-# Parse the date column
-df['Date'] = pd.to_datetime(df['Date'])
+# Parse dates with ISO8601 format and UTC timezone
+stripe_df['Date'] = pd.to_datetime(stripe_df['Date'], format='ISO8601', utc=True)
+square_df['Date'] = pd.to_datetime(square_df['Date'], format='ISO8601', utc=True)
+
+# Combine the dataframes
+df = pd.concat([stripe_df, square_df], ignore_index=True)
 
 # Add a 'month' column for grouping
 df['month'] = df['Date'].dt.to_period('M')
