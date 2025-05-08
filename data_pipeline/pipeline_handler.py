@@ -57,6 +57,13 @@ def add_new_transactions_to_combined_df(days=2, end_date=datetime.datetime.now()
     
     print("uploading to s3 at path: ", config.s3_path_combined)
     uploader.upload_to_s3(df_combined, config.aws_bucket_name, config.s3_path_combined)
+    today = datetime.datetime.now()
+    if today.day == config.snapshot_day_of_month:
+        print("uploading transaction data to s3 with date in the filename since it is the first day of the month")
+        print("If data is not corrupted, feel free to delete the old snapshot file from s3")
+        uploader.upload_to_s3(
+            df_combined, config.aws_bucket_name, config.s3_path_combined_snapshot + f'_{today.strftime("%Y-%m-%d")}'
+        )
 
 def upload_new_capitan_membership_data(save_local=False):
     """
@@ -87,16 +94,21 @@ def upload_new_capitan_membership_data(save_local=False):
     
     # if it is the first day of the month, we upload the files to s3 with the date in the filename
     today = datetime.datetime.now()
-    if today.day == 8:
+    if today.day == config.snapshot_day_of_month:
         print("uploading Capitan memberhsip and member data to s3 with date in the filename since it is the first day of the month")
-        uploader.upload_to_s3(capitan_memberships_df, config.aws_bucket_name, config.s3_path_capitan_memberships + f'_{today.strftime("%Y-%m-%d")}')
-        uploader.upload_to_s3(capitan_members_df, config.aws_bucket_name, config.s3_path_capitan_members + f'_{today.strftime("%Y-%m-%d")}')
+        uploader.upload_to_s3(
+            capitan_memberships_df, config.aws_bucket_name, config.s3_path_capitan_memberships_snapshot + f'_{today.strftime("%Y-%m-%d")}'
+        )
+        uploader.upload_to_s3(
+            capitan_members_df, config.aws_bucket_name, config.s3_path_capitan_members_snapshot + f'_{today.strftime("%Y-%m-%d")}'
+        )
         uploader.upload_to_s3(
                 membership_revenue_projection_df, 
-                config.aws_bucket_name, 
-                config.s3_path_capitan_membership_revenue_projection + f'_{today.strftime("%Y-%m-%d")}'
+                config.aws_bucket_name,
+                config.s3_path_capitan_membership_revenue_projection_snapshot + f'_{today.strftime("%Y-%m-%d")}'
         )
 
+
 if __name__ == "__main__":
-    # add_new_transactions_to_combined_df()
-    upload_new_capitan_membership_data()
+    add_new_transactions_to_combined_df()
+    # upload_new_capitan_membership_data()
