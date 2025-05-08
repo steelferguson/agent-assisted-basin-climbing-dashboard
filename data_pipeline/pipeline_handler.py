@@ -15,6 +15,7 @@ def fetch_stripe_and_square_and_combine(days=2, end_date=datetime.datetime.now()
 
     # Fetch Stripe data
     stripe_key = config.stripe_key
+    print("stripe key: ", stripe_key)
     stripe_fetcher = fetch_stripe_data.StripeFetcher(stripe_key=stripe_key)
     stripe_df = stripe_fetcher.pull_and_transform_stripe_payment_data(stripe_key, start_date, end_date, save_json=True, save_csv=True)
     

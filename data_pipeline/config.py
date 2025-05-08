@@ -1,5 +1,6 @@
 import os
 
+print("config.py")
 stripe_key = os.getenv('STRIPE_PRODUCTION_API_KEY')
 square_token = os.getenv('SQUARE_PRODUCTION_API_TOKEN')
 aws_access_key_id = os.getenv('AWS_ACCESS_KEY_ID')
