@@ -1,4 +1,4 @@
-from agent.data_loader import load_csv_data
+from agent.data_loader import initialize_data_uploader, load_all_dataframes,  load_df_from_s3
 from agent.vectorstore_manager import VectorStoreManager
 from agent.insight_agent import InsightAgent
 from agent.feedback_interface import capture_feedback
@@ -11,7 +11,7 @@ def main():
     memory = MemoryManager(vectorstore=vectorstore)
 
     # Load data (e.g., transactions, memberships)
-    docs = load_csv_data("data/outputs")
+    docs = load_all_dataframes()
 
     # Add documents to vector store if not already embedded
     if not vectorstore.is_initialized():

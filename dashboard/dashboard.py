@@ -431,6 +431,8 @@ def create_dashboard(app):
 
         # Filter by status
         df = df[df['status'].isin(status_toggle)]
+        df['end_date'] = pd.to_datetime(df['end_date'], errors='coerce')
+        df['start_date'] = pd.to_datetime(df['start_date'], errors='coerce')
 
         # Filter by frequency and size
         df = df[df['frequency'].isin(frequency_toggle)]
