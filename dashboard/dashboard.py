@@ -40,7 +40,7 @@ def create_dashboard(app):
                 {'label': 'Week', 'value': 'W'},
                 {'label': 'Month', 'value': 'M'}
             ],
-            value='W',  # Default to "Week"
+            value='M',  # Default to "Month"
             inline=True,
             style={
                 'backgroundColor': '#213B3F',
@@ -363,35 +363,56 @@ def create_dashboard(app):
     def update_membership_revenue_projection_chart(selected_timeframe, selected_frequencies, show_total):
         # Filter for membership-related revenue categories
         membership_cats = ['Membership Renewal', 'New Membership']
-        df = df_combined[df_combined['revenue_category'].isin(membership_cats)].copy()
-
-        # Filter by frequency if needed
-        if selected_frequencies:
-            df = df[df['membership_freq'].isin(selected_frequencies)]
+        df_historical = df_combined[df_combined['revenue_category'].isin(membership_cats)].copy()
+        
 
         # Convert Date to period and group
-        df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
-        df['period'] = df['Date'].dt.to_period(selected_timeframe).dt.start_time
+        df_historical['Date'] = pd.to_datetime(df_historical['Date'], errors='coerce')
+        # filter to only the past 3 montths plus this current month
+        df_historical = df_historical[df_historical['Date'] >= (pd.Timestamp.now() - pd.DateOffset(months=3))]
+        df_historical['period'] = df_historical['Date'].dt.to_period(selected_timeframe).dt.start_time
 
         # Group by period and (optionally) membership_size or other columns
-        revenue_by_period = df.groupby('period')['Total Amount'].sum().reset_index()
+        historical_revenue_by_period = df_historical.groupby('period')['Total Amount'].sum().reset_index()
+        #rename Total Amount to historical_total
+        historical_revenue_by_period.rename(columns={'Total Amount': 'historical_total'}, inplace=True)
 
-        # Plot
+        df_proj = df_projection.copy()
+        df_proj['date'] = pd.to_datetime(df_proj['date'], errors='coerce')
+        df_proj['period'] = df_proj['date'].dt.to_period(selected_timeframe).dt.start_time
+
+        # Group by period and (optionally) membership_size or other columns
+        projection_revenue_by_period = df_proj.groupby('period')['projected_total'].sum().reset_index()
+
+        # Combine historical and projection data
+        revenue_by_period = pd.concat([historical_revenue_by_period, projection_revenue_by_period])
+        print("revenue_by_period:", revenue_by_period)
+
+        # Plot stacked bar chart
         fig = px.bar(
             revenue_by_period,
             x='period',
-            y='Total Amount',
-            title='Membership Revenue Projection'
+            y=['historical_total', 'projected_total'],
+            title='Membership Revenue Projection',
+            barmode='stack',
+            color_discrete_map={
+                # make historical grey
+                'historical_total': '#808080',
+                'projected_total': chart_colors['primary']
+            }
         )
 
         if show_total:
+            revenue_by_period['total'] = revenue_by_period['historical_total'].fillna(0) + revenue_by_period['projected_total'].fillna(0)
+            totals = revenue_by_period.groupby('period')['total'].sum().reset_index()
             fig.add_trace(
                 go.Scatter(
-                    x=revenue_by_period['period'],
-                    y=revenue_by_period['Total Amount'],
-                    mode='lines+markers',
-                    name='Total',
-                    line=dict(color='black', width=2)
+                    x=totals['period'],
+                    y=totals['total'],
+                    mode='text',
+                    text=totals['total'].round(0).astype(str),
+                    textposition='top center',
+                    textfont=dict(size=12, color='black') 
                 )
             )
 
@@ -708,10 +729,7 @@ def create_dashboard(app):
                 showarrow=False,
                 font=dict(size=16)
             )
-            return fig
-
-        print("camp_data for plotting:", camp_data.head())
-        print("Columns:", camp_data.columns)
+            return fig 
 
         # Convert dates to the selected timeframe and format them nicely
         camp_data['Date'] = pd.to_datetime(camp_data['Date'], errors='coerce')
@@ -747,17 +765,16 @@ def create_dashboard(app):
                 'count': 'Number of Purchases',
                 'formatted_date': 'Purchase Period'
             },
-            template='plotly' # can remove this line later
-            # color_discrete_sequence=[
-            #     chart_colors['primary'],    # rust
-            #     chart_colors['secondary'],  # gold
-            #     chart_colors['tertiary'],   # sage
-            #     chart_colors['quaternary'], # dark teal
-            #     '#8B4229',  # darker rust
-            #     '#BAA052',  # darker gold
-            #     '#96A682',  # darker sage
-            #     '#1A2E31'   # darker teal
-            # ]
+            color_discrete_sequence=[
+                chart_colors['primary'],    # rust
+                chart_colors['secondary'],  # gold
+                chart_colors['tertiary'],   # sage
+                chart_colors['quaternary'], # dark teal
+                '#8B4229',  # darker rust
+                '#BAA052',  # darker gold
+                '#96A682',  # darker sage
+                '#1A2E31'   # darker teal
+            ]
         )
         
         # Format the date display in the legend
