@@ -427,7 +427,7 @@ def create_dashboard(app):
     )
     def update_membership_timeline_chart(frequency_toggle, size_toggle, category_toggle, status_toggle):
         # Load the processed membership DataFrame
-        df = pd.read_csv('data/outputs/capitan_memberships.csv', parse_dates=['start_date', 'end_date'])
+        df = df_memberships
 
         # Filter by status
         df = df[df['status'].isin(status_toggle)]
