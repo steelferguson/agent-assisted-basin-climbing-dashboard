@@ -29,52 +29,63 @@ import pandas as pd
 # print(monthly_category_revenue)
 
 # Load the membership DataFrame
-df_memberships = pd.read_csv('data/outputs/capitan_memberships.csv')
+# df_memberships = pd.read_csv('data/outputs/capitan_memberships.csv')
 
-# 1. Check for duplicate membership_id
-duplicates = df_memberships[df_memberships.duplicated(subset=['membership_id'], keep=False)]
-print(f"Number of duplicate memberships: {duplicates['membership_id'].nunique()}")
-if not duplicates.empty:
-    print("Sample duplicate memberships:")
-    print(duplicates[['membership_id', 'name']].head())
+# # 1. Check for duplicate membership_id
+# duplicates = df_memberships[df_memberships.duplicated(subset=['membership_id'], keep=False)]
+# print(f"Number of duplicate memberships: {duplicates['membership_id'].nunique()}")
+# if not duplicates.empty:
+#     print("Sample duplicate memberships:")
+#     print(duplicates[['membership_id', 'name']].head())
 
-# 2. Count the total that is frozen (projected_amount == 0)
-frozen_count = (df_memberships['projected_amount'] == 0).sum()
-print(f"Number of memberships currently frozen: {frozen_count}")
+# # 2. Count the total that is frozen (projected_amount == 0)
+# frozen_count = (df_memberships['projected_amount'] == 0).sum()
+# print(f"Number of memberships currently frozen: {frozen_count}")
 
-frozen_total = df_memberships.loc[df_memberships['projected_amount'] == 0, 'projected_amount'].sum()
-print(f"Total projected amount for frozen memberships: {frozen_total}")
+# frozen_total = df_memberships.loc[df_memberships['projected_amount'] == 0, 'projected_amount'].sum()
+# print(f"Total projected amount for frozen memberships: {frozen_total}")
 
-# 3. Check projected_amount type and convert if needed
-print(f"projected_amount dtype: {df_memberships['projected_amount'].dtype}")
-if df_memberships['projected_amount'].dtype != float:
-    df_memberships['projected_amount'] = df_memberships['projected_amount'].astype(float)
-    print("Converted projected_amount to float.")
+# # 3. Check projected_amount type and convert if needed
+# print(f"projected_amount dtype: {df_memberships['projected_amount'].dtype}")
+# if df_memberships['projected_amount'].dtype != float:
+#     df_memberships['projected_amount'] = df_memberships['projected_amount'].astype(float)
+#     print("Converted projected_amount to float.")
 
-# 4. Confirm no member-level duplicates
-if 'member_id' in df_memberships.columns:
-    print("Warning: member_id column found in membership DataFrame!")
+# # 4. Confirm no member-level duplicates
+# if 'member_id' in df_memberships.columns:
+#     print("Warning: member_id column found in membership DataFrame!")
 
-print("Exploration checks complete.")
+# print("Exploration checks complete.")
 
-def explode_memberships_by_bill_date(df_memberships, output_csv='exploded_membership_bills.csv'):
-    """
-    For each membership, create a row for every upcoming bill date.
-    Output a DataFrame and save as CSV for debugging.
-    """
-    rows = []
-    for _, row in df_memberships.iterrows():
-        bill_dates = [d.strip() for d in str(row['upcoming_bill_dates']).split(',') if d.strip()]
-        for bill_date in bill_dates:
-            exploded_row = row.to_dict()
-            exploded_row['bill_date'] = bill_date
-            rows.append(exploded_row)
-    exploded_df = pd.DataFrame(rows)
-    exploded_df.to_csv(output_csv, index=False)
-    print(f"Exploded membership billing schedule saved to {output_csv}")
-    return exploded_df
+# def explode_memberships_by_bill_date(df_memberships, output_csv='exploded_membership_bills.csv'):
+#     """
+#     For each membership, create a row for every upcoming bill date.
+#     Output a DataFrame and save as CSV for debugging.
+#     """
+#     rows = []
+#     for _, row in df_memberships.iterrows():
+#         bill_dates = [d.strip() for d in str(row['upcoming_bill_dates']).split(',') if d.strip()]
+#         for bill_date in bill_dates:
+#             exploded_row = row.to_dict()
+#             exploded_row['bill_date'] = bill_date
+#             rows.append(exploded_row)
+#     exploded_df = pd.DataFrame(rows)
+#     exploded_df.to_csv(output_csv, index=False)
+#     print(f"Exploded membership billing schedule saved to {output_csv}")
+    # return exploded_df
 
 # Example usage:
-df_memberships = pd.read_csv('data/outputs/capitan_memberships.csv')
-exploded_df = explode_memberships_by_bill_date(df_memberships)
-exploded_df.to_csv('data/outputs/capitan_memberships_exploded.csv', index=False)
+# df_memberships = pd.read_csv('data/outputs/capitan_memberships.csv')
+# exploded_df = explode_memberships_by_bill_date(df_memberships)
+# exploded_df.to_csv('data/outputs/capitan_memberships_exploded.csv', index=False)
+
+from data_pipeline import upload_data, config
+
+# Instantiate the uploader
+uploader = upload_data.DataUploader()
+
+# Download the DataFrame from S3
+df_combined = uploader.download_from_s3(config.aws_bucket_name, config.s3_path_combined)
+
+# Print the columns
+print("df_combined columns:", df_combined.columns)

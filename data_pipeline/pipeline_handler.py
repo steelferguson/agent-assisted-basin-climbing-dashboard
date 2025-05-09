@@ -1,11 +1,11 @@
-import fetch_stripe_data
-import fetch_square_data
-import fetch_capitan_membership_data
-import upload_data as upload_data 
+from . import fetch_stripe_data
+from . import fetch_square_data
+from . import fetch_capitan_membership_data
+from . import upload_data as upload_data 
 import datetime
 import os
 import pandas as pd
-import config
+from . import config
 
 def fetch_stripe_and_square_and_combine(days=2, end_date=datetime.datetime.now()):
     """
@@ -110,5 +110,5 @@ def upload_new_capitan_membership_data(save_local=False):
 
 
 if __name__ == "__main__":
-    add_new_transactions_to_combined_df()
-    # upload_new_capitan_membership_data()
+    # add_new_transactions_to_combined_df()
+    upload_new_capitan_membership_data()

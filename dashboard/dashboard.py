@@ -8,6 +8,9 @@ import plotly.graph_objects as go
 from data_pipeline import upload_data 
 from data_pipeline import config
 import os
+import plotly.io as pio
+
+pio.templates.default = "plotly" # start off with plotly template as a clean slate
 
 def load_df_from_s3(bucket, key):
     uploader = upload_data.DataUploader()
@@ -17,16 +20,16 @@ def load_df_from_s3(bucket, key):
 def load_data():
     
     # Load all needed DataFrames from S3
-    df_memberships = upload_data.load_df_from_s3(config.aws_bucket_name, config.s3_path_capitan_memberships)
-    df_members = upload_data.load_df_from_s3(config.aws_bucket_name, config.s3_path_capitan_members)
-    df_transactions = upload_data.load_df_from_s3(config.aws_bucket_name, config.s3_path_combined)
-    df_projection = upload_data.load_df_from_s3(config.aws_bucket_name, config.s3_path_capitan_membership_revenue_projection)
+    df_memberships = load_df_from_s3(config.aws_bucket_name, config.s3_path_capitan_memberships)
+    df_members = load_df_from_s3(config.aws_bucket_name, config.s3_path_capitan_members)
+    df_transactions = load_df_from_s3(config.aws_bucket_name, config.s3_path_combined)
+    df_projection = load_df_from_s3(config.aws_bucket_name, config.s3_path_capitan_membership_revenue_projection)
 
     return df_memberships, df_members, df_transactions, df_projection
 
 def create_dashboard(app):
     
-    df_membership, df_combined, df_projections, membership_data = load_data()
+    df_memberships, df_members, df_combined, df_projection = load_data()
     
     app.layout = html.Div([
         # Timeframe toggle
@@ -248,6 +251,7 @@ def create_dashboard(app):
     )
     def update_total_revenue_chart(selected_timeframe, selected_sources):
         df_filtered = df_combined[df_combined['Data Source'].isin(selected_sources)].copy()
+        df_filtered['Date'] = pd.to_datetime(df_filtered['Date'], errors='coerce')
         df_filtered['date'] = df_filtered['Date'].dt.to_period(selected_timeframe).dt.start_time
         total_revenue = df_filtered.groupby('date')['Total Amount'].sum().reset_index()
 
@@ -282,6 +286,7 @@ def create_dashboard(app):
 
         # Filter and resample the Square and Stripe data
         df_filtered = df_combined[df_combined['Data Source'].isin(selected_sources)]
+        df_filtered['Date'] = pd.to_datetime(df_filtered['Date'], errors='coerce')
         df_filtered['date'] = df_filtered['Date'].dt.to_period(selected_timeframe).dt.start_time
         revenue_by_category = df_filtered.groupby(['date', 'revenue_category'])['Total Amount'].sum().reset_index()
 
@@ -335,6 +340,7 @@ def create_dashboard(app):
     )
     def update_day_pass_chart(selected_timeframe):
         df_filtered = df_combined[df_combined['revenue_category'] == 'Day Pass'].copy()
+        df_filtered['Date'] = pd.to_datetime(df_filtered['Date'], errors='coerce')
         df_filtered['date'] = df_filtered['Date'].dt.to_period(selected_timeframe).dt.start_time
         day_pass_sum = df_filtered.groupby('date')['Day Pass Count'].sum().reset_index(name='total_day_passes')
 
@@ -364,7 +370,7 @@ def create_dashboard(app):
             df = df[df['membership_freq'].isin(selected_frequencies)]
 
         # Convert Date to period and group
-        df['Date'] = pd.to_datetime(df['Date'])
+        df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
         df['period'] = df['Date'].dt.to_period(selected_timeframe).dt.start_time
 
         # Group by period and (optionally) membership_size or other columns
@@ -494,21 +500,12 @@ def create_dashboard(app):
         [Input('timeframe-toggle', 'value')]
     )
     def update_youth_teams_chart(selected_timeframe):
-        if not membership_data:
-            fig = px.bar(title='No youth teams data available')
-            fig.add_annotation(
-                text="No youth teams data available",
-                xref="paper", yref="paper",
-                showarrow=False,
-                font=dict(size=16)
-            )
-            return fig
 
         # Create a list to store youth team memberships
         youth_memberships = []
         
         # Process each membership
-        for membership in membership_data.get('results', []):
+        for _, membership in df_memberships.iterrows():
             name = str(membership.get('name', '')).lower()
             status = membership.get('status')
             
@@ -627,6 +624,7 @@ def create_dashboard(app):
     def update_birthday_participants_chart(selected_timeframe):
         # Filter for birthday transactions
         df_filtered = df_combined[df_combined['sub_category'] == 'birthday'].copy()
+        df_filtered['Date'] = pd.to_datetime(df_filtered['Date'], errors='coerce')
         df_filtered['date'] = df_filtered['Date'].dt.to_period(selected_timeframe).dt.start_time
         
         # Group by date and sub_category_detail to count transactions
@@ -672,6 +670,7 @@ def create_dashboard(app):
     def update_birthday_revenue_chart(selected_timeframe):
         # Filter for birthday transactions
         df_filtered = df_combined[df_combined['sub_category'] == 'birthday'].copy()
+        df_filtered['Date'] = pd.to_datetime(df_filtered['Date'], errors='coerce')
         df_filtered['date'] = df_filtered['Date'].dt.to_period(selected_timeframe).dt.start_time
         
         # Calculate total revenue by date
@@ -711,7 +710,11 @@ def create_dashboard(app):
             )
             return fig
 
+        print("camp_data for plotting:", camp_data.head())
+        print("Columns:", camp_data.columns)
+
         # Convert dates to the selected timeframe and format them nicely
+        camp_data['Date'] = pd.to_datetime(camp_data['Date'], errors='coerce')
         camp_data['date'] = camp_data['Date'].dt.to_period(selected_timeframe).dt.start_time
         camp_data['formatted_date'] = camp_data['date'].dt.strftime('%b %Y')  # Format as "Jan 2024"
         
@@ -730,6 +733,7 @@ def create_dashboard(app):
         
         # Group by session and purchase period
         camp_counts = camp_data.groupby(['session_label', 'formatted_date']).size().reset_index(name='count')
+ 
         
         # Create stacked bar chart
         fig = px.bar(
@@ -743,16 +747,17 @@ def create_dashboard(app):
                 'count': 'Number of Purchases',
                 'formatted_date': 'Purchase Period'
             },
-            color_discrete_sequence=[
-                chart_colors['primary'],    # rust
-                chart_colors['secondary'],  # gold
-                chart_colors['tertiary'],   # sage
-                chart_colors['quaternary'], # dark teal
-                '#8B4229',  # darker rust
-                '#BAA052',  # darker gold
-                '#96A682',  # darker sage
-                '#1A2E31'   # darker teal
-            ]
+            template='plotly' # can remove this line later
+            # color_discrete_sequence=[
+            #     chart_colors['primary'],    # rust
+            #     chart_colors['secondary'],  # gold
+            #     chart_colors['tertiary'],   # sage
+            #     chart_colors['quaternary'], # dark teal
+            #     '#8B4229',  # darker rust
+            #     '#BAA052',  # darker gold
+            #     '#96A682',  # darker sage
+            #     '#1A2E31'   # darker teal
+            # ]
         )
         
         # Format the date display in the legend
@@ -798,6 +803,7 @@ def create_dashboard(app):
             return fig
 
         # Convert dates to the selected timeframe and group by date
+        camp_data['Date'] = pd.to_datetime(camp_data['Date'], errors='coerce')
         camp_data['date'] = camp_data['Date'].dt.to_period(selected_timeframe).dt.start_time
         camp_revenue = camp_data.groupby('date')['Total Amount'].sum().reset_index()
         

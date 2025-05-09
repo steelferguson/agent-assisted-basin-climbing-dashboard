@@ -3,7 +3,7 @@ import requests
 import json
 from datetime import timedelta, datetime
 import os 
-import config
+from . import config
 
 class CapitanDataFetcher:
     """
@@ -115,7 +115,8 @@ class CapitanDataFetcher:
             'is_mid_day': is_mid_day,
             'is_fitness_only': is_fitness_only,
             'has_fitness_addon': has_fitness_addon,
-            'is_team_dues': is_team_dues
+            'is_team_dues': is_team_dues,
+            'is_bcf': is_bcf
         }
     
     def calculate_age(self, birthdate_str, ref_date=None):
@@ -327,10 +328,10 @@ if __name__ == "__main__":
     # df_members.to_csv('data/outputs/capitan_members.csv', index=False)
     # print(df_memberships.head())
     # print(df_members.head())
-    df_memberships = pd.read_csv('data/outputs/capitan_memberships.csv') 
+    # df_memberships = pd.read_csv('data/outputs/capitan_memberships.csv') 
     
 
 
-    projection_df = capitan_fetcher.get_projection_table(df_memberships, months_ahead=3)
-    projection_df.to_csv('data/outputs/capitan_projection.csv', index=False)
-    print(projection_df)
+    # projection_df = capitan_fetcher.get_projection_table(df_memberships, months_ahead=3)
+    # projection_df.to_csv('data/outputs/capitan_projection.csv', index=False)
+    # print(projection_df)

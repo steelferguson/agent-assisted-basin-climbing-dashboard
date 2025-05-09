@@ -1,5 +1,6 @@
 import os
 
+# data_pipeline configurations
 stripe_key = os.getenv('STRIPE_PRODUCTION_API_KEY')
 square_token = os.getenv('SQUARE_PRODUCTION_API_TOKEN')
 capitan_token = os.getenv('CAPITAN_API_TOKEN')

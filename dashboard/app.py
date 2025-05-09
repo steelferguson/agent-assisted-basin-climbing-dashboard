@@ -1,7 +1,7 @@
 import sys
 sys.path.append('./src')
 from dash import Dash
-from dashboard import create_dashboard
+from dashboard.dashboard import create_dashboard
 import os
 
 # Initialize the Dash app
