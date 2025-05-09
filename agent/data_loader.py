@@ -1,5 +1,5 @@
 import pandas as pd
-from langchain_core.documents import Document
+from langchain.schema import Document
 from data_pipeline import config
 from data_pipeline.upload_data import DataUploader
 

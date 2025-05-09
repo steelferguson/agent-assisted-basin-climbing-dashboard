@@ -386,7 +386,6 @@ def create_dashboard(app):
 
         # Combine historical and projection data
         revenue_by_period = pd.concat([historical_revenue_by_period, projection_revenue_by_period])
-        print("revenue_by_period:", revenue_by_period)
 
         # Plot stacked bar chart
         fig = px.bar(
