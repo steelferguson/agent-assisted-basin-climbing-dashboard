@@ -7,16 +7,19 @@ import os
 
 def main():
     # Initialize vector store and memory
-    vectorstore = VectorStoreManager(persist_directory="agent/memory_store")
+    vectorstore = VectorStoreManager(persist_path="agent/memory_store")
     memory = MemoryManager(vectorstore=vectorstore)
 
     # Load data (e.g., transactions, memberships)
-    docs = load_all_dataframes()
+    uploader = initialize_data_uploader()
+    docs = load_all_dataframes(uploader)
 
     # Add documents to vector store if not already embedded
     if not vectorstore.is_initialized():
         print("Embedding and storing documents...")
-        vectorstore.add_documents(docs)
+        vectorstore.create_vectorstore(docs)
+    else:
+        print("Vectorstore already exists. Skipping embedding.")
 
     # Initialize the Insight Agent
     agent = InsightAgent(vectorstore=vectorstore, memory_manager=memory)

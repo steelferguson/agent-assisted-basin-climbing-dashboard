@@ -110,5 +110,5 @@ def upload_new_capitan_membership_data(save_local=False):
 
 
 if __name__ == "__main__":
-    # add_new_transactions_to_combined_df()
+    add_new_transactions_to_combined_df()
     upload_new_capitan_membership_data()

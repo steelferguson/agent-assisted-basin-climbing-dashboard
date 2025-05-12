@@ -27,6 +27,10 @@ class VectorStoreManager:
         self.vectorstore.add_documents(documents)
         self.vectorstore.save_local(self.persist_path)
 
+    def is_initialized(self) -> bool:
+        """Check if the FAISS vectorstore has been initialized and saved."""
+        return os.path.exists(os.path.join(self.persist_path, "index.faiss"))
+
     def similarity_search(self, query: str, k: int = 5) -> list[Document]:
         """Perform a similarity search on the vector store."""
         if self.vectorstore is None:
