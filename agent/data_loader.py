@@ -1,7 +1,11 @@
 import pandas as pd
-from langchain.schema import Document
 from data_pipeline import config
 from data_pipeline.upload_data import DataUploader
+
+'''
+This file is used to load the data from the s3 bucket.
+It is used to load the data from the s3 bucket into a pandas dataframe.
+'''
 
 def initialize_data_uploader() -> DataUploader:
     uploader = DataUploader()
@@ -24,19 +28,3 @@ def load_all_dataframes(uploader: DataUploader) -> dict[str, pd.DataFrame]:
         "projections": df_projection
     }
 
-def dataframe_to_documents(df: pd.DataFrame, source: str) -> list[Document]:
-    documents = []
-    for i, row in df.iterrows():
-        # Convert row to a single string
-        text = ", ".join([f"{col}: {val}" for col, val in row.items()])
-        metadata = {"source": source, "row_index": i}
-        documents.append(Document(page_content=text, metadata=metadata))
-    return documents
-
-def load_documents() -> list[Document]:
-    dfs = load_all_dataframes()
-    all_docs = []
-    for key, df in dfs.items():
-        docs = dataframe_to_documents(df, source=key)
-        all_docs.extend(docs)
-    return all_docs
