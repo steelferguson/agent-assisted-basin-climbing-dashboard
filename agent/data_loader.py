@@ -12,9 +12,9 @@ def load_df_from_s3(
         uploader: DataUploader, 
         bucket: str = config.aws_bucket_name, 
         folder_prefix: str = config.s3_path_combined
-        ) -> pd.DataFrame:
+    ) -> pd.DataFrame:
     csv_content = uploader.download_from_s3(bucket, folder_prefix)
-    return pd.read_csv(io.StringIO(csv_content))
+    return pd.read_csv(io.StringIO(csv_content.decode('utf-8')))
 
 def load_all_documents_from_s3(
         uploader: DataUploader, 
