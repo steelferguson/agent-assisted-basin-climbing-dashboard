@@ -20,6 +20,8 @@ if __name__ == "__main__":
     uploader = initialize_data_uploader()
     dfs = load_all_dataframes(uploader)
     df = dfs['transactions']
+    print(df.head())
+    df.to_csv('data/outputs/transactions_temp.csv', index=False)
     test_summarize_date_range(df)
     test_compare_categories(df)
     test_detect_anomalies(df)

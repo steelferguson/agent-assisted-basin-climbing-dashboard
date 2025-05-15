@@ -31,9 +31,10 @@ class CapitanDataFetcher:
         Make API request and handle response.
         """
         url = self.base_url + url + '/?page=1&page_size=10000000000'
-        print(url)
+        print(f"Fetching data from {url}")
         try:
             response = requests.get(url, headers=self.headers)
+            print(f"trying using headers: {self.headers}")
             if response.status_code == 200:
                 print("Successful response from " + url)
             else:

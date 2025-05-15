@@ -18,6 +18,7 @@ def summarize_date_range(
     day_passes_col: str = "Day Pass Count",
     already_filtered: bool = False
 ) -> dict:
+    df = df.copy()
     df[date_col] = pd.to_datetime(df[date_col], errors='coerce')
     
     if not already_filtered:

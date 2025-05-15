@@ -177,4 +177,7 @@ cython_debug/
 *.csv
 *.json
 
+# the txt files created by the doc_generator.py script
+**/plain_text_files/*.txt
+
 **/.DS_Store

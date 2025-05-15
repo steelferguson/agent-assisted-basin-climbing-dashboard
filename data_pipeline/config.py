@@ -19,3 +19,4 @@ s3_path_capitan_memberships_snapshot = 'capitan/snapshots/memberships.csv'
 s3_path_capitan_members_snapshot = 'capitan/snapshots/members.csv'
 s3_path_capitan_membership_revenue_projection_snapshot = 'capitan/snapshots/membership_revenue_projection.csv'
 snapshot_day_of_month = 1
+s3_path_text_and_metadata = 'agent/text_and_metadata'
