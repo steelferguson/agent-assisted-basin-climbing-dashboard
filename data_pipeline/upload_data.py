@@ -42,6 +42,20 @@ class DataUploader:
         body = json.dumps(content, indent=2, default=serialize)
         self.s3.put_object(Bucket=bucket_name, Key=file_name, Body=body)
 
+    def upload_multiple_documents_objects_to_s3(
+            self, 
+            docs: list[Document], 
+            bucket_name: str = config.aws_bucket_name, 
+            file_name: str = config.s3_path_text_and_metadata
+            ) -> None:
+        for doc in docs:
+            start = doc.metadata['start_date']
+            end = doc.metadata['end_date']
+            cat = doc.metadata['category'].replace(" ", "_").lower()
+            filename = f"{start}_to_{end}_{cat}.json"
+            self.upload_json_to_s3(doc, bucket_name, file_name + "/" + filename)
+        print(f"Uploaded {len(docs)} documents to S3 bucket {bucket_name} at {file_name}/")
+
     def list_keys(self, bucket: str, prefix: str = "") -> list[str]:
         """
         Lists all object keys under the given prefix in the specified S3 bucket.
@@ -56,13 +70,20 @@ class DataUploader:
 
         return keys
 
+    def decode_utf_8(self, data: bytes) -> str:
+        return data.decode('utf-8')
+    
     def download_from_s3(self, bucket_name: str, s3_file_path: str) -> str:
         response = self.s3.get_object(Bucket=bucket_name, Key=s3_file_path)
-        csv_content = response['Body'].read().decode('utf-8')
-        return csv_content
+        if isinstance(response['Body'], bytes):
+            response_string = response['Body'].read().decode('utf-8')
+        else:
+            response_string = response['Body'].read()
+        return response_string
     
     def convert_csv_to_df(self, csv_content: str) -> pd.DataFrame:
         return pd.read_csv(io.StringIO(csv_content))
+    
     
 
 if __name__ == "__main__":

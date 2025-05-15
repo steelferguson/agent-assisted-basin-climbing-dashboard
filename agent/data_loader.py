@@ -32,7 +32,7 @@ def load_all_documents_from_s3(
     for key in txt_keys:
         if not key.endswith('.json'):
             continue
-        json_str = uploader.download_from_s3(bucket, key).decode('utf-8')
+        json_str = uploader.download_from_s3(bucket, key)
         try:
             data = json.loads(json_str)
             metadata = data.get("metadata", {})

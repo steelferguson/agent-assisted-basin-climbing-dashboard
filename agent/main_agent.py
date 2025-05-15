@@ -16,7 +16,7 @@ def main():
     docs = load_all_documents_from_s3(
         uploader, 
         bucket=config.aws_bucket_name, 
-        folder_prefix=config.s3_path_plain_text_files)
+        folder_prefix=config.s3_path_text_and_metadata)
 
     print(f"Number of documents: {len(docs)}")
     if len(docs) == 0:

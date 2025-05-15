@@ -4,11 +4,11 @@ from agent.investigate import summarize_date_range
 from langchain_core.documents import Document
 import pandas as pd
 from data_pipeline.upload_data import DataUploader
-from agent.data_loader import initialize_data_uploader
+from agent.data_loader import initialize_data_uploader, load_df_from_s3
 import data_pipeline.config as config
 
 
-def generate_weekly_summary_doc(df: pd.DataFrame, start_date: str, end_date: str, category: str) -> Document:
+def generate_timeperiod_summary_doc(df: pd.DataFrame, start_date: str, end_date: str, category: str) -> Document:
     summary = summarize_date_range(df, start_date, end_date, category)
     
     # Build the document content
@@ -40,33 +40,57 @@ def generate_weekly_summary_doc(df: pd.DataFrame, start_date: str, end_date: str
     )
 
 
-def batch_generate_category_docs(df: pd.DataFrame, frequency: str = 'W') -> list[Document]:
+def batch_generate_category_docs(
+        df: pd.DataFrame, 
+        frequency: str = 'W', 
+        start_date: str = '2024-09-16', 
+        end_date: str = None
+        ) -> list[Document]:
+    if frequency == 'W':
+        days_ahead = 7 - 1
+    elif frequency == 'M':
+        days_ahead = 30 - 1
+    elif frequency == 'Q':
+        days_ahead = 90 - 1
+    elif frequency == 'Y':
+        days_ahead = 365 - 1
+    else:
+        raise ValueError(f"Invalid frequency: {frequency}")
     df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
-    start = pd.to_datetime('2024-09-16').date() # Monday of opening week 2024
-    end = df['Date'].max().date()
+    start = pd.to_datetime(start_date).date()
+    # make the start date the most recent Sunday
+    start = start - timedelta(days=start.weekday())
+    end = pd.to_datetime(end_date).date() if end_date else df['Date'].max().date()
     documents = []
     categories = df['revenue_category'].dropna().unique()
 
     current = start
     while current <= end:
-        next_period = current + timedelta(days=6)
+        next_period = current + timedelta(days=days_ahead)
         for cat in categories:
-            doc = generate_weekly_summary_doc(df, str(current), str(next_period), cat)
+            doc = generate_timeperiod_summary_doc(df, str(current), str(next_period), cat)
             documents.append(doc)
-        doc = generate_weekly_summary_doc(df, str(current), str(next_period), None)
+        doc = generate_timeperiod_summary_doc(df, str(current), str(next_period), None)
         documents.append(doc)
         current = next_period + timedelta(days=1)
 
-    # Handle "overall" docs across all categories
-    # df_valid = df[df['Date'].notna()].copy()
-    # # grouped_all = df_valid.groupby(pd.Grouper(key='Date', freq=frequency))
-    # grouped_all = df.groupby(pd.Grouper(key='Date', freq=frequency))
+    print(f"Generated {len(documents)} documents from {start} to {end}")
 
-    # for period_start, group in grouped_all:
-    #     if not group.empty:
-    #         period_end = group['Date'].max()
-    #         doc = generate_weekly_summary_doc(df, str(period_start.date()), str(period_end.date()), category=None)
-    #         documents.append(doc)
+    return documents
+
+def generate_most_recent_weekly_docs(df: pd.DataFrame) -> list[Document]:
+    df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
+    # find the most recent Sunday
+    latest_date = df['Date'].max().date()
+    most_recent_sunday = latest_date - timedelta(days=(latest_date.weekday() + 1) % 7)
+    start_date = most_recent_sunday - timedelta(days=6)
+    documents = []
+    categories = df['revenue_category'].dropna().unique()
+    for cat in categories:
+        doc = generate_timeperiod_summary_doc(df, start_date, most_recent_sunday, cat)
+        documents.append(doc)
+    doc = generate_timeperiod_summary_doc(df, start_date, most_recent_sunday, None)
+    documents.append(doc)
 
     return documents
 
@@ -75,12 +99,11 @@ def write_to_disk(doc: Document, filepath: str):
     with open(filepath, "w") as f:
         f.write(doc.page_content)
 
-
 def add_to_vectorstore(doc: Document, vectorstore):
     vectorstore.add_documents([doc])
     vectorstore.save_local(vectorstore.persist_path)
 
-def add_original_txt_files_to_local_folder():
+def add_original_json_files_to_local_folder():
     import sys
     sys.path.append(".")
 
@@ -101,23 +124,32 @@ def add_original_txt_files_to_local_folder():
 
     print(f"Wrote {len(docs)} summary documents to data/outputs/text_and_metadata/")
 
-def add_original_txt_files_to_aws():
+def add_original_json_files_to_aws():
 
     uploader = initialize_data_uploader()
     df = load_df_from_s3(uploader, config.aws_bucket_name, config.s3_path_combined)
 
     docs = batch_generate_category_docs(df, frequency="W")
 
-    for doc in docs:
-        start = doc.metadata['start_date']
-        end = doc.metadata['end_date']
-        cat = doc.metadata['category'].replace(" ", "_").lower()
-        filename = f"{start}_to_{end}_{cat}.json"
-        uploader.upload_json_to_s3(doc, config.aws_bucket_name, config.s3_path_text_and_metadata + "/" + filename)
+    uploader.upload_multiple_documents_objects_to_s3(docs)
+
+    print(f"Wrote {len(docs)} summary documents to S3 bucket {config.aws_bucket_name} at {config.s3_path_text_and_metadata}/")
+
+def add_weekly_json_files_to_aws():
+
+    uploader = initialize_data_uploader()
+    df = load_df_from_s3(uploader, config.aws_bucket_name, config.s3_path_combined)
+
+    docs = generate_most_recent_weekly_docs(df)
+
+    uploader.upload_multiple_documents_objects_to_s3(docs)
 
     print(f"Wrote {len(docs)} summary documents to S3 bucket {config.aws_bucket_name} at {config.s3_path_text_and_metadata}/")
 
 
+
 if __name__ == "__main__":
-    add_original_txt_files_to_aws()
-    # add_original_txt_files_to_local_folder()
+    # add_original_json_files_to_aws()
+    # add_original_json_files_to_local_folder()
+    add_weekly_json_files_to_aws()
+
