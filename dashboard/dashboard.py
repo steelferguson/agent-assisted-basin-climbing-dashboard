@@ -166,10 +166,11 @@ def create_dashboard(app):
                     {'label': 'Fitness Only', 'value': 'fitness_only'},
                     {'label': 'Has Fitness Addon', 'value': 'has_fitness_addon'},
                     {'label': 'Team Dues', 'value': 'team_dues'},
+                    {'label': '90 for 90', 'value': '90_for_90'},
                     {'label': 'Include BCF Staff', 'value': 'include_bcf'},
                     {'label': 'Not in a Special Category', 'value': 'not_special'}
                 ],
-                value=['founder', 'college', 'corporate', 'mid_day', 'fitness_only', 'has_fitness_addon', 'team_dues', 'not_special'],
+                value=['founder', 'college', 'corporate', 'mid_day', 'fitness_only', 'has_fitness_addon', 'team_dues', '90_for_90', 'include_bcf', 'not_special'],
                 inline=True,
                 style={'margin-bottom': '20px'}
             ),
@@ -455,6 +456,10 @@ def create_dashboard(app):
             df = df[~df['has_fitness_addon']]
         if 'team_dues' not in category_toggle:
             df = df[~df['is_team_dues']]
+        if '90_for_90' not in category_toggle:
+            df = df[~df['is_90_for_90']]
+        if 'not_special' not in category_toggle:
+            df = df[~df['is_not_in_special']]
 
         # Create a date range from the earliest start date to today
         min_date = df['start_date'].min()

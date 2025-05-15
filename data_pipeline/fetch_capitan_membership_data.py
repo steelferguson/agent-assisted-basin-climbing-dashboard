@@ -60,6 +60,7 @@ class CapitanDataFetcher:
         """
         Extracts and returns a dict of processed membership features.
         """
+
         interval = membership.get('interval', '').upper()
         name = str(membership.get('name', '')).lower()
         is_founder = 'founder' in name
@@ -70,6 +71,18 @@ class CapitanDataFetcher:
         has_fitness_addon = 'fitness' in name and not is_fitness_only
         is_team_dues = 'team dues' in name or 'team-dues' in name
         is_bcf = 'bcf' in name or 'staff' in name
+        is_90_for_90 = '90 for 90' in name
+        special_categories = [
+            is_founder, 
+            is_college, 
+            is_corporate, 
+            is_mid_day, 
+            is_fitness_only, 
+            has_fitness_addon, 
+            is_team_dues, 
+            is_90_for_90, 
+            is_bcf]
+        is_not_in_special = not any(special_categories)
 
         # Determine size
         if 'family' in name:
@@ -82,7 +95,7 @@ class CapitanDataFetcher:
             size = 'solo'  # Default to solo if not specified
 
         # Determine frequency
-        if '3 month' in name or '3-month' in name:
+        if '3 month' in name or '3-month' in name or "90 for 90" in name:
             frequency = 'prepaid_3mo'
         elif '6 month' in name or '6-month' in name:
             frequency = 'prepaid_6mo'
@@ -117,7 +130,9 @@ class CapitanDataFetcher:
             'is_fitness_only': is_fitness_only,
             'has_fitness_addon': has_fitness_addon,
             'is_team_dues': is_team_dues,
-            'is_bcf': is_bcf
+            'is_bcf': is_bcf,
+            'is_90_for_90': is_90_for_90,
+            'is_not_in_special': is_not_in_special
         }
     
     def calculate_age(self, birthdate_str, ref_date=None):
@@ -264,7 +279,9 @@ class CapitanDataFetcher:
             'mid_day': active_memberships['is_mid_day'].sum(),
             'fitness_only': active_memberships['is_fitness_only'].sum(),
             'has_fitness_addon': active_memberships['has_fitness_addon'].sum(),
-            'team_dues': active_memberships['is_team_dues'].sum()
+            'team_dues': active_memberships['is_team_dues'].sum(),
+            '90_for_90': active_memberships['is_90_for_90'].sum(),
+            'include_bcf': active_memberships['is_bcf'].sum()
         }
         
         return categories
@@ -321,10 +338,10 @@ class CapitanDataFetcher:
 if __name__ == "__main__":
     capitan_token = config.capitan_token
     capitan_fetcher = CapitanDataFetcher(capitan_token)
-    # json_response = capitan_fetcher.get_results_from_api('customer-memberships')
+    json_response = capitan_fetcher.get_results_from_api('customer-memberships')
 
-    # df_memberships = capitan_fetcher.process_membership_data(json_response)
-    # df_memberships.to_csv('data/outputs/capitan_memberships.csv', index=False)
+    df_memberships = capitan_fetcher.process_membership_data(json_response)
+    df_memberships.to_csv('data/outputs/capitan_memberships.csv', index=False)
     # df_members = capitan_fetcher.process_member_data(json_response)
     # df_members.to_csv('data/outputs/capitan_members.csv', index=False)
     # print(df_memberships.head())
