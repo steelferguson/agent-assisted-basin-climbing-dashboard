@@ -82,6 +82,8 @@ class DataUploader:
         return response_string
     
     def convert_csv_to_df(self, csv_content: str) -> pd.DataFrame:
+        if isinstance(csv_content, bytes):
+            csv_content = csv_content.decode('utf-8')
         return pd.read_csv(io.StringIO(csv_content))
     
     
