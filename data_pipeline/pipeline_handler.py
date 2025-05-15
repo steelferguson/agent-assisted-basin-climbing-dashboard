@@ -1,11 +1,11 @@
-from . import fetch_stripe_data
-from . import fetch_square_data
-from . import fetch_capitan_membership_data
-from . import upload_data as upload_data 
+from data_pipeline import fetch_stripe_data
+from data_pipeline import fetch_square_data
+from data_pipeline import fetch_capitan_membership_data
+from data_pipeline import upload_data as upload_data 
 import datetime
 import os
 import pandas as pd
-from . import config
+from data_pipeline import config
 
 def fetch_stripe_and_square_and_combine(days=2, end_date=datetime.datetime.now()):
     """
