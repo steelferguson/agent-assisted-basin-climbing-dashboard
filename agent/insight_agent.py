@@ -1,53 +1,56 @@
-from datetime import datetime
-from typing import Optional, List
+from langchain_core.documents import Document
 from agent.vectorstore_manager import VectorStoreManager
 from agent.memory_manager import MemoryManager
-from langchain_core.documents import Document
-from langchain.chains import RetrievalQA
-from langchain_openai import ChatOpenAI
+from agent.investigate import summarize_date_range, detect_anomalies, compare_categories
+import datetime
+from typing import Optional
 
 class InsightAgent:
     def __init__(self, vectorstore: VectorStoreManager, memory_manager: MemoryManager):
         self.vectorstore = vectorstore
-        self.memory_manager = memory_manager
-        self.llm = ChatOpenAI(temperature=0)
+        self.memory = memory_manager
 
-        # Simple QA chain using the vector store retriever
-        self.qa_chain = RetrievalQA.from_chain_type(
-            llm=self.llm,
-            retriever=self.vectorstore.vectorstore.as_retriever()
-        )
-
-    def analyze_trends_and_generate_insights(
-        self,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
-        category: Optional[str] = None
-    ) -> List[str]:
+    def analyze_trends_and_generate_insights(self, query: Optional[str] = None, 
+                                             start_date: Optional[str] = None, 
+                                             end_date: Optional[str] = None, 
+                                             category: Optional[str] = None) -> str:
         """
-        Analyze vectorized documents to extract relevant insights, optionally filtered by time and category.
+        Accepts a query trigger, performs RAG retrieval, and calls deeper analysis functions.
         """
-        # Construct a query to guide the LLM analysis
-        query_parts = ["Analyze trends and patterns in revenue and membership data"]
-        if start_date:
-            query_parts.append(f"starting from {start_date.strftime('%Y-%m-%d')}")
-        if end_date:
-            query_parts.append(f"up to {end_date.strftime('%Y-%m-%d')}")
-        if category:
-            query_parts.append(f"focusing on the '{category}' category")
+        # Step 1: RAG Retrieval
+        if query is None:
+            if category:
+                query = f"Summarize recent revenue trends for {category}"
+            else:
+                query = "Summarize recent revenue trends"
 
-        query = ", ".join(query_parts) + ". Return 3-5 business-relevant insights."
+        retrieved_docs = self.vectorstore.similarity_search(query)
 
-        print(f"Querying vector store with: {query}")
-        result = self.qa_chain.run(query)
+        insights = [f"**Retrieved context for query '{query}':**"]
+        for doc in retrieved_docs:
+            start = doc.metadata.get("start_date")
+            end = doc.metadata.get("end_date")
+            cat = doc.metadata.get("category", "All")
+            insights.append(f"\n➡️ {cat} from {start} to {end}:\n{doc.page_content}")
 
-        # Save raw insight to memory
-        self.memory_manager.store_insight(result)
+        # Step 2: Deeper Investigation via Investigate.py
+        investigation_results = []
+        if start_date and end_date:
+            investigation_results.append("\n**🔍 Additional Investigation:**")
+            summary = summarize_date_range(
+                df=self.raw_transactions_df,
+                start_date=start_date,
+                end_date=end_date,
+                category=category
+            )
+            investigation_results.append(f"Total Revenue: ${summary['total_revenue']:.2f}, ")
+            investigation_results.append(f"Average per Day: ${summary['average_daily_revenue']:.2f}, Transactions: {summary['num_transactions']}")
 
-        return result.split("\n")  # Assumes insights are newline-separated
+            anomalies = detect_anomalies(self.raw_transactions_df, (start_date, end_date))
+            if anomalies:
+                investigation_results.append("\n🚨 Anomalies Detected:")
+                for a in anomalies:
+                    investigation_results.append(f"- {a['date']}: Revenue = ${a['total_revenue']:.2f} (z = {a['z_score']:.2f})")
 
-    def summarize_recent_insights(self) -> str:
-        return self.memory_manager.summarize_knowledge()
-
-    def get_related_documents(self, query: str) -> List[Document]:
-        return self.vectorstore.vectorstore.similarity_search(query)
+        # Step 3: Compile
+        return "\n".join(insights + investigation_results)

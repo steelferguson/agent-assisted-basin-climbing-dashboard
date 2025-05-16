@@ -20,6 +20,24 @@ class VectorStoreManager:
             raise FileNotFoundError("Vector store not found. Please run create_vectorstore() first.")
         self.vectorstore = FAISS.load_local(self.persist_path, self.embeddings)
 
+    def load_vectorstore(self):
+        """Safely load a previously saved FAISS vector store with format validation."""
+        if not os.path.exists(self.persist_path):
+            raise FileNotFoundError("Vector store not found. Please run create_vectorstore() first.")
+        
+        # Check expected file types in persist_path
+        faiss_file = os.path.join(self.persist_path, "index.faiss")
+        pkl_file = os.path.join(self.persist_path, "index.pkl")
+
+        if not (os.path.exists(faiss_file) and os.path.exists(pkl_file)):
+            raise ValueError("Expected .faiss and .pkl files not found in vectorstore path.")
+
+        self.vectorstore = FAISS.load_local(
+            self.persist_path,
+            self.embeddings,
+            allow_dangerous_deserialization=True
+        )
+
     def add_documents(self, documents: list[Document]):
         """Add documents to the existing vector store and persist it."""
         if self.vectorstore is None:

@@ -18,6 +18,7 @@ class TestInsightAgent(unittest.TestCase):
         cls.memory = MemoryManager(vectorstore=cls.vectorstore)
         cls.agent = InsightAgent(vectorstore=cls.vectorstore, memory_manager=cls.memory)
 
+        cls.agent.raw_transactions_df = df
         cls.df = df
 
     def test_summarize_overall_revenue(self):
