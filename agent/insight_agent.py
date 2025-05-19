@@ -5,15 +5,19 @@ from agent.investigate import summarize_date_range, detect_anomalies, compare_ca
 import datetime
 from typing import Optional
 
+
 class InsightAgent:
     def __init__(self, vectorstore: VectorStoreManager, memory_manager: MemoryManager):
         self.vectorstore = vectorstore
         self.memory = memory_manager
 
-    def analyze_trends_and_generate_insights(self, query: Optional[str] = None, 
-                                             start_date: Optional[str] = None, 
-                                             end_date: Optional[str] = None, 
-                                             category: Optional[str] = None) -> str:
+    def analyze_trends_and_generate_insights(
+        self,
+        query: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        category: Optional[str] = None,
+    ) -> str:
         """
         Accepts a query trigger, performs RAG retrieval, and calls deeper analysis functions.
         """
@@ -41,16 +45,24 @@ class InsightAgent:
                 df=self.raw_transactions_df,
                 start_date=start_date,
                 end_date=end_date,
-                category=category
+                category=category,
             )
-            investigation_results.append(f"Total Revenue: ${summary['total_revenue']:.2f}, ")
-            investigation_results.append(f"Average per Day: ${summary['average_daily_revenue']:.2f}, Transactions: {summary['num_transactions']}")
+            investigation_results.append(
+                f"Total Revenue: ${summary['total_revenue']:.2f}, "
+            )
+            investigation_results.append(
+                f"Average per Day: ${summary['average_daily_revenue']:.2f}, Transactions: {summary['num_transactions']}"
+            )
 
-            anomalies = detect_anomalies(self.raw_transactions_df, (start_date, end_date))
+            anomalies = detect_anomalies(
+                self.raw_transactions_df, (start_date, end_date)
+            )
             if anomalies:
                 investigation_results.append("\n🚨 Anomalies Detected:")
                 for a in anomalies:
-                    investigation_results.append(f"- {a['date']}: Revenue = ${a['total_revenue']:.2f} (z = {a['z_score']:.2f})")
+                    investigation_results.append(
+                        f"- {a['date']}: Revenue = ${a['total_revenue']:.2f} (z = {a['z_score']:.2f})"
+                    )
 
         # Step 3: Compile
         return "\n".join(insights + investigation_results)

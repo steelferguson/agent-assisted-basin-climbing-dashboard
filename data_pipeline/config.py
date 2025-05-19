@@ -1,22 +1,26 @@
 import os
 
 # data_pipeline configurations
-stripe_key = os.getenv('STRIPE_PRODUCTION_API_KEY')
-square_token = os.getenv('SQUARE_PRODUCTION_API_TOKEN')
-capitan_token = os.getenv('CAPITAN_API_TOKEN')
-aws_access_key_id = os.getenv('AWS_ACCESS_KEY_ID')
-aws_secret_access_key = os.getenv('AWS_SECRET_ACCESS_KEY')
-df_path_recent_days = 'data/outputs/stripe_and_square_combined_data_recent_days.csv'
-df_path_combined = 'data/outputs/stripe_and_square_combined_data.csv'
-aws_bucket_name = 'basin-climbing-data-prod'
-s3_path_recent_days = 'transactions/recent_days_combined_transaction_data.csv'
-s3_path_combined = 'transactions/combined_transaction_data.csv'
-s3_path_capitan_memberships = 'capitan/memberships.csv'
-s3_path_capitan_members = 'capitan/members.csv'
-s3_path_capitan_membership_revenue_projection = 'capitan/membership_revenue_projection.csv'
-s3_path_combined_snapshot = 'transactions/snapshots/combined_transaction_data.csv'
-s3_path_capitan_memberships_snapshot = 'capitan/snapshots/memberships.csv'
-s3_path_capitan_members_snapshot = 'capitan/snapshots/members.csv'
-s3_path_capitan_membership_revenue_projection_snapshot = 'capitan/snapshots/membership_revenue_projection.csv'
+stripe_key = os.getenv("STRIPE_PRODUCTION_API_KEY")
+square_token = os.getenv("SQUARE_PRODUCTION_API_TOKEN")
+capitan_token = os.getenv("CAPITAN_API_TOKEN")
+aws_access_key_id = os.getenv("AWS_ACCESS_KEY_ID")
+aws_secret_access_key = os.getenv("AWS_SECRET_ACCESS_KEY")
+df_path_recent_days = "data/outputs/stripe_and_square_combined_data_recent_days.csv"
+df_path_combined = "data/outputs/stripe_and_square_combined_data.csv"
+aws_bucket_name = "basin-climbing-data-prod"
+s3_path_recent_days = "transactions/recent_days_combined_transaction_data.csv"
+s3_path_combined = "transactions/combined_transaction_data.csv"
+s3_path_capitan_memberships = "capitan/memberships.csv"
+s3_path_capitan_members = "capitan/members.csv"
+s3_path_capitan_membership_revenue_projection = (
+    "capitan/membership_revenue_projection.csv"
+)
+s3_path_combined_snapshot = "transactions/snapshots/combined_transaction_data.csv"
+s3_path_capitan_memberships_snapshot = "capitan/snapshots/memberships.csv"
+s3_path_capitan_members_snapshot = "capitan/snapshots/members.csv"
+s3_path_capitan_membership_revenue_projection_snapshot = (
+    "capitan/snapshots/membership_revenue_projection.csv"
+)
 snapshot_day_of_month = 1
-s3_path_text_and_metadata = 'agent/text_and_metadata'
+s3_path_text_and_metadata = "agent/text_and_metadata"

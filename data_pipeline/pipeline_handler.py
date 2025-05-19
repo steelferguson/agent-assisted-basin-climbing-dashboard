@@ -1,11 +1,12 @@
 from data_pipeline import fetch_stripe_data
 from data_pipeline import fetch_square_data
 from data_pipeline import fetch_capitan_membership_data
-from data_pipeline import upload_data as upload_data 
+from data_pipeline import upload_data as upload_data
 import datetime
 import os
 import pandas as pd
 from data_pipeline import config
+
 
 def fetch_stripe_and_square_and_combine(days=2, end_date=datetime.datetime.now()):
     """
@@ -17,17 +18,26 @@ def fetch_stripe_and_square_and_combine(days=2, end_date=datetime.datetime.now()
     # Fetch Stripe data
     stripe_key = config.stripe_key
     stripe_fetcher = fetch_stripe_data.StripeFetcher(stripe_key=stripe_key)
-    stripe_df = stripe_fetcher.pull_and_transform_stripe_payment_data(stripe_key, start_date, end_date, save_json=False, save_csv=False)
-    
+    stripe_df = stripe_fetcher.pull_and_transform_stripe_payment_data(
+        stripe_key, start_date, end_date, save_json=False, save_csv=False
+    )
+
     # Fetch Square data
     square_token = config.square_token
-    square_fetcher = fetch_square_data.SquareFetcher(square_token, location_id = "L37KDMNNG84EA")
-    square_df = square_fetcher.pull_and_transform_square_payment_data(start_date, end_date, save_json=False, save_csv=False)
-    
+    square_fetcher = fetch_square_data.SquareFetcher(
+        square_token, location_id="L37KDMNNG84EA"
+    )
+    square_df = square_fetcher.pull_and_transform_square_payment_data(
+        start_date, end_date, save_json=False, save_csv=False
+    )
+
     df_combined = pd.concat([stripe_df, square_df], ignore_index=True)
     return df_combined
 
-def add_new_transactions_to_combined_df(days=2, end_date=datetime.datetime.now(), save_local=False):
+
+def add_new_transactions_to_combined_df(
+    days=2, end_date=datetime.datetime.now(), save_local=False
+):
     """
     Fetches the last 2 days of data from the APIs and adds it to the combined df.
     """
@@ -37,33 +47,45 @@ def add_new_transactions_to_combined_df(days=2, end_date=datetime.datetime.now()
     print("uploading to s3")
     uploader = upload_data.DataUploader()
     uploader.upload_to_s3(df_today, config.aws_bucket_name, config.s3_path_recent_days)
-    
-    print("downloading previous day's combined df from s3 from config path: ", config.s3_path_combined)
-    csv_content_yesterday = uploader.download_from_s3(config.aws_bucket_name, config.s3_path_combined)
+
+    print(
+        "downloading previous day's combined df from s3 from config path: ",
+        config.s3_path_combined,
+    )
+    csv_content_yesterday = uploader.download_from_s3(
+        config.aws_bucket_name, config.s3_path_combined
+    )
     df_yesterday = uploader.convert_csv_to_df(csv_content_yesterday)
-    
+
     print("combining with previous day's df")
     df_combined = pd.concat([df_yesterday, df_today], ignore_index=True)
-    
+
     print("dropping duplicates")
     df_combined = df_combined.drop_duplicates()
-    
+
     if save_local:
         df_path = config.df_path_recent_days
         print("saving recent dayslocally at path: ", config.df_path_recent_days)
         df_today.to_csv(df_path, index=False)
         print("saving full file locally at path: ", config.df_path_combined)
         df_combined.to_csv(config.df_path_combined, index=False)
-    
+
     print("uploading to s3 at path: ", config.s3_path_combined)
     uploader.upload_to_s3(df_combined, config.aws_bucket_name, config.s3_path_combined)
     today = datetime.datetime.now()
     if today.day == config.snapshot_day_of_month:
-        print("uploading transaction data to s3 with date in the filename since it is the first day of the month")
-        print("If data is not corrupted, feel free to delete the old snapshot file from s3")
-        uploader.upload_to_s3(
-            df_combined, config.aws_bucket_name, config.s3_path_combined_snapshot + f'_{today.strftime("%Y-%m-%d")}'
+        print(
+            "uploading transaction data to s3 with date in the filename since it is the first day of the month"
         )
+        print(
+            "If data is not corrupted, feel free to delete the old snapshot file from s3"
+        )
+        uploader.upload_to_s3(
+            df_combined,
+            config.aws_bucket_name,
+            config.s3_path_combined_snapshot + f'_{today.strftime("%Y-%m-%d")}',
+        )
+
 
 def upload_new_capitan_membership_data(save_local=False):
     """
@@ -71,41 +93,67 @@ def upload_new_capitan_membership_data(save_local=False):
     """
     capitan_token = config.capitan_token
     capitan_fetcher = fetch_capitan_membership_data.CapitanDataFetcher(capitan_token)
-    json_response = capitan_fetcher.get_results_from_api('customer-memberships')
+    json_response = capitan_fetcher.get_results_from_api("customer-memberships")
     if json_response is None:
         print("no data found in Capitan API")
         return
     capitan_memberships_df = capitan_fetcher.process_membership_data(json_response)
     capitan_members_df = capitan_fetcher.process_member_data(json_response)
-    membership_revenue_projection_df = capitan_fetcher.get_projection_table(capitan_memberships_df, months_ahead=3)
+    membership_revenue_projection_df = capitan_fetcher.get_projection_table(
+        capitan_memberships_df, months_ahead=3
+    )
 
     if save_local:
-        print("saving local files in data/outputs/capitan_memberships.csv and data/outputs/capitan_members.csv")
-        capitan_memberships_df.to_csv('data/outputs/capitan_memberships.csv', index=False)
-        capitan_members_df.to_csv('data/outputs/capitan_members.csv', index=False)
-        membership_revenue_projection_df.to_csv('data/outputs/capitan_membership_revenue_projection.csv', index=False)
+        print(
+            "saving local files in data/outputs/capitan_memberships.csv and data/outputs/capitan_members.csv"
+        )
+        capitan_memberships_df.to_csv(
+            "data/outputs/capitan_memberships.csv", index=False
+        )
+        capitan_members_df.to_csv("data/outputs/capitan_members.csv", index=False)
+        membership_revenue_projection_df.to_csv(
+            "data/outputs/capitan_membership_revenue_projection.csv", index=False
+        )
 
     print("uploading Capitan memberhsip and member data to s3")
     uploader = upload_data.DataUploader()
-    uploader.upload_to_s3(capitan_memberships_df, config.aws_bucket_name, config.s3_path_capitan_memberships)
-    uploader.upload_to_s3(capitan_members_df, config.aws_bucket_name, config.s3_path_capitan_members)
-    uploader.upload_to_s3(membership_revenue_projection_df, config.aws_bucket_name, config.s3_path_capitan_membership_revenue_projection)
+    uploader.upload_to_s3(
+        capitan_memberships_df,
+        config.aws_bucket_name,
+        config.s3_path_capitan_memberships,
+    )
+    uploader.upload_to_s3(
+        capitan_members_df, config.aws_bucket_name, config.s3_path_capitan_members
+    )
+    uploader.upload_to_s3(
+        membership_revenue_projection_df,
+        config.aws_bucket_name,
+        config.s3_path_capitan_membership_revenue_projection,
+    )
     print("successfully uploaded Capitan memberhsip and member data to s3")
-    
+
     # if it is the first day of the month, we upload the files to s3 with the date in the filename
     today = datetime.datetime.now()
     if today.day == config.snapshot_day_of_month:
-        print("uploading Capitan memberhsip and member data to s3 with date in the filename since it is the first day of the month")
-        uploader.upload_to_s3(
-            capitan_memberships_df, config.aws_bucket_name, config.s3_path_capitan_memberships_snapshot + f'_{today.strftime("%Y-%m-%d")}'
+        print(
+            "uploading Capitan memberhsip and member data to s3 with date in the filename since it is the first day of the month"
         )
         uploader.upload_to_s3(
-            capitan_members_df, config.aws_bucket_name, config.s3_path_capitan_members_snapshot + f'_{today.strftime("%Y-%m-%d")}'
+            capitan_memberships_df,
+            config.aws_bucket_name,
+            config.s3_path_capitan_memberships_snapshot
+            + f'_{today.strftime("%Y-%m-%d")}',
         )
         uploader.upload_to_s3(
-                membership_revenue_projection_df, 
-                config.aws_bucket_name,
-                config.s3_path_capitan_membership_revenue_projection_snapshot + f'_{today.strftime("%Y-%m-%d")}'
+            capitan_members_df,
+            config.aws_bucket_name,
+            config.s3_path_capitan_members_snapshot + f'_{today.strftime("%Y-%m-%d")}',
+        )
+        uploader.upload_to_s3(
+            membership_revenue_projection_df,
+            config.aws_bucket_name,
+            config.s3_path_capitan_membership_revenue_projection_snapshot
+            + f'_{today.strftime("%Y-%m-%d")}',
         )
 
 

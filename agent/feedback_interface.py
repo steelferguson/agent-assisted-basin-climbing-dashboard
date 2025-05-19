@@ -1,5 +1,6 @@
 import json
 
+
 def capture_feedback(insights):
     """
     Local test version of feedback capture.
@@ -8,7 +9,9 @@ def capture_feedback(insights):
     Returns a list of feedback entries.
     """
     feedback_entries = []
-    print("\nPlease provide feedback for each insight. Type 'skip' to skip any insight.\n")
+    print(
+        "\nPlease provide feedback for each insight. Type 'skip' to skip any insight.\n"
+    )
 
     for insight in insights.split("\n"):
         if not insight.strip():
@@ -20,14 +23,11 @@ def capture_feedback(insights):
         comment = input("Feedback / Explanation / Hypothesis: ").strip()
         if comment.lower() == "skip":
             continue
-        feedback_entries.append({
-            "user": user,
-            "insight": insight,
-            "comment": comment
-        })
+        feedback_entries.append({"user": user, "insight": insight, "comment": comment})
         print("Recorded.\n")
 
     return feedback_entries
+
 
 def save_feedback_to_file(feedback_entries, filepath="agent/feedback_log.json"):
     try:

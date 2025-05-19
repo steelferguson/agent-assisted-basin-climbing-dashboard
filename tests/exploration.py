@@ -73,7 +73,8 @@ from data_pipeline import upload_data, config
 #     exploded_df = pd.DataFrame(rows)
 #     exploded_df.to_csv(output_csv, index=False)
 #     print(f"Exploded membership billing schedule saved to {output_csv}")
-    # return exploded_df
+# return exploded_df
+
 
 # Example usage:
 # df_memberships = pd.read_csv('data/outputs/capitan_memberships.csv')
@@ -86,21 +87,24 @@ def see_transactions_by_date():
     uploader = upload_data.DataUploader()
 
     # Download the DataFrame from S3
-    df_combined_csv = uploader.download_from_s3(config.aws_bucket_name, config.s3_path_combined)
+    df_combined_csv = uploader.download_from_s3(
+        config.aws_bucket_name, config.s3_path_combined
+    )
     df_combined = uploader.convert_csv_to_df(df_combined_csv)
     print(df_combined.columns)
     # convert Date to datetime
-    df_combined['Date'] = pd.to_datetime(df_combined['Date'], errors='coerce')
+    df_combined["Date"] = pd.to_datetime(df_combined["Date"], errors="coerce")
 
     # group by tranaction date and sum the total amount and sort by descending date column
     # sort by descending date column
-    df_combined_by_date = df_combined.groupby('Date')['Total Amount'].sum()
+    df_combined_by_date = df_combined.groupby("Date")["Total Amount"].sum()
     # convert to dataframe
     df_combined_by_date = df_combined_by_date.reset_index()
     # sort by descending date column
-    df_combined_by_date = df_combined_by_date.sort_values(by='Date', ascending=False)
-    
+    df_combined_by_date = df_combined_by_date.sort_values(by="Date", ascending=False)
+
     print(df_combined_by_date)
+
 
 if __name__ == "__main__":
     see_transactions_by_date()

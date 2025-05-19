@@ -1,6 +1,7 @@
 from typing import List, Dict
 from datetime import datetime
 
+
 class MemoryManager:
     def __init__(self, vectorstore=None):
         self.feedback_log: List[Dict] = []
@@ -10,18 +11,20 @@ class MemoryManager:
         """
         Store a piece of feedback from a user about a specific insight.
         """
-        self.feedback_log.append({
-            "timestamp": datetime.utcnow().isoformat(),
-            "user": user,
-            "insight": insight,
-            "comment": comment
-        })
+        self.feedback_log.append(
+            {
+                "timestamp": datetime.utcnow().isoformat(),
+                "user": user,
+                "insight": insight,
+                "comment": comment,
+            }
+        )
 
     def get_feedback_for_insight(self, insight: str) -> List[Dict]:
         """
         Return all feedback entries related to a specific insight.
         """
-        return [entry for entry in self.feedback_log if entry['insight'] == insight]
+        return [entry for entry in self.feedback_log if entry["insight"] == insight]
 
     def summarize_knowledge(self) -> str:
         """
@@ -31,7 +34,7 @@ class MemoryManager:
         summary = "Collected Feedback Summary:\n"
         grouped_by_user = {}
         for entry in self.feedback_log:
-            user = entry['user']
+            user = entry["user"]
             grouped_by_user.setdefault(user, []).append(entry)
 
         for user, entries in grouped_by_user.items():

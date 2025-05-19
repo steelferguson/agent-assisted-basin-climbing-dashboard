@@ -5,6 +5,7 @@ from agent.memory_manager import MemoryManager
 from agent.data_loader import initialize_data_uploader, load_df_from_s3
 import data_pipeline.config as config
 
+
 class TestInsightAgent(unittest.TestCase):
 
     @classmethod
@@ -23,21 +24,18 @@ class TestInsightAgent(unittest.TestCase):
 
     def test_summarize_overall_revenue(self):
         summary = self.agent.analyze_trends_and_generate_insights(
-            start_date="2025-01-01", 
-            end_date="2025-01-07", 
-            category=None
+            start_date="2025-01-01", end_date="2025-01-07", category=None
         )
         self.assertIn("summary", summary.lower())
         print("Insight output:\n", summary)
 
     def test_summarize_specific_category(self):
         summary = self.agent.analyze_trends_and_generate_insights(
-            start_date="2025-01-01", 
-            end_date="2025-01-07", 
-            category="Day Pass"
+            start_date="2025-01-01", end_date="2025-01-07", category="Day Pass"
         )
         self.assertIn("day pass", summary.lower())
         print("Insight output:\n", summary)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     unittest.main()
