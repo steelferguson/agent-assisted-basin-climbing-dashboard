@@ -36,6 +36,13 @@ class TestInsightAgent(unittest.TestCase):
         self.assertIn("day pass", summary.lower())
         print("Insight output:\n", summary)
 
+    def test_question_storage(self):
+        question = "Why was revenue low on 2025-01-05?"
+        self.agent.store_question(question)
+        stored = self.memory.get_all_questions()
+        self.assertTrue(any(q["question"] == question for q in stored))
+        print("Stored questions:", stored)
+
 
 if __name__ == "__main__":
     unittest.main()

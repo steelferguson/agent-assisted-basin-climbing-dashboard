@@ -30,4 +30,4 @@ jobs:
             SQUARE_PRODUCTION_API_TOKEN: ${{ secrets.SQUARE_PRODUCTION_API_TOKEN }}
             STRIPE_PRODUCTION_API_KEY: ${{ secrets.STRIPE_PRODUCTION_API_KEY }} 
             CAPITAN_API_TOKEN: ${{ secrets.CAPITAN_API_TOKEN }}
-        run: python -m agent.doc_generator
+        run: python -m agent.doc_generator # adds weekly docs to S3

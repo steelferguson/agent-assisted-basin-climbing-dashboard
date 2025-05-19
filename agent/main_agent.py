@@ -1,8 +1,10 @@
 from agent.vectorstore_manager import VectorStoreManager
 from agent.memory_manager import MemoryManager
-from agent.data_loader import initialize_data_uploader, load_all_documents_from_s3
+from agent.data_loader import initialize_data_uploader, load_all_documents_from_s3, load_df_from_s3
 import data_pipeline.config as config
 import os
+from agent.feedback_interface import capture_feedback
+from agent.insight_agent import InsightAgent
 
 
 def main():
@@ -12,6 +14,7 @@ def main():
 
     # Load the transactions dataframe from S3
     uploader = initialize_data_uploader()
+    combined_df = load_df_from_s3(uploader, config.aws_bucket_name, config.s3_path_combined)
 
     # Generate all weekly documents (by category + overall)
     docs = load_all_documents_from_s3(
@@ -32,6 +35,24 @@ def main():
         )  # You can also use `add_documents(docs)` if already initialized
     else:
         print("Vector store already exists. Skipping embedding.")
+
+    
+    # generate insights
+    agent = InsightAgent(vectorstore=vectorstore, memory_manager=memory)
+    agent.raw_transactions_df = combined_df  # attach for analysis
+
+    insights = agent.analyze_trends_and_generate_insights(
+        start_date="2025-01-01", end_date="2025-01-07"
+    )
+
+    print("\n📊 Insights Generated:\n", insights)
+
+    # 🧠 Prompt user for feedback
+    capture_feedback(insights, agent)
+
+    
+    print("\n🧠 Memory Summary:")
+    print(agent.memory.summarize_knowledge())
 
 
 if __name__ == "__main__":
