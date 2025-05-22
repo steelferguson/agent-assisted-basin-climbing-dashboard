@@ -5,6 +5,14 @@ import pandas as pd
 import json
 import re
 from data_pipeline import config
+from utils.stripe_and_square_helpers import (
+    extract_event_and_programming_subcategory,
+    get_unique_event_and_programming_subcategories,
+    categorize_day_pass_sub_category,
+    get_unique_day_pass_subcategories,
+    categorize_transaction,
+    transform_payments_data,
+)
 
 
 class StripeFetcher:
@@ -66,194 +74,6 @@ class StripeFetcher:
         with open(filepath, "w") as f:
             json.dump(data, f, indent=2)
         print(f"Saved raw response to {filepath}")
-
-    def categorize_transaction(self, description: str) -> tuple:
-        description = description.lower()  # Make it case-insensitive
-
-        # Default values
-        category = "Retail"
-        membership_size = None
-        membership_freq = None
-        is_founder = False
-        is_bcf_staff_or_friend = False
-
-        # Categorize transaction
-        for keyword, cat in config.revenue_category_keywords.items():
-            if keyword in description:
-                category = cat
-                break
-
-        # Categorize membership type (only if it's a membership-related transaction)
-        for keyword, mem_size in config.membership_size_keywords.items():
-            if keyword in description:
-                membership_size = mem_size
-                break
-
-        # Categorize membership frequency (only if it's a membership-related transaction)
-        for keyword, mem_freq in config.membership_frequency_keywords.items():
-            if keyword in description:
-                membership_freq = mem_freq
-                break
-
-        if any(keyword in description for keyword in config.founder_keywords):
-            is_founder = True
-
-        if any(keyword in description for keyword in config.bcf_fam_friend_keywords):
-            is_bcf_staff_or_friend = True
-
-        return (
-            category,
-            membership_size,
-            membership_freq,
-            is_founder,
-            is_bcf_staff_or_friend,
-        )
-
-    def categorize_day_pass_sub_category(self, description: str) -> str:
-        description = description.lower()
-        age_sub_category = ""
-        gear_sub_category = ""
-        for (
-            keyword,
-            sub_category,
-        ) in config.day_pass_sub_category_age_keywords.items():
-            if keyword in description:
-                age_sub_category = sub_category
-        for (
-            keyword,
-            sub_category,
-        ) in config.day_pass_sub_category_gear_keywords.items():
-            if keyword in description:
-                gear_sub_category = sub_category
-        return age_sub_category + " " + gear_sub_category
-
-    def extract_event_and_programming_subcategory(self, description):
-        # Split on the first colon
-        if ":" in description:
-            after_colon = description.split(":", 1)[1]
-        else:
-            after_colon = description
-        # Remove numbers and punctuation, keep only words
-        cleaned = re.sub(r"[^A-Za-z\s]", "", after_colon)
-        # Normalize whitespace and lowercase
-        cleaned = cleaned.strip().lower()
-        return cleaned
-
-    def get_unique_event_and_programming_subcategories(
-        self,
-        df,
-        category_col="revenue_category",
-        subcat_col="sub_category",
-        desc_col="Description",
-    ):
-        mask = (df[category_col].isin(["Event Booking", "Programming"])) & (
-            df[subcat_col] != "birthday"
-        )
-        subcats = df.loc[mask, desc_col].apply(
-            self.extract_event_and_programming_subcategory
-        )
-        return sorted(set(subcats))
-
-    def get_unique_day_pass_subcategories(self, df):
-        mask = df["revenue_category"].str.contains("Day Pass", case=False, na=False)
-        subcats = df.loc[mask, "Description"].apply(
-            self.categorize_day_pass_sub_category
-        )
-        return sorted(set(subcats))
-
-    def transform_payments_data(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Transforms the payments data by adding new columns and converting data types.
-
-        Parameters:
-        df (pd.DataFrame): Original DataFrame to transform
-
-        Returns:
-        pd.DataFrame: Transformed DataFrame with new columns and type conversions
-        """
-        # Apply the categorize_transaction function to create new columns
-        df[
-            [
-                "revenue_category",
-                "membership_size",
-                "membership_freq",
-                "is_founder",
-                "is_free_membership",
-            ]
-        ] = df["Description"].apply(lambda x: pd.Series(self.categorize_transaction(x)))
-
-        # Add sub-category classification
-        df["sub_category"] = ""
-        df["sub_category_detail"] = ""
-
-        # Classify camps
-        df.loc[
-            df["Description"].str.contains("Summer Camp", case=False, na=False),
-            "sub_category",
-        ] = "camps"
-        df.loc[
-            df["Description"].str.contains("Summer Camp", case=False, na=False),
-            "sub_category_detail",
-        ] = df["Description"].str.extract(r"(Summer Camp Session \d+)", expand=False)
-
-        # Classify birthday parties
-        for pattern, detail in config.birthday_sub_category_patterns.items():
-            mask = df["Description"].str.contains(pattern, case=False, na=False)
-            df.loc[mask, "sub_category"] = "birthday"
-            df.loc[mask, "sub_category_detail"] = detail
-
-        # Classify fitness classes
-        for pattern, detail in config.fitness_patterns.items():
-            mask = df["Description"].str.contains(pattern, case=False, na=False)
-            df.loc[mask, "sub_category"] = "fitness"
-            df.loc[mask, "sub_category_detail"] = detail
-
-        # Classify day passes
-        mask = df["revenue_category"].str.contains("Day Pass", case=False, na=False)
-        df.loc[mask, "sub_category"] = df.loc[mask, "Description"].apply(
-            self.categorize_day_pass_sub_category
-        )
-
-        # Classify event and programming subcategories
-        for patern in self.get_unique_event_and_programming_subcategories(df):
-            print(f"patern: {patern}")
-            # only for event and programming (and not birthday)
-            mask = (
-                (df["revenue_category"].isin(["Event Booking", "Programming"]))
-                & (df["sub_category"] != "birthday")
-                & (df["sub_category"] == "")
-                & (
-                    df["Description"]
-                    .apply(self.extract_event_and_programming_subcategory)
-                    .str.contains(patern, case=False, na=False)
-                )
-            )
-            df.loc[mask, "sub_category"] = patern
-
-        # add the first 4 words of the "Name" column to the "sub_category" column for retail if the "sub_category" column is empty
-        df.loc[
-            (df["revenue_category"] == "Retail") & (df["sub_category"] == ""),
-            "sub_category",
-        ] = df["Name"].apply(
-            lambda x: " ".join(x.split()[:4]) if isinstance(x, str) else ""
-        )
-
-        # Convert 'Date' to datetime and handle different formats
-        df["date_"] = pd.to_datetime(df["Date"], errors="coerce", utc=True)
-
-        # Extract just the date (without time)
-        df["Date"] = df["date_"].dt.date
-
-        # Convert the amounts columns to numeric values (handles strings and errors)
-        df["Tax Amount"] = pd.to_numeric(df["Tax Amount"], errors="coerce")
-        df["Pre-Tax Amount"] = pd.to_numeric(df["Pre-Tax Amount"], errors="coerce")
-        df["Data Source"] = "Stripe"
-
-        # Add a column for day pass count using 'Base Price Amount'
-        df["Day Pass Count"] = df.apply(
-            lambda row: 1 if row["revenue_category"] == "Day Pass" else 0, axis=1
-        )
-        return df
 
     def get_balance_transaction_fees(self, charge: dict) -> float:
         balance_transaction_id = charge.get("balance_transaction")
@@ -358,7 +178,12 @@ class StripeFetcher:
         if save_json:
             self.save_raw_response(all_charges, "stripe_payments")
         df = self.create_stripe_payments_df(all_charges)
-        df = self.transform_payments_data(df)
+        df = transform_payments_data(
+            df,
+            assign_extra_subcategories=None,  # or your custom function if needed
+            data_source_name="Stripe",
+            day_pass_count_logic=None,  # or your custom logic if needed
+        )
         if save_csv:
             self.save_data(df, "stripe_transaction_data")
         return df

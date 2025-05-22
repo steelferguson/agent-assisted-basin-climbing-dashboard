@@ -21,13 +21,19 @@ def load_df_from_s3(bucket, key):
 
 
 def load_data():
+    debug_using_local_data_files = config.debug_using_local_data_files
+    if debug_using_local_data_files:
+        df_stripe = pd.read_csv("data/outputs/stripe_transaction_data.csv")
+        df_square = pd.read_csv("data/outputs/square_transaction_data.csv")
+        df_transactions = pd.concat([df_stripe, df_square])
+    else:   
+        df_transactions = load_df_from_s3(config.aws_bucket_name, config.s3_path_combined)
 
     # Load all needed DataFrames from S3
     df_memberships = load_df_from_s3(
         config.aws_bucket_name, config.s3_path_capitan_memberships
     )
     df_members = load_df_from_s3(config.aws_bucket_name, config.s3_path_capitan_members)
-    df_transactions = load_df_from_s3(config.aws_bucket_name, config.s3_path_combined)
     df_projection = load_df_from_s3(
         config.aws_bucket_name, config.s3_path_capitan_membership_revenue_projection
     )
@@ -682,11 +688,7 @@ def create_dashboard(app):
 
         # Process each membership
         for _, membership in df_memberships.iterrows():
-            name = (
-                " ".join(membership.get("name", "").split()[:4])
-                if isinstance(membership.get("name"), str)
-                else ""
-            )
+            name = str(membership.get("name", "")).lower()
             status = membership.get("status")
 
             # Only include active memberships

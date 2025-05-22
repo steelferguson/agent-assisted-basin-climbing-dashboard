@@ -96,3 +96,6 @@ fitness_patterns = {
     "HYROX CLASS": "hyrox",
     "week transformation": "transformation",
 }
+
+# Debugging tools
+debug_using_local_data_files = True

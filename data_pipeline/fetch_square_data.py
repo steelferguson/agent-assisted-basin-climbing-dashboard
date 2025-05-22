@@ -6,6 +6,14 @@ import pandas as pd
 import json
 import re
 from data_pipeline import config
+from utils.stripe_and_square_helpers import (
+    extract_event_and_programming_subcategory,
+    get_unique_event_and_programming_subcategories,
+    categorize_day_pass_sub_category,
+    get_unique_day_pass_subcategories,
+    categorize_transaction,
+    transform_payments_data,
+)
 
 
 class SquareFetcher:
@@ -82,83 +90,10 @@ class SquareFetcher:
         df.to_csv("data/outputs/" + file_name + ".csv", index=False)
         print(file_name + " saved in " + "/data/outputs/")
 
-    # Define a function to categorize transactions and membership types
-    def categorize_transaction(self, description):
-        description = description.lower()  # Make it case-insensitive
-
-        # Default values
-        category = "Retail"
-        membership_size = None
-        membership_freq = None
-        is_founder = False
-        is_bcf_staff_or_friend = False
-
-        # Categorize transaction
-        for keyword, cat in config.revenue_category_keywords.items():
-            if keyword in description:
-                category = cat
-                break
-
-        # Categorize membership type (only if it's a membership-related transaction)
-        for keyword, mem_size in config.membership_size_keywords.items():
-            if keyword in description:
-                membership_size = mem_size
-                break
-
-        # Categorize membership frequency (only if it's a membership-related transaction)
-        for keyword, mem_freq in config.membership_frequency_keywords.items():
-            if keyword in description:
-                membership_freq = mem_freq
-                break
-
-        if any(keyword in description for keyword in config.founder_keywords):
-            is_founder = True
-
-        if any(keyword in description for keyword in config.bcf_fam_friend_keywords):
-            is_bcf_staff_or_friend = True
-
-        return (
-            category,
-            membership_size,
-            membership_freq,
-            is_founder,
-            is_bcf_staff_or_friend,
-        )
-
     def count_day_passes(
         revenue_category: str, base_amount: float, total_amount: float
     ) -> int:
         return round(total_amount / base_amount)
-
-    def categorize_day_pass_sub_category(self, description: str) -> str:
-        description = description.lower()
-        age_sub_category = ""
-        gear_sub_category = ""
-        for (
-            keyword,
-            sub_category,
-        ) in config.day_pass_sub_category_age_keywords.items():
-            if keyword in description:
-                age_sub_category = sub_category
-        for (
-            keyword,
-            sub_category,
-        ) in config.day_pass_sub_category_gear_keywords.items():
-            if keyword in description:
-                gear_sub_category = sub_category
-        return age_sub_category + " " + gear_sub_category
-
-    def extract_event_and_programming_subcategory(self, description):
-        # Split on the first colon
-        if ":" in description:
-            after_colon = description.split(":", 1)[1]
-        else:
-            after_colon = description
-        # Remove numbers and punctuation, keep only words
-        cleaned = re.sub(r"[^A-Za-z\s]", "", after_colon)
-        # Normalize whitespace and lowercase
-        cleaned = cleaned.strip().lower()
-        return cleaned
 
     def get_unique_event_and_programming_subcategories(
         self,
@@ -237,7 +172,6 @@ class SquareFetcher:
 
         # Classify event and programming subcategories
         for patern in self.get_unique_event_and_programming_subcategories(df):
-            print(f"patern: {patern}")
             # only for event and programming (and not birthday)
             mask = (
                 (df["revenue_category"].isin(["Event Booking", "Programming"]))
@@ -251,11 +185,17 @@ class SquareFetcher:
             )
             df.loc[mask, "sub_category"] = patern
 
-        # add the first 4 words of the "Name" column to the "sub_category" column for retail if the "sub_category" column is empty
+        # use the "Name" column for retail if the "Data Source" column is square, 
+        # otherwise use the "Description" column
+        # add the first 4 words of the "Name" column to the "sub_category_detail" 
+        # column for retail if the "sub_category" column is empty
+        col_for_retail_sub_category_detail = (
+            "Name" if df["Data Source"].iloc[0] == "Square" else "Description"
+        )
         df.loc[
             (df["revenue_category"] == "Retail") & (df["sub_category"] == ""),
-            "sub_category",
-        ] = df["Name"].apply(
+            "sub_category_detail",
+        ] = df[col_for_retail_sub_category_detail].apply(
             lambda x: " ".join(x.split()[:4]) if isinstance(x, str) else ""
         )
 
@@ -516,7 +456,12 @@ class SquareFetcher:
         if save_json:
             self.save_raw_response({"orders": all_orders}, "square_orders")
         df = self.create_orders_dataframe(all_orders)
-        df = self.transform_payments_data(df)
+        df = transform_payments_data(
+            df,
+            assign_extra_subcategories=None,  # or your custom function if needed
+            data_source_name="Square",
+            day_pass_count_logic=None,  # or your custom logic if needed
+        )
         # separate API call for paid invoices through Square
         invoices_df = self.pull_square_invoices(self.square_token, self.location_id)
         df_combined = pd.concat([df, invoices_df], ignore_index=True)
