@@ -682,7 +682,11 @@ def create_dashboard(app):
 
         # Process each membership
         for _, membership in df_memberships.iterrows():
-            name = str(membership.get("name", "")).lower()
+            name = (
+                " ".join(membership.get("name", "").split()[:4])
+                if isinstance(membership.get("name"), str)
+                else ""
+            )
             status = membership.get("status")
 
             # Only include active memberships
