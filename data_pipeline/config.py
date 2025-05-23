@@ -29,6 +29,9 @@ s3_path_text_and_metadata = "agent/text_and_metadata"
 revenue_category_keywords = {
     "day pass": "Day Pass",
     "team dues": "Team",
+    "entry pass": "Day Pass",
+    "initial payment": "New Membership",
+    "renewal payment": "Membership Renewal",
     "membership renewal": "Membership Renewal",
     "new membership": "New Membership",
     "fitness": "Programming",
@@ -98,4 +101,3 @@ fitness_patterns = {
 }
 
 # Debugging tools
-debug_using_local_data_files = True

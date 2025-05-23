@@ -188,13 +188,15 @@ class StripeFetcher:
             self.save_data(df, "stripe_transaction_data")
         return df
 
-
 if __name__ == "__main__":
     end_date = datetime.datetime.now()
     start_date = end_date - datetime.timedelta(days=365)
     stripe_key = os.getenv("STRIPE_PRODUCTION_API_KEY")
     stripe_fetcher = StripeFetcher(stripe_key=stripe_key)
     df = stripe_fetcher.pull_and_transform_stripe_payment_data(
-        stripe_key, start_date, end_date, save_json=False, save_csv=False
+        stripe_key, start_date, end_date, save_json=True, save_csv=False
     )
-    df.to_csv("data/outputs/stripe_transaction_data.csv", index=False)
+    # json_stripe = json.load(open("data/raw_data/stripe_payments.json"))
+    # df_stripe = stripe_fetcher.create_stripe_payments_df(json_stripe)
+    # df_stripe = transform_payments_data(df_stripe)
+    # df_stripe.to_csv("data/outputs/stripe_transaction_data2.csv", index=False)

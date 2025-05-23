@@ -10,6 +10,7 @@ from data_pipeline import upload_data
 from data_pipeline import config
 import os
 import plotly.io as pio
+from data_pipeline import pipeline_handler
 
 pio.templates.default = "plotly"  # start off with plotly template as a clean slate
 
@@ -21,15 +22,8 @@ def load_df_from_s3(bucket, key):
 
 
 def load_data():
-    debug_using_local_data_files = config.debug_using_local_data_files
-    if debug_using_local_data_files:
-        df_stripe = pd.read_csv("data/outputs/stripe_transaction_data.csv")
-        df_square = pd.read_csv("data/outputs/square_transaction_data.csv")
-        df_transactions = pd.concat([df_stripe, df_square])
-    else:   
-        df_transactions = load_df_from_s3(config.aws_bucket_name, config.s3_path_combined)
-
     # Load all needed DataFrames from S3
+    df_transactions = load_df_from_s3(config.aws_bucket_name, config.s3_path_combined)
     df_memberships = load_df_from_s3(
         config.aws_bucket_name, config.s3_path_capitan_memberships
     )
@@ -325,6 +319,7 @@ def create_dashboard(app):
             df_combined["Data Source"].isin(selected_sources)
         ].copy()
         df_filtered["Date"] = pd.to_datetime(df_filtered["Date"], errors="coerce")
+        df_filtered["Date"] = df_filtered["Date"].dt.tz_localize(None)
         df_filtered["date"] = (
             df_filtered["Date"].dt.to_period(selected_timeframe).dt.start_time
         )
@@ -365,6 +360,7 @@ def create_dashboard(app):
         # Filter and resample the Square and Stripe data
         df_filtered = df_combined[df_combined["Data Source"].isin(selected_sources)]
         df_filtered["Date"] = pd.to_datetime(df_filtered["Date"], errors="coerce")
+        df_filtered["Date"] = df_filtered["Date"].dt.tz_localize(None)
         df_filtered["date"] = (
             df_filtered["Date"].dt.to_period(selected_timeframe).dt.start_time
         )
@@ -456,6 +452,7 @@ def create_dashboard(app):
     def update_day_pass_chart(selected_timeframe):
         df_filtered = df_combined[df_combined["revenue_category"] == "Day Pass"].copy()
         df_filtered["Date"] = pd.to_datetime(df_filtered["Date"], errors="coerce")
+        df_filtered["Date"] = df_filtered["Date"].dt.tz_localize(None)
         df_filtered["date"] = (
             df_filtered["Date"].dt.to_period(selected_timeframe).dt.start_time
         )
@@ -518,6 +515,7 @@ def create_dashboard(app):
 
         df_proj = df_projection.copy()
         df_proj["date"] = pd.to_datetime(df_proj["date"], errors="coerce")
+        df_proj["date"] = df_proj["date"].dt.tz_localize(None)
         df_proj["period"] = (
             df_proj["date"].dt.to_period(selected_timeframe).dt.start_time
         )
@@ -583,7 +581,9 @@ def create_dashboard(app):
         # Filter by status
         df = df[df["status"].isin(status_toggle)]
         df["end_date"] = pd.to_datetime(df["end_date"], errors="coerce")
+        df["end_date"] = df["end_date"].dt.tz_localize(None)
         df["start_date"] = pd.to_datetime(df["start_date"], errors="coerce")
+        df["start_date"] = df["start_date"].dt.tz_localize(None)
 
         # Filter by frequency and size
         df = df[df["frequency"].isin(frequency_toggle)]
@@ -708,7 +708,9 @@ def create_dashboard(app):
                 start_date = pd.to_datetime(
                     membership.get("start_date"), errors="coerce"
                 )
+                start_date = start_date.dt.tz_localize(None)
                 end_date = pd.to_datetime(membership.get("end_date"), errors="coerce")
+                end_date = end_date.dt.tz_localize(None)
 
                 if not pd.isna(start_date) and not pd.isna(end_date):
                     youth_memberships.append(
@@ -819,6 +821,7 @@ def create_dashboard(app):
         # Filter for birthday transactions
         df_filtered = df_combined[df_combined["sub_category"] == "birthday"].copy()
         df_filtered["Date"] = pd.to_datetime(df_filtered["Date"], errors="coerce")
+        df_filtered["Date"] = df_filtered["Date"].dt.tz_localize(None)
         df_filtered["date"] = (
             df_filtered["Date"].dt.to_period(selected_timeframe).dt.start_time
         )
@@ -874,6 +877,7 @@ def create_dashboard(app):
         # Filter for birthday transactions
         df_filtered = df_combined[df_combined["sub_category"] == "birthday"].copy()
         df_filtered["Date"] = pd.to_datetime(df_filtered["Date"], errors="coerce")
+        df_filtered["Date"] = df_filtered["Date"].dt.tz_localize(None)
         df_filtered["date"] = (
             df_filtered["Date"].dt.to_period(selected_timeframe).dt.start_time
         )
@@ -921,6 +925,7 @@ def create_dashboard(app):
 
         # Convert dates to the selected timeframe and format them nicely
         camp_data["Date"] = pd.to_datetime(camp_data["Date"], errors="coerce")
+        camp_data["Date"] = camp_data["Date"].dt.tz_localize(None)
         camp_data["date"] = (
             camp_data["Date"].dt.to_period(selected_timeframe).dt.start_time
         )
@@ -1027,6 +1032,7 @@ def create_dashboard(app):
 
         # Convert dates to the selected timeframe and group by date
         camp_data["Date"] = pd.to_datetime(camp_data["Date"], errors="coerce")
+        camp_data["Date"] = camp_data["Date"].dt.tz_localize(None)
         camp_data["date"] = (
             camp_data["Date"].dt.to_period(selected_timeframe).dt.start_time
         )

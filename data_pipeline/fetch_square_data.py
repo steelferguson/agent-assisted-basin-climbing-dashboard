@@ -112,117 +112,126 @@ class SquareFetcher:
 
     def get_unique_day_pass_subcategories(self, df):
         mask = df["revenue_category"].str.contains("Day Pass", case=False, na=False)
+        # create sub category list for day passes
         subcats = df.loc[mask, "Description"].apply(
-            self.categorize_day_pass_sub_category
+            lambda desc: categorize_day_pass_sub_category(desc, config.day_pass_sub_category_age_keywords, config.day_pass_sub_category_gear_keywords)
         )
         return sorted(set(subcats))
 
-    def transform_payments_data(self, df):
-        """
-        Transforms the payments data by adding new columns and converting data types.
+    # def transform_payments_data(self, df):
+    #     """
+    #     Transforms the payments data by adding new columns and converting data types.
 
-        Parameters:
-        df (pd.DataFrame): Original DataFrame to transform
+    #     Parameters:
+    #     df (pd.DataFrame): Original DataFrame to transform
 
-        Returns:
-        pd.DataFrame: Transformed DataFrame with new columns and type conversions
-        """
-        # Apply the categorize_transaction function to create new columns
-        df[
-            [
-                "revenue_category",
-                "membership_size",
-                "membership_freq",
-                "is_founder",
-                "is_free_membership",
-            ]
-        ] = df["Description"].apply(lambda x: pd.Series(self.categorize_transaction(x)))
+    #     Returns:
+    #     pd.DataFrame: Transformed DataFrame with new columns and type conversions
+    #     """
+    #     # Apply the categorize_transaction function to create new columns
+    #     df[
+    #         [
+    #             "revenue_category",
+    #             "membership_size",
+    #             "membership_freq",
+    #             "is_founder",
+    #             "is_free_membership",
+    #         ]
+    #     ] = df["Description"].apply(lambda x: pd.Series(categorize_transaction(
+    #             x,
+    #             revenue_category_keywords=config.revenue_category_keywords,
+    #             membership_size_keywords=config.membership_size_keywords,
+    #             membership_frequency_keywords=config.membership_frequency_keywords,
+    #             founder_keywords=config.founder_keywords,
+    #             bcf_fam_friend_keywords=config.bcf_fam_friend_keywords,
+    #         )
+    #     ))
 
-        # Add sub-category classification
-        df["sub_category"] = ""
-        df["sub_category_detail"] = ""
+    #     # Add sub-category classification
+    #     df["sub_category"] = ""
+    #     df["sub_category_detail"] = ""
 
-        # Classify camps
-        df.loc[
-            df["Description"].str.contains("Summer Camp", case=False, na=False),
-            "sub_category",
-        ] = "camps"
-        df.loc[
-            df["Description"].str.contains("Summer Camp", case=False, na=False),
-            "sub_category_detail",
-        ] = df["Description"].str.extract(r"(Summer Camp Session \d+)", expand=False)
+    #     # Classify camps
+    #     df.loc[
+    #         df["Description"].str.contains("Summer Camp", case=False, na=False),
+    #         "sub_category",
+    #     ] = "camps"
+    #     df.loc[
+    #         df["Description"].str.contains("Summer Camp", case=False, na=False),
+    #         "sub_category_detail",
+    #     ] = df["Description"].str.extract(r"(Summer Camp Session \d+)", expand=False)
 
-        # Classify birthday parties
-        for pattern, detail in config.birthday_sub_category_patterns.items():
-            mask = df["Description"].str.contains(pattern, case=False, na=False)
-            df.loc[mask, "sub_category"] = "birthday"
-            df.loc[mask, "sub_category_detail"] = detail
+    #     # Classify birthday parties
+    #     for pattern, detail in config.birthday_sub_category_patterns.items():
+    #         mask = df["Description"].str.contains(pattern, case=False, na=False)
+    #         df.loc[mask, "sub_category"] = "birthday"
+    #         df.loc[mask, "sub_category_detail"] = detail
 
-        # Classify fitness classes
-        for pattern, detail in config.fitness_patterns.items():
-            mask = df["Description"].str.contains(pattern, case=False, na=False)
-            df.loc[mask, "sub_category"] = "fitness"
-            df.loc[mask, "sub_category_detail"] = detail
+    #     # Classify fitness classes
+    #     for pattern, detail in config.fitness_patterns.items():
+    #         mask = df["Description"].str.contains(pattern, case=False, na=False)
+    #         df.loc[mask, "sub_category"] = "fitness"
+    #         df.loc[mask, "sub_category_detail"] = detail
 
-        # Classify day passes
-        mask = df["revenue_category"].str.contains("Day Pass", case=False, na=False)
-        df.loc[mask, "sub_category"] = df.loc[mask, "Description"].apply(
-            self.categorize_day_pass_sub_category
-        )
+    #     # Classify day passes
+    #     mask = df["revenue_category"].str.contains("Day Pass", case=False, na=False)
+    #     df.loc[mask, "sub_category"] = df.loc[mask, "Description"].apply(
+    #         categorize_day_pass_sub_category
+    #     )
 
-        # Classify event and programming subcategories
-        for patern in self.get_unique_event_and_programming_subcategories(df):
-            # only for event and programming (and not birthday)
-            mask = (
-                (df["revenue_category"].isin(["Event Booking", "Programming"]))
-                & (df["sub_category"] != "birthday")
-                & (df["sub_category"] == "")
-                & (
-                    df["Description"]
-                    .apply(self.extract_event_and_programming_subcategory)
-                    .str.contains(patern, case=False, na=False)
-                )
-            )
-            df.loc[mask, "sub_category"] = patern
+    #     # Classify event and programming subcategories
+    #     for patern in get_unique_event_and_programming_subcategories(df):
+    #         # only for event and programming (and not birthday)
+    #         mask = (
+    #             (df["revenue_category"].isin(["Event Booking", "Programming"]))
+    #             & (df["sub_category"] != "birthday")
+    #             & (df["sub_category"] == "")
+    #             & (
+    #                 df["Description"]
+    #                 .apply(extract_event_and_programming_subcategory)
+    #                 .str.contains(patern, case=False, na=False)
+    #             )
+    #         )
+    #         df.loc[mask, "sub_category"] = patern
 
-        # use the "Name" column for retail if the "Data Source" column is square, 
-        # otherwise use the "Description" column
-        # add the first 4 words of the "Name" column to the "sub_category_detail" 
-        # column for retail if the "sub_category" column is empty
-        col_for_retail_sub_category_detail = (
-            "Name" if df["Data Source"].iloc[0] == "Square" else "Description"
-        )
-        df.loc[
-            (df["revenue_category"] == "Retail") & (df["sub_category"] == ""),
-            "sub_category_detail",
-        ] = df[col_for_retail_sub_category_detail].apply(
-            lambda x: " ".join(x.split()[:4]) if isinstance(x, str) else ""
-        )
+    #     # use the "Name" column for retail if the "Data Source" column is square, 
+    #     # otherwise use the "Description" column
+    #     # add the first 4 words of the "Name" column to the "sub_category_detail" 
+    #     # column for retail if the "sub_category" column is empty
+    #     col_for_retail_sub_category_detail = (
+    #         "Name" if df["Data Source"].iloc[0] == "Square" else "Description"
+    #     )
+    #     df.loc[
+    #         (df["revenue_category"] == "Retail") & (df["sub_category"] == ""),
+    #         "sub_category_detail",
+    #     ] = df[col_for_retail_sub_category_detail].apply(
+    #         lambda x: " ".join(x.split()[:4]) if isinstance(x, str) else ""
+    #     )
 
-        # Convert 'Date' to datetime and handle different formats
-        df["date_"] = pd.to_datetime(df["Date"], errors="coerce", utc=True)
+    #     # Convert 'Date' to datetime and handle different formats
+    #     df["date_"] = pd.to_datetime(df["Date"], errors="coerce", utc=True)
 
-        # Extract just the date (without time)
-        df["Date"] = df["date_"].dt.date
+    #     # Extract just the date (without time)
+    #     df["Date"] = df["date_"].dt.date
 
-        # Convert the amounts columns to numeric values (handles strings and errors)
-        df["Tax Amount"] = pd.to_numeric(df["Tax Amount"], errors="coerce")
-        df["Pre-Tax Amount"] = pd.to_numeric(df["Pre-Tax Amount"], errors="coerce")
-        df["Data Source"] = "Square"
+    #     # Convert the amounts columns to numeric values (handles strings and errors)
+    #     df["Tax Amount"] = pd.to_numeric(df["Tax Amount"], errors="coerce")
+    #     df["Pre-Tax Amount"] = pd.to_numeric(df["Pre-Tax Amount"], errors="coerce")
+    #     df["Data Source"] = "Square"
 
-        # Add a column for day pass count using 'Base Price Amount'
-        # square allows for multiple day passes to be purchased at once
-        df["Day Pass Count"] = df.apply(
-            lambda row: (
-                round(row["Total Amount"] / row["base_price_amount"])
-                if row["revenue_category"] == "Day Pass"
-                and row["base_price_amount"] > 0
-                else 0
-            ),
-            axis=1,
-        )
+    #     # Add a column for day pass count using 'Base Price Amount'
+    #     # square allows for multiple day passes to be purchased at once
+    #     df["Day Pass Count"] = df.apply(
+    #         lambda row: (
+    #             round(row["Total Amount"] / row["base_price_amount"])
+    #             if row["revenue_category"] == "Day Pass"
+    #             and row["base_price_amount"] > 0
+    #             else 0
+    #         ),
+    #         axis=1,
+    #     )
 
-        return df
+    #     return df
 
     @staticmethod
     def create_orders_dataframe(orders_list):
@@ -498,3 +507,15 @@ if __name__ == "__main__":
         start_date, end_date, save_json=False, save_csv=False
     )
     df.to_csv("data/outputs/square_transaction_data.csv", index=False)
+
+    # upload json as dictionary from local file
+    # json_square = json.load(open("data/raw_data/square_orders.json"))
+    # orders_list = json_square.get("orders", [])
+    # df_orders = square_fetcher.create_orders_dataframe(orders_list)
+    # json_square_orders = json.load(open("data/raw_data/square_invoices.json"))
+    # invoices_list = json_square_orders.get("invoices", [])
+    # df_invoices = square_fetcher.create_invoices_dataframe(invoices_list)
+
+    # df_combined = pd.concat([df_orders, df_invoices], ignore_index=True)
+    # df_combined = transform_payments_data(df_combined)
+    # df_combined.to_csv("data/outputs/square_transaction_data2.csv", index=False)
