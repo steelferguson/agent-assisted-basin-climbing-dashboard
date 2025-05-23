@@ -705,12 +705,12 @@ def create_dashboard(app):
                 team_type = "Competitive"
 
             if team_type:
-                start_date = pd.to_datetime(
-                    membership.get("start_date"), errors="coerce"
-                )
-                start_date = start_date.dt.tz_localize(None)
+                start_date = pd.to_datetime(membership.get("start_date"), errors="coerce")
+                if pd.notna(start_date):
+                    start_date = start_date.tz_localize(None)
                 end_date = pd.to_datetime(membership.get("end_date"), errors="coerce")
-                end_date = end_date.dt.tz_localize(None)
+                if pd.notna(end_date):
+                    end_date = end_date.tz_localize(None)
 
                 if not pd.isna(start_date) and not pd.isna(end_date):
                     youth_memberships.append(
