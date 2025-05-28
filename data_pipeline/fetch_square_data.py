@@ -114,7 +114,11 @@ class SquareFetcher:
         mask = df["revenue_category"].str.contains("Day Pass", case=False, na=False)
         # create sub category list for day passes
         subcats = df.loc[mask, "Description"].apply(
-            lambda desc: categorize_day_pass_sub_category(desc, config.day_pass_sub_category_age_keywords, config.day_pass_sub_category_gear_keywords)
+            lambda desc: categorize_day_pass_sub_category(
+                desc,
+                config.day_pass_sub_category_age_keywords,
+                config.day_pass_sub_category_gear_keywords,
+            )
         )
         return sorted(set(subcats))
 
@@ -194,9 +198,9 @@ class SquareFetcher:
     #         )
     #         df.loc[mask, "sub_category"] = patern
 
-    #     # use the "Name" column for retail if the "Data Source" column is square, 
+    #     # use the "Name" column for retail if the "Data Source" column is square,
     #     # otherwise use the "Description" column
-    #     # add the first 4 words of the "Name" column to the "sub_category_detail" 
+    #     # add the first 4 words of the "Name" column to the "sub_category_detail"
     #     # column for retail if the "sub_category" column is empty
     #     col_for_retail_sub_category_detail = (
     #         "Name" if df["Data Source"].iloc[0] == "Square" else "Description"

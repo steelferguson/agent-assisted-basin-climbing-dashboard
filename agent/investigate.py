@@ -1,5 +1,5 @@
 import pandas as pd
-
+from datetime import timedelta
 
 """
 This file is used to investigate the data and get the daily metrics.
@@ -18,19 +18,61 @@ def summarize_date_range(
     day_passes_col: str = "Day Pass Count",
     already_filtered: bool = False,
 ) -> dict:
+    print(f"Summarizing date range {start_date} to {end_date} for category {category} and sub category {sub_category}")
     df = df.copy()
     df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
+    df[date_col] = df[date_col].dt.tz_localize(None)
 
+    # Filtering by date range, category, and sub category if specified
     if not already_filtered:
         df = df[
             (df[date_col] >= pd.to_datetime(start_date))
             & (df[date_col] <= pd.to_datetime(end_date))
         ]
-
     if category:
         df = df[df["revenue_category"] == category]
     if sub_category:
-        df = df[df["revenue_sub_category"] == sub_category]
+        df = df[df["sub_category"] == sub_category]
+
+    # Get averages by week day
+    df["week_day"] = df[date_col].dt.weekday
+    week_day_totals = df.groupby("week_day")[total_col].sum()
+
+    # detect momentum
+    momentum_30 = detect_momentum(
+        df,
+        days=30,
+        category=category,
+        sub_category=sub_category,
+        date_col=date_col,
+        total_col=total_col,
+    )
+    momentum_15 = detect_momentum(
+        df,
+        days=15,
+        category=category,
+        sub_category=sub_category,
+        date_col=date_col,
+        total_col=total_col,
+    )
+
+    top_5_sub_categories_momentum_7 = {}
+    top_5_sub_categories = None
+    # if there is no sub category, then get the top 5 sub categories by revenue
+    if not sub_category and category:
+        top_5_sub_categories = df.groupby("sub_category")[total_col].sum().sort_values(ascending=False).head(5)
+        top_5_sub_categories = top_5_sub_categories.to_dict()
+        # get momentum for the top 5 sub categories
+        for sub_category in top_5_sub_categories.keys():
+            momentum_7 = detect_momentum(
+                df,
+                days=7,
+                category=category,
+                sub_category=sub_category, 
+                date_col=date_col,
+                total_col=total_col,
+            )
+            top_5_sub_categories_momentum_7[sub_category] = momentum_7
 
     daily_totals = df.groupby(df[date_col].dt.date)[total_col].sum()
     daily_day_passes = df.groupby(df[date_col].dt.date)[day_passes_col].sum()
@@ -46,11 +88,57 @@ def summarize_date_range(
         "average_daily_day_passes": (
             round(daily_day_passes.mean(), 2) if not daily_day_passes.empty else 0
         ),
+        "highest_daily_revenue": round(daily_totals.max(), 2),
+        "lowest_daily_revenue": round(daily_totals.min(), 2),
         "num_days": len(daily_totals),
         "num_transactions": len(df),
+        "top_5_sub_categories": top_5_sub_categories,
+        "top_5_sub_categories_momentum_7": top_5_sub_categories_momentum_7,
+        "momentum_30": momentum_30,
+        "momentum_15": momentum_15,
+        "week_day_totals": week_day_totals.to_dict(),
         "daily_breakdown": daily_totals.to_dict(),
         "daily_day_passes_breakdown": daily_day_passes.to_dict(),
     }
+
+
+def detect_momentum(
+    df: pd.DataFrame,
+    days: int = 30,
+    end_date: str = None,
+    category: str = None,
+    sub_category: str = None,
+    date_col: str = "Date",
+    total_col: str = "Total Amount",
+) -> dict:
+
+    df[date_col] = pd.to_datetime(df[date_col])
+    end_date = end_date or df[date_col].max()
+    end_date = pd.to_datetime(end_date)
+    cutoff = end_date - timedelta(days=days)
+    df = df[df[date_col] >= cutoff].copy()
+
+    if category:
+        df = df[df["revenue_category"] == category]
+    if sub_category:
+        df = df[df["sub_category"] == sub_category]
+
+    df.loc[:, "period"] = df[date_col] >= (df[date_col].max() - timedelta(days=days))
+
+    grouped = (
+        df.groupby(["sub_category", "period"])[total_col]
+        .sum()
+        .unstack(fill_value=0)
+    )
+    if grouped.empty or grouped.shape[1] != 2:
+        return None
+    grouped.columns = ["previous", "recent"]
+    grouped["change_pct"] = (
+        100
+        * (grouped["recent"] - grouped["previous"])
+        / grouped["previous"].replace(0, 1)
+    )
+    return grouped.sort_values("change_pct", ascending=False).to_dict(orient="index")
 
 
 def compare_categories(
@@ -95,7 +183,7 @@ def detect_anomalies(
         window_size = pd.to_datetime(date_range[1]) - pd.to_datetime(date_range[0])
         end_date = pd.to_datetime(date_range[1])
         window_start_date = end_date - window_size
-    else:
+    else: 
         end_date = df[date_col].max()
         window_start_date = end_date - window_size
 

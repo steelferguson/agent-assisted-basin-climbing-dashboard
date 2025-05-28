@@ -2,6 +2,7 @@ import re
 import pandas as pd
 from data_pipeline import config
 
+
 def extract_event_and_programming_subcategory(description):
     if ":" in description:
         after_colon = description.split(":", 1)[1]

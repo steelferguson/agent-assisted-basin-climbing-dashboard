@@ -188,6 +188,7 @@ class StripeFetcher:
             self.save_data(df, "stripe_transaction_data")
         return df
 
+
 if __name__ == "__main__":
     end_date = datetime.datetime.now()
     start_date = end_date - datetime.timedelta(days=365)

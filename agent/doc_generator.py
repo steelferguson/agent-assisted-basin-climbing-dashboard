@@ -13,73 +13,69 @@ def generate_timeperiod_summary_doc(
 ) -> Document:
     summary = summarize_date_range(df, start_date, end_date, category)
 
-    # Build the document content
+    # Build the document content with all summary fields
     lines = [
-        f"Weekly Revenue Summary: {category}",
+        f"Revenue Summary: {category if category else 'All Categories'}",
         f"Period: {start_date} to {end_date}",
-        f"Total Revenue: ${summary['total_revenue']}",
-        f"Avg Daily Revenue: ${summary['average_daily_revenue']}",
     ]
+    for key, value in summary.items():
+        if key not in ["daily_breakdown", "start_date", "end_date", "category", "day_passes_breakdown"]:
+            lines.append(f"{key.replace('_', ' ').title()}: {value}")
 
-    if category == "Day Pass":
-        lines.append(f"Avg Daily Day Passes: {summary['average_daily_day_passes']}")
-
-    lines.append(f"Transactions: {summary['num_transactions']}")
     lines.append("\nDaily Breakdown:")
+    for date, value in summary.get("daily_breakdown", {}).items():
+        lines.append(f"  {date}: {value}")
 
-    for date, value in summary["daily_breakdown"].items():
-        lines.append(f"  {date}: ${round(value, 2)}")
+    lines.append("\nDaily Day Passes Breakdown:")
+    for date, value in summary.get("daily_day_passes_breakdown", {}).items():
+        lines.append(f"  {date.strftime('%Y-%m-%d') if hasattr(date, 'strftime') else str(date)}: {value}")
 
     text = "\n".join(lines)
 
     return Document(
         page_content=text.strip(),
         metadata={
-            "start_date": summary["start_date"],
-            "end_date": summary["end_date"],
-            "category": summary["category"],
+            "start_date": summary.get("start_date", start_date),
+            "end_date": summary.get("end_date", end_date),
+            "category": summary.get("category", category),
         },
     )
 
 
 def batch_generate_category_docs(
     df: pd.DataFrame,
-    frequency: str = "W",
-    start_date: str = "2024-09-16",
+    start_date: str = None,
     end_date: str = None,
 ) -> list[Document]:
-    if frequency == "W":
-        days_ahead = 7 - 1
-    elif frequency == "M":
-        days_ahead = 30 - 1
-    elif frequency == "Q":
-        days_ahead = 90 - 1
-    elif frequency == "Y":
-        days_ahead = 365 - 1
-    else:
-        raise ValueError(f"Invalid frequency: {frequency}")
     df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
-    start = pd.to_datetime(start_date).date()
-    # make the start date the most recent Sunday
-    start = start - timedelta(days=start.weekday())
-    end = pd.to_datetime(end_date).date() if end_date else df["Date"].max().date()
+    # Find the first and last month with data
+    first_month = df["Date"].min().replace(day=1)
+    last_month = df["Date"].max().replace(day=1)
+    if start_date:
+        first_month = max(first_month, pd.to_datetime(start_date).replace(day=1))
+    if end_date:
+        last_month = min(last_month, pd.to_datetime(end_date).replace(day=1))
     documents = []
     categories = df["revenue_category"].dropna().unique()
+    print(f"Generating documents for {first_month.date()} to {last_month.date()} and for categories {categories}")
 
-    current = start
-    while current <= end:
-        next_period = current + timedelta(days=days_ahead)
+    current = first_month
+    while current <= last_month:
+        # Get the first and last day of the month
+        month_start = current
+        next_month = (month_start + pd.offsets.MonthEnd(1)).replace(day=1)
+        month_end = (month_start + pd.offsets.MonthEnd(0)).date()
         for cat in categories:
             doc = generate_timeperiod_summary_doc(
-                df, str(current), str(next_period), cat
+                df, str(month_start.date()), str(month_end), cat
             )
             documents.append(doc)
-        doc = generate_timeperiod_summary_doc(df, str(current), str(next_period), None)
+        doc = generate_timeperiod_summary_doc(df, str(month_start.date()), str(month_end), None)
         documents.append(doc)
-        current = next_period + timedelta(days=1)
+        # Move to next month
+        current = (month_start + pd.offsets.MonthEnd(0)) + pd.Timedelta(days=1)
 
-    print(f"Generated {len(documents)} documents from {start} to {end}")
-
+    print(f"Generated {len(documents)} documents from {first_month.date()} to {last_month.date()}")
     return documents
 
 
@@ -110,7 +106,7 @@ def add_to_vectorstore(doc: Document, vectorstore):
     vectorstore.save_local(vectorstore.persist_path)
 
 
-def add_original_json_files_to_local_folder():
+def add_original_json_files_to_local_folder(start_date: str = None, end_date: str = None):
     import sys
 
     sys.path.append(".")
@@ -120,7 +116,7 @@ def add_original_json_files_to_local_folder():
     uploader = initialize_data_uploader()
     df = load_df_from_s3(uploader, config.aws_bucket_name, config.s3_path_combined)
 
-    docs = batch_generate_category_docs(df, frequency="W")
+    docs = batch_generate_category_docs(df, start_date, end_date)
 
     for doc in docs:
         start = doc.metadata["start_date"]
@@ -138,7 +134,7 @@ def add_original_json_files_to_aws():
     uploader = initialize_data_uploader()
     df = load_df_from_s3(uploader, config.aws_bucket_name, config.s3_path_combined)
 
-    docs = batch_generate_category_docs(df, frequency="W")
+    docs = batch_generate_category_docs(df)
 
     uploader.upload_multiple_documents_objects_to_s3(docs)
 
@@ -163,5 +159,5 @@ def add_weekly_json_files_to_aws():
 
 if __name__ == "__main__":
     # add_original_json_files_to_aws()
-    # add_original_json_files_to_local_folder()
-    add_weekly_json_files_to_aws()
+    add_original_json_files_to_local_folder(start_date="2025-01-01", end_date="2025-02-28")
+    # add_weekly_json_files_to_aws()
