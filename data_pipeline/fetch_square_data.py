@@ -25,67 +25,6 @@ class SquareFetcher:
         self.square_token = square_token
         self.location_id = location_id
 
-    ## Dictionaries for processing string in decripitions
-    revenue_category_keywords = {
-        "day pass": "Day Pass",
-        "team dues": "Team",
-        "membership renewal": "Membership Renewal",
-        "new membership": "New Membership",
-        "fitness": "Programming",
-        "transformation": "Programming",
-        "climbing technique": "Programming",
-        "competition quality": "Retail",
-        "comp": "Programming",
-        "class": "Programming",
-        "camp": "Programming",
-        "event": "Event Booking",
-        "birthday": "Event Booking",
-        "retreat": "Event Booking",
-        "pass": "Day Pass",
-        "booking": "Event Booking",
-        "gear upgrade": "Day Pass",
-    }
-    day_pass_sub_category_age_keywords = {
-        "youth": "youth",
-        "under 14": "youth",
-        "Adult": "adult",
-        "14 and up": "adult",
-    }
-    day_pass_sub_category_gear_keywords = {
-        "gear upgrade": "gear upgrade",
-        "with Gear": "with gear",
-    }
-    membership_size_keywords = {
-        "bcf family": "BCF Staff & Family",
-        "bcf staff": "BCF Staff & Family",
-        "duo": "Duo",
-        "solo": "Solo",
-        "family": "Family",
-        "corporate": "Corporate",
-    }
-    membership_frequency_keywords = {
-        "annual": "Annual",
-        "weekly": "weekly",
-        "monthly": "Monthly",
-        "founders": "monthly",  # founders charged monthly
-    }
-    bcf_fam_friend_keywords = {
-        "bcf family": True,
-        "bcf staff": True,
-    }
-    birthday_sub_category_patterns = {
-        "Birthday Party- non-member": "second payment",
-        "Birthday Party- Member": "second payment",
-        "Birthday Party- additional participant": "second payment",
-        "[Calendly] Basin 2 Hour Birthday": "initial payment",  # from calendly
-        "Birthday Party Rental- 2 hours": "initial payment",  # from capitan (old)
-        "Basin 2 Hour Birthday Party Rental": "initial payment",  # more flexible calendly pattern
-    }
-    fitness_patterns = {
-        "HYROX CLASS": "hyrox",
-        "week transformation": "transformation",
-    }
-
     def save_data(self, df, file_name):
         df.to_csv("data/outputs/" + file_name + ".csv", index=False)
         print(file_name + " saved in " + "/data/outputs/")
@@ -122,120 +61,6 @@ class SquareFetcher:
         )
         return sorted(set(subcats))
 
-    # def transform_payments_data(self, df):
-    #     """
-    #     Transforms the payments data by adding new columns and converting data types.
-
-    #     Parameters:
-    #     df (pd.DataFrame): Original DataFrame to transform
-
-    #     Returns:
-    #     pd.DataFrame: Transformed DataFrame with new columns and type conversions
-    #     """
-    #     # Apply the categorize_transaction function to create new columns
-    #     df[
-    #         [
-    #             "revenue_category",
-    #             "membership_size",
-    #             "membership_freq",
-    #             "is_founder",
-    #             "is_free_membership",
-    #         ]
-    #     ] = df["Description"].apply(lambda x: pd.Series(categorize_transaction(
-    #             x,
-    #             revenue_category_keywords=config.revenue_category_keywords,
-    #             membership_size_keywords=config.membership_size_keywords,
-    #             membership_frequency_keywords=config.membership_frequency_keywords,
-    #             founder_keywords=config.founder_keywords,
-    #             bcf_fam_friend_keywords=config.bcf_fam_friend_keywords,
-    #         )
-    #     ))
-
-    #     # Add sub-category classification
-    #     df["sub_category"] = ""
-    #     df["sub_category_detail"] = ""
-
-    #     # Classify camps
-    #     df.loc[
-    #         df["Description"].str.contains("Summer Camp", case=False, na=False),
-    #         "sub_category",
-    #     ] = "camps"
-    #     df.loc[
-    #         df["Description"].str.contains("Summer Camp", case=False, na=False),
-    #         "sub_category_detail",
-    #     ] = df["Description"].str.extract(r"(Summer Camp Session \d+)", expand=False)
-
-    #     # Classify birthday parties
-    #     for pattern, detail in config.birthday_sub_category_patterns.items():
-    #         mask = df["Description"].str.contains(pattern, case=False, na=False)
-    #         df.loc[mask, "sub_category"] = "birthday"
-    #         df.loc[mask, "sub_category_detail"] = detail
-
-    #     # Classify fitness classes
-    #     for pattern, detail in config.fitness_patterns.items():
-    #         mask = df["Description"].str.contains(pattern, case=False, na=False)
-    #         df.loc[mask, "sub_category"] = "fitness"
-    #         df.loc[mask, "sub_category_detail"] = detail
-
-    #     # Classify day passes
-    #     mask = df["revenue_category"].str.contains("Day Pass", case=False, na=False)
-    #     df.loc[mask, "sub_category"] = df.loc[mask, "Description"].apply(
-    #         categorize_day_pass_sub_category
-    #     )
-
-    #     # Classify event and programming subcategories
-    #     for patern in get_unique_event_and_programming_subcategories(df):
-    #         # only for event and programming (and not birthday)
-    #         mask = (
-    #             (df["revenue_category"].isin(["Event Booking", "Programming"]))
-    #             & (df["sub_category"] != "birthday")
-    #             & (df["sub_category"] == "")
-    #             & (
-    #                 df["Description"]
-    #                 .apply(extract_event_and_programming_subcategory)
-    #                 .str.contains(patern, case=False, na=False)
-    #             )
-    #         )
-    #         df.loc[mask, "sub_category"] = patern
-
-    #     # use the "Name" column for retail if the "Data Source" column is square,
-    #     # otherwise use the "Description" column
-    #     # add the first 4 words of the "Name" column to the "sub_category_detail"
-    #     # column for retail if the "sub_category" column is empty
-    #     col_for_retail_sub_category_detail = (
-    #         "Name" if df["Data Source"].iloc[0] == "Square" else "Description"
-    #     )
-    #     df.loc[
-    #         (df["revenue_category"] == "Retail") & (df["sub_category"] == ""),
-    #         "sub_category_detail",
-    #     ] = df[col_for_retail_sub_category_detail].apply(
-    #         lambda x: " ".join(x.split()[:4]) if isinstance(x, str) else ""
-    #     )
-
-    #     # Convert 'Date' to datetime and handle different formats
-    #     df["date_"] = pd.to_datetime(df["Date"], errors="coerce", utc=True)
-
-    #     # Extract just the date (without time)
-    #     df["Date"] = df["date_"].dt.date
-
-    #     # Convert the amounts columns to numeric values (handles strings and errors)
-    #     df["Tax Amount"] = pd.to_numeric(df["Tax Amount"], errors="coerce")
-    #     df["Pre-Tax Amount"] = pd.to_numeric(df["Pre-Tax Amount"], errors="coerce")
-    #     df["Data Source"] = "Square"
-
-    #     # Add a column for day pass count using 'Base Price Amount'
-    #     # square allows for multiple day passes to be purchased at once
-    #     df["Day Pass Count"] = df.apply(
-    #         lambda row: (
-    #             round(row["Total Amount"] / row["base_price_amount"])
-    #             if row["revenue_category"] == "Day Pass"
-    #             and row["base_price_amount"] > 0
-    #             else 0
-    #         ),
-    #         axis=1,
-    #     )
-
-    #     return df
 
     @staticmethod
     def create_orders_dataframe(orders_list):
@@ -253,8 +78,10 @@ class SquareFetcher:
             order_id = order.get("id", None)
             created_at = order.get("created_at")  # Order creation date
             line_items = order.get("line_items", [])
+            item_number_within_order = 0
 
             for item in line_items:
+                item_number_within_order += 1
                 name = item.get("name", "No Name")
                 description = item.get("variation_name", "No Description")
 
@@ -275,7 +102,7 @@ class SquareFetcher:
 
                 data.append(
                     {
-                        "transaction_id": order_id,
+                        "transaction_id": order_id + "_item_number_" + str(item_number_within_order),
                         "Description": description,
                         "Pre-Tax Amount": item_pre_tax_money,
                         "Tax Amount": item_tax_money,
@@ -289,7 +116,8 @@ class SquareFetcher:
 
         # Create a DataFrame
         df = pd.DataFrame(data)
-        df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+        df["Date"] = pd.to_datetime(df["Date"].astype(str), errors="coerce", utc=True)
+        df["Date"] = df["Date"].dt.tz_localize(None)
         # Drop rows where 'Date' is null
         df = df.dropna(subset=["Date"])
         return df
@@ -479,6 +307,9 @@ class SquareFetcher:
         invoices_df = self.pull_square_invoices(self.square_token, self.location_id)
         df_combined = pd.concat([df, invoices_df], ignore_index=True)
         if save_csv:
+            df_combined["Date"] = pd.to_datetime(df_combined["Date"].astype(str), errors="coerce", utc=True)
+            df_combined["Date"] = df_combined["Date"].dt.tz_localize(None)
+            df_combined["Date"] = df_combined["Date"].dt.strftime("%Y-%m-%d")
             self.save_data(df, "square_transaction_data")
             self.save_data(invoices_df, "square_invoices_data")
             self.save_data(df_combined, "square_combined_transaction_invoices_data")
@@ -507,10 +338,13 @@ if __name__ == "__main__":
     start_date = end_date - datetime.timedelta(days=365)
     square_token = os.getenv("SQUARE_PRODUCTION_API_TOKEN")
     square_fetcher = SquareFetcher(square_token, location_id="L37KDMNNG84EA")
-    df = square_fetcher.pull_and_transform_square_payment_data(
-        start_date, end_date, save_json=False, save_csv=False
+    df_combined = square_fetcher.pull_and_transform_square_payment_data(
+        start_date, end_date, save_json=True, save_csv=True
     )
-    df.to_csv("data/outputs/square_transaction_data.csv", index=False)
+    df_combined["Date"] = pd.to_datetime(df_combined["Date"].astype(str), errors="coerce", utc=True)
+    df_combined["Date"] = df_combined["Date"].dt.tz_localize(None)
+    df_combined["Date"] = df_combined["Date"].dt.strftime("%Y-%m-%d")
+    df_combined.to_csv("data/outputs/square_transaction_data.csv", index=False)
 
     # upload json as dictionary from local file
     # json_square = json.load(open("data/raw_data/square_orders.json"))

@@ -23,46 +23,6 @@ class StripeFetcher:
     def __init__(self, stripe_key: str):
         self.stripe_key = stripe_key
 
-    ## Dictionaries for processing string in decripitions
-    revenue_category_keywords = {
-        "day pass": "Day Pass",
-        "team dues": "Team",
-        "entry pass": "Day Pass",
-        "initial payment": "New Membership",
-        "renewal payment": "Membership Renewal",
-        "fitness": "programming",
-        "transformation": "programming",
-        "climbing technique": "programming",
-        "comp": "programming",
-        "camp": "progamming",
-        "class": "programming",
-        "booking": "Event Booking",
-        "event": "Event Booking",
-        "birthday": "Event Booking",
-        "membership": "Membership Renewal",
-        "reservation": "Event Booking",
-        # 'capitan': 'Day Pass', ## Just for Square
-    }
-    membership_size_keywords = {
-        "bcf family": "BCF Staff & Family",
-        "bcf staff": "BCF Staff & Family",
-        "duo": "Duo",
-        "solo": "Solo",
-        "family": "Family",
-        "corporate": "Corporate",
-    }
-    membership_frequency_keywords = {
-        "annual": "Annual",
-        "weekly": "weekly",
-        "monthly": "Monthly",
-        "founders": "monthly",  # founders charged monthly
-        "student": "monthly",  # students charged monthly
-    }
-    bcf_fam_friend_keywords = {
-        "bcf family": True,
-        "bcf staff": True,
-    }
-
     def save_data(self, df: pd.DataFrame, file_name: str):
         df.to_csv("data/outputs/" + file_name + ".csv", index=False)
         print(file_name + " saved in " + "/data/outputs/")
@@ -195,7 +155,7 @@ if __name__ == "__main__":
     stripe_key = os.getenv("STRIPE_PRODUCTION_API_KEY")
     stripe_fetcher = StripeFetcher(stripe_key=stripe_key)
     df = stripe_fetcher.pull_and_transform_stripe_payment_data(
-        stripe_key, start_date, end_date, save_json=True, save_csv=False
+        stripe_key, start_date, end_date, save_json=False, save_csv=False
     )
     # json_stripe = json.load(open("data/raw_data/stripe_payments.json"))
     # df_stripe = stripe_fetcher.create_stripe_payments_df(json_stripe)

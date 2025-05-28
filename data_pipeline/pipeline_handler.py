@@ -61,7 +61,7 @@ def add_new_transactions_to_combined_df(
     df_combined = pd.concat([df_yesterday, df_today], ignore_index=True)
 
     print("dropping duplicates")
-    df_combined = df_combined.drop_duplicates()
+    df_combined = df_combined.drop_duplicates(subset=["transaction_id", "Date"])
 
     if save_local:
         df_path = config.df_path_recent_days
@@ -85,6 +85,15 @@ def add_new_transactions_to_combined_df(
             config.aws_bucket_name,
             config.s3_path_combined_snapshot + f'_{today.strftime("%Y-%m-%d")}',
         )
+
+
+def replace_transaction_df_in_s3():
+    """
+    Uploads a new transaction df to s3, replacing the existing one.
+    """
+    df = fetch_stripe_and_square_and_combine(days=365*2)
+    uploader = upload_data.DataUploader()
+    uploader.upload_to_s3(df, config.aws_bucket_name, config.s3_path_combined)
 
 
 def upload_new_capitan_membership_data(save_local=False):
@@ -160,3 +169,6 @@ def upload_new_capitan_membership_data(save_local=False):
 if __name__ == "__main__":
     add_new_transactions_to_combined_df()
     upload_new_capitan_membership_data()
+    # df = fetch_stripe_and_square_and_combine(days=147)
+    # df.to_csv("data/outputs/stripe_and_square_combined_data_20250527.csv", index=False)
+    # replace_transaction_df_in_s3()

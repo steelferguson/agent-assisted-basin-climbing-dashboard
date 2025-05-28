@@ -34,9 +34,9 @@ def summarize_date_range(
     if sub_category:
         df = df[df["sub_category"] == sub_category]
 
-    # Get averages by week day
-    df["week_day"] = df[date_col].dt.weekday
-    week_day_totals = df.groupby("week_day")[total_col].sum()
+    # Get averages by week day using day string (e.g. "Monday", "Tuesday", etc)
+    df["week_day"] = df[date_col].dt.day_name()
+    week_day_totals = df.groupby("week_day")[total_col].mean()
 
     # detect momentum
     momentum_30 = detect_momentum(

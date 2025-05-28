@@ -19,16 +19,18 @@ def generate_timeperiod_summary_doc(
         f"Period: {start_date} to {end_date}",
     ]
     for key, value in summary.items():
-        if key not in ["daily_breakdown", "start_date", "end_date", "category", "day_passes_breakdown"]:
+        if key not in ["daily_breakdown", "start_date", "end_date", "category", "day_passes_breakdown", "daily_day_passes_breakdown"]:
             lines.append(f"{key.replace('_', ' ').title()}: {value}")
 
     lines.append("\nDaily Breakdown:")
     for date, value in summary.get("daily_breakdown", {}).items():
         lines.append(f"  {date}: {value}")
 
-    lines.append("\nDaily Day Passes Breakdown:")
-    for date, value in summary.get("daily_day_passes_breakdown", {}).items():
-        lines.append(f"  {date.strftime('%Y-%m-%d') if hasattr(date, 'strftime') else str(date)}: {value}")
+    if category == "Day Pass":
+        lines.append("\nDaily Day Passes Breakdown:")
+        for date, value in summary.get("daily_day_passes_breakdown", {}).items():
+            # Format date as YYYY-MM-DD for readability
+            lines.append(f"  {date.strftime('%Y-%m-%d') if hasattr(date, 'strftime') else str(date)}: {value}")
 
     text = "\n".join(lines)
 
@@ -158,6 +160,6 @@ def add_weekly_json_files_to_aws():
 
 
 if __name__ == "__main__":
-    # add_original_json_files_to_aws()
-    add_original_json_files_to_local_folder(start_date="2025-01-01", end_date="2025-02-28")
+    add_original_json_files_to_aws()
+    # add_original_json_files_to_local_folder()
     # add_weekly_json_files_to_aws()
