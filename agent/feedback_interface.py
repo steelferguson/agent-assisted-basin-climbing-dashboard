@@ -14,7 +14,7 @@ def capture_feedback(insights: str, agent) -> None:
     # Number the insights
     insights_list = [i for i in insights.split("\n") if i.strip()]
     numbered_insights = [
-        f"Insight {i+1}: {insight}" for i, insight in enumerate(insights_list)
+        f"Line {i+1}: {insight}" for i, insight in enumerate(insights_list)
     ]
     print("\n".join(numbered_insights))
 

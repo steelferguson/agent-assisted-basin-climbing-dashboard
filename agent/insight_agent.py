@@ -1,7 +1,7 @@
 from langchain_core.documents import Document
 from agent.vectorstore_manager import VectorStoreManager
 from agent.memory_manager import MemoryManager
-from agent.investigate import summarize_date_range, detect_anomalies, compare_categories
+from agent.investigate import summarize_date_range, detect_anomalies
 from typing import Optional
 from datetime import datetime, UTC, timedelta
 import pandas as pd
@@ -11,7 +11,7 @@ from agent.tools import generate_summary_document_with_df
 from langchain_core.tools import Tool
 from langchain.agents import create_openai_functions_agent, AgentExecutor
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.messages import SystemMessage
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 
 
 class InsightAgent:
@@ -23,6 +23,7 @@ class InsightAgent:
     ):
         self.vectorstore = vectorstore
         self.memory = memory_manager
+        self.chat_history = []
         self.raw_transactions_df = raw_transactions_df
         self.llm = ChatOpenAI(temperature=0)
 
@@ -36,17 +37,23 @@ class InsightAgent:
             prompt=ChatPromptTemplate.from_messages(
                 [
                     SystemMessage(
-                        content="""
-                            You are a helpful business analyst for a climbing gym. 
-                            Use the tools provided to investigate revenue trends 
-                            and anomalies. 
-                            Always provide clear, concise, and insightful responses.
-                            Please attempt to answer questions.
-                            Please also ask questions that the team may answer.
-                        """
+                        content=(
+                            "You are a business analyst for a climbing gym.\n\n"
+                            "You have access to a tool named `generate_summary_document` that can "
+                            "generate a revenue summary given a start date, end date, "
+                            "optional category, and optional sub_category.\n\n"
+                            "When investigating a revenue trend or anomaly (like a spike or drop), "
+                            "ALWAYS try using this tool with relevant dates and categories and "
+                            "subcategories to understand what happened.\n\n"
+                            "If you are unsure what dates to use, ask the user or try to infer them "
+                            "based on the insight.\n\n"
+                            "Return concise, clear summaries and always say which tool you used and why.\n"
+                            "If there is a question that a teammate might help answer (e.g. did we "
+                            "launch a new product on that day?), please pose that question clearly."
+                        )
                     ),
                     MessagesPlaceholder(variable_name="chat_history"),
-                    ("user", "{input}"),
+                    HumanMessage(content="{input}"),
                     MessagesPlaceholder(variable_name="agent_scratchpad"),
                 ]
             ),
@@ -59,37 +66,71 @@ class InsightAgent:
         )
 
     def investigate_with_agent(self, insight: str) -> str:
-        prompt = (
-            f"You are a climbing gym business analyst. Investigate this insight:\n\n"
-            f"'{insight}'\n\n"
-            f"Use the tools provided to explore revenue trends or explain causes."
+        user_message = (
+            f"You are a climbing gym business analyst.\n"
+            f"Can you investigate the following insight using available tools?\n\n{insight}"
         )
-        return self.agent_executor.invoke({"input": prompt, "chat_history": []})[
-            "output"
-        ]
+
+        # Add the user's message to chat history
+        self.chat_history.append(HumanMessage(content=user_message))
+
+        # Run the agent with chat history
+        result = self.agent_executor.invoke(
+            {
+                "input": user_message,
+                "chat_history": self.chat_history,
+            }
+        )
+
+        # Extract agent's reply from the result
+        agent_reply = result.get("output", "[No output returned]")
+
+        # Add the agent reply to chat history
+        self.chat_history.append(AIMessage(content=agent_reply))
+
+        # save to disk
+        self.memory.save_chat_history_to_file(self.chat_history, user_id="default")
+
+        return agent_reply
+
+    def reset_chat_history(self):
+        self.chat_history = []
 
     def analyze_context_and_generate_insights(
         self, retrieved_docs: list[Document]
     ) -> list[str]:
-        insights = []
-        for doc in retrieved_docs:
-            prompt = f"""
-            You are a business analyst for a climbing gym. Here is a revenue summary document:
+        # Concatenate all doc contents
+        combined_content = "\n\n---\n\n".join(
+            f"[{doc.metadata.get('start_date')} to {doc.metadata.get('end_date')} | Category: {doc.metadata.get('category', 'All')}]\n{doc.page_content}"
+            for doc in retrieved_docs
+        )
 
-            {doc.page_content}
+        # Prompt the LLM to synthesize insights across all
+        prompt = f"""
+        You are a business analyst for a climbing gym. Here are multiple revenue summary documents from different time periods and categories:
 
-            Based on this document, generate 3-5 actionable insights or observations. Focus on:
-            - Revenue trends (increases/decreases)
-            - Notable days or anomalies
-            - Subcategory performance
-            - Day pass trends
-            - Any other interesting patterns
+        {combined_content}
 
-            Format your answer as a bullet list.
-            """
-            response = self.llm.invoke(prompt)
-            insights.append(response.content)
-        return insights
+        After reading all of the above, generate 3-5 high-level actionable insights or questions that summarize important patterns or anomalies. Focus on:
+        - Trends across time (e.g. improving or declining revenue over weeks)
+        - Category or subcategory changes
+        - Popularity shifts in day passes or memberships
+        - Any noteworthy anomalies or standout dates
+        - Any questions a team might want to investigate further
+
+        Format your answer as a bullet list, with clear dates and categories mentioned where relevant.
+        Today's date is {datetime.now().strftime("%Y-%m-%d")}.
+        """
+
+        # Call LLM once
+        response = self.llm.invoke(prompt)
+
+        # Log and persist
+        self.chat_history.append(AIMessage(content=response.content))
+        self.memory.save_chat_history_to_file(self.chat_history, user_id="default")
+
+        # Return each bullet as its own string
+        return [line.strip() for line in response.content.splitlines() if line.strip().startswith("•") or line.strip().startswith("-")]
 
     def explain_insight(self, insight: str) -> str:
         prompt = f"""
@@ -103,17 +144,17 @@ class InsightAgent:
         We will then ask the team if this seems like a good hypothesis, and we will gather feedback.
 
         Tools you have access to:
-        - `detect_anomalies`
-        - `detect_momentum`
-        - `summarize_date_range`
-        - `compare_categories`
+        - `summarize_date_range` specifying no category
+        - `summarize_date_range` specifying a category
+        - `summarize_date_range` specifying a category and sub category
         - querying past documents via the vectorstore
 
         Format your response as:
         1. Question to answer
-        2. Method used
-        3. Reasoning
-        4. Final explanation
+        2. Method used and reasoning (briefly)
+        3. Final explanation
+
+        Today's date is {datetime.now().strftime("%Y-%m-%d")}, so we only have data up to that date.
         """
         return self.llm.invoke(prompt).content
 
@@ -123,6 +164,7 @@ class InsightAgent:
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
         category: Optional[str] = None,
+        verbose: bool = False,
     ) -> str:
         if query is None:
             query = (
@@ -143,6 +185,7 @@ class InsightAgent:
             all_docs = retrieved_docs
 
         output = []
+        final_insights = []
 
         if all_docs:
             output.append("📊 Historical Context:")
@@ -189,10 +232,14 @@ class InsightAgent:
                         f"🚨 Revenue spike on {a['date']}: ${a['total_revenue']:.2f} (z = {a['z_score']:.2f})"
                     )
 
-            trend_comparison = self.compare_to_previous_week(
+            month_comparison = self.compare_current_month_to_previous_month(
+                self.raw_transactions_df, category
+            )
+            week_comparison = self.compare_to_previous_week(
                 self.raw_transactions_df, start_date, end_date, category
             )
-            insights.append(f"📈 {trend_comparison}")
+            insights.append(f"📈 {month_comparison}")
+            insights.append(f"📈 {week_comparison}")
 
             all_insights_with_explanations = []
 
@@ -216,7 +263,13 @@ class InsightAgent:
                         if line.strip().lower().startswith("1. question to answer"):
                             question = line.split(":", 1)[-1].strip()
                             if question:
-                                self.store_question(question, source="insight_agent")
+                                # inside your insight loop
+                                self.store_question(
+                                    question=question,
+                                    insight_context=insight,
+                                    proposed_answer=explanation,
+                                    source="agent",
+                                )
 
                 except Exception as e:
                     output.append(f"⚠️ Could not explain insight due to error: {e}")
@@ -236,14 +289,19 @@ class InsightAgent:
             - 📌 Title: Brief Summary
               - Explanation: ...
               - Follow-up Question: ...
+
+            Please always include dates, date ranges, and categories.
             """
             summary_response = self.llm.invoke(summary_prompt).content
-            output.append("\n🔍 Top Takeaways:")
-            output.append(summary_response)
+            final_insights.append("\n" + "=" * 80 + "\n🔍 Top Takeaways:")
+            final_insights.append(summary_response)
 
-            output.append("\n🔍 Attempting to answer unresolved questions:")
-            for q in self.memory.questions_log:
-                if not q["answered"]:
+            final_insights.append("\n" + "=" * 80 + "\n🔍 Attempting to answer unresolved questions:")
+            unanswered = [q for q in self.memory.questions_log if not q["answered"]]
+            if not unanswered:
+                output.append("No unresolved questions found.")
+            else:
+                for q in unanswered:
                     try:
                         response = self.explain_insight(q["question"])
                         output.append(
@@ -255,18 +313,62 @@ class InsightAgent:
                             f"\n❓ {q['question']}\n⚠️ Could not answer due to: {e}"
                         )
 
-        return "\n".join(output)
+        if verbose:
+            return "\n".join(output) + "\n" + "\n".join(final_insights)
+        else:
+            return "\n".join(final_insights)
 
-    def compare_to_previous_week(self, df, start_date, end_date, category=None):
-        start_date = pd.to_datetime(start_date)
-        end_date = pd.to_datetime(end_date)
+    def answer_question(self, question_text: str, answer: str, answered_by: str = "agent"):
+        for q in self.memory.questions_log:
+            if q["question"] == question_text:
+                q["final_answer"] = answer
+                q["answered"] = True
+                q["answered_by"] = answered_by
+                break
+
+    def show_questions(self):
+        open_qs = [q for q in self.memory.questions_log if not q["answered"]]
+        closed_qs = [q for q in self.memory.questions_log if q["answered"]]
+
+        return {
+            "open_questions": open_qs,
+            "answered_questions": closed_qs
+        }
+    
+    def compare_to_previous_week(self, df, start_date, end_date, category=None):    
+        # Ensure start_date and end_date are datetime objects
+        if isinstance(start_date, str):
+            start_date = pd.to_datetime(start_date)
+        if isinstance(end_date, str):
+            end_date = pd.to_datetime(end_date)
         prev_start = (start_date - timedelta(days=7)).strftime("%Y-%m-%d")
         prev_end = (start_date - timedelta(days=1)).strftime("%Y-%m-%d")
+        previous = summarize_date_range(df, prev_start, prev_end, category)
+        current = summarize_date_range(df, start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d"), category)
+
+        delta = current["total_revenue"] - previous["total_revenue"]
+        pct_change = (delta / previous["total_revenue"] * 100) if previous["total_revenue"] > 0 else 0
+
+        direction = "increased" if pct_change > 0 else "decreased"
+        insight = (
+            f"{category or 'Overall'} revenue {direction} by {abs(pct_change):.1f}% "
+            f"compared to the previous week (${previous['total_revenue']:.2f} → ${current['total_revenue']:.2f})."
+        )
+        return insight
+
+    def compare_current_month_to_previous_month(self, df, category=None):
+        max_date = pd.to_datetime(datetime.now().strftime("%Y-%m-%d"))
+        day_of_month = max_date.day
+        end_date = pd.to_datetime(max_date) - pd.DateOffset(months=1)
+        start_date = (end_date - pd.DateOffset(days=day_of_month)).replace(day=1)
+        end_date = pd.to_datetime(max_date)
 
         current = summarize_date_range(
             df, start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d"), category
         )
-        previous = summarize_date_range(df, prev_start, prev_end, category)
+        previous = summarize_date_range(
+            df, start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d"), category
+        )
 
         delta = current["total_revenue"] - previous["total_revenue"]
         pct_change = (
@@ -302,3 +404,14 @@ class InsightAgent:
                 "source": source,
             }
         )
+
+    def summarize_messages(self, chat_history):
+        prompt = f"""
+        You are a business analyst for a climbing gym.
+        You have had a conversation back and forth with the team which has valuable context and insights.
+        You have a messaging history with the team. 
+        Please summarize the important points and give them in bulleted format. 
+        Here is a list of messages:
+        {chat_history}
+        """
+        return self.llm.invoke(prompt).content

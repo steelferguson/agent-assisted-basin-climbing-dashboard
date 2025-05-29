@@ -9,7 +9,8 @@ import data_pipeline.config as config
 import os
 from agent.feedback_interface import capture_feedback
 from agent.insight_agent import InsightAgent
-
+from datetime import datetime
+import pandas as pd
 
 def main():
     # Initialize vector store and memory manager
@@ -47,11 +48,12 @@ def main():
         vectorstore=vectorstore, memory_manager=memory, raw_transactions_df=combined_df
     )
 
+    today_date = datetime.now().strftime("%Y-%m-%d")
     insights = agent.analyze_trends_and_generate_insights(
-        start_date="2025-01-01", end_date="2025-01-07"
+        start_date="2025-05-01", end_date=today_date
     )
 
-    print("\n📊 Insights Generated:\n", insights)
+    print("\n📊 Insights Generated:\n")
 
     # 🧠 Prompt user for feedback
     capture_feedback(insights, agent)

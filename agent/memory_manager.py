@@ -1,5 +1,9 @@
-from typing import List, Dict
+from typing import List, Dict, Optional
 from datetime import datetime, UTC
+from langchain_core.messages import AIMessage, HumanMessage
+import json
+from datetime import datetime, timedelta
+import os
 
 
 class MemoryManager:
@@ -7,6 +11,7 @@ class MemoryManager:
         self.feedback_log: List[Dict] = []
         self.questions_log: List[Dict] = []
         self.vectorstore = vectorstore
+        self.load_questions_from_file(user_id="default")
 
     def store_feedback(self, user: str, comment: str):
         self.feedback_log.append(
@@ -17,15 +22,28 @@ class MemoryManager:
             }
         )
 
-    def store_question(self, question: str):
-        self.questions_log.append(
+    def store_question(
+        self,
+        question: str,
+        source: str = "agent",
+        asked_by: Optional[str] = "agent",
+        insight_context: Optional[str] = None,
+        proposed_answer: Optional[str] = None
+    ):
+        self.memory.questions_log.append(
             {
+                "timestamp": datetime.now(UTC).isoformat(),
                 "question": question,
-                "asked_at": datetime.now(UTC).isoformat(),
+                "source": source,
+                "asked_by": asked_by,
+                "insight_context": insight_context,
+                "proposed_answer": proposed_answer,
+                "final_answer": None,
                 "answered": False,
-                "answers": [],
+                "answered_by": None,
             }
         )
+        self.memory.save_questions_to_file(user_id="default")
 
     def answer_question(self, question: str, user: str, answer: str):
         for q in self.questions_log:
@@ -58,3 +76,48 @@ class MemoryManager:
             for e in entries:
                 summary += f"  - Comment: {e['comment']}\n"
         return summary
+
+    def save_chat_history_to_file(self, chat_history, user_id, path="chat_logs/"):
+        os.makedirs(path, exist_ok=True)  # ✅ Create the directory if it doesn't exist
+        data = [msg.dict() for msg in chat_history]
+        with open(f"{path}chat_{user_id}.json", "w") as f:
+            json.dump(data, f)
+
+    def load_chat_history_from_file(self, user_id, path="chat_logs/"):
+        try:
+            with open(f"{path}chat_{user_id}.json", "r") as f:
+                data = json.load(f)
+                return [
+                    AIMessage(**msg) if msg["type"] == "ai" else HumanMessage(**msg)
+                    for msg in data
+                ]
+        except FileNotFoundError:
+            return []
+
+    def summarize_and_archive(self, chat_history, threshold_days=7):
+        now = datetime.now()
+        old_msgs = [
+            msg
+            for msg in chat_history
+            if msg.metadata.get("timestamp")
+            and datetime.fromisoformat(msg.metadata["timestamp"])
+            < now - timedelta(days=threshold_days)
+        ]
+
+        # generate summary using your LLM or custom logic
+        summary = self.summarize_messages(old_msgs)
+
+        # return summary + optionally trim history
+        return summary
+    
+    def save_questions_to_file(self, user_id: str, path: str = "chat_logs/"):
+        os.makedirs(path, exist_ok=True)
+        with open(f"{path}questions_{user_id}.json", "w") as f:
+            json.dump(self.questions_log, f, indent=2)
+
+    def load_questions_from_file(self, user_id: str, path: str = "chat_logs/"):
+        try:
+            with open(f"{path}questions_{user_id}.json", "r") as f:
+                self.questions_log = json.load(f)
+        except FileNotFoundError:
+            self.questions_log = []
