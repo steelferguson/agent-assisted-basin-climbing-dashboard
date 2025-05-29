@@ -91,7 +91,7 @@ def replace_transaction_df_in_s3():
     """
     Uploads a new transaction df to s3, replacing the existing one.
     """
-    df = fetch_stripe_and_square_and_combine(days=365*2)
+    df = fetch_stripe_and_square_and_combine(days=365 * 2)
     uploader = upload_data.DataUploader()
     uploader.upload_to_s3(df, config.aws_bucket_name, config.s3_path_combined)
 

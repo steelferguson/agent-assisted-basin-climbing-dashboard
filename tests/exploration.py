@@ -105,6 +105,7 @@ def see_transactions_by_date():
 
     print(df_combined_by_date)
 
+
 def download_fix_upload_combined_data(column_name: str, old_value: str, new_value: str):
     # Instantiate the uploader
     uploader = upload_data.DataUploader()
@@ -116,7 +117,10 @@ def download_fix_upload_combined_data(column_name: str, old_value: str, new_valu
     df_combined = uploader.convert_csv_to_df(df_combined_csv)
     df_combined[column_name] = df_combined[column_name].replace(old_value, new_value)
     uploader.upload_to_s3(df_combined, config.aws_bucket_name, config.s3_path_combined)
-    print(f"Uploaded {config.s3_path_combined} and changed {column_name} from {old_value} to {new_value}")
+    print(
+        f"Uploaded {config.s3_path_combined} and changed {column_name} from {old_value} to {new_value}"
+    )
+
 
 def download_and_convert_for_visual_inspection():
     uploader = upload_data.DataUploader()
@@ -124,9 +128,12 @@ def download_and_convert_for_visual_inspection():
         config.aws_bucket_name, config.s3_path_combined
     )
     df_combined = uploader.convert_csv_to_df(df_combined_csv)
-    df_combined['Date'] = pd.to_datetime(df_combined['Date'], errors="coerce")
-    df_combined.to_csv('data/outputs/transactions_for_visual_inspection.csv', index=False)
-    return 
+    df_combined["Date"] = pd.to_datetime(df_combined["Date"], errors="coerce")
+    df_combined.to_csv(
+        "data/outputs/transactions_for_visual_inspection.csv", index=False
+    )
+    return
+
 
 if __name__ == "__main__":
     see_transactions_by_date()

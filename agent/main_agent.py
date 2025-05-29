@@ -43,8 +43,9 @@ def main():
         print("Vector store already exists. Skipping embedding.")
 
     # generate insights
-    agent = InsightAgent(vectorstore=vectorstore, memory_manager=memory)
-    agent.raw_transactions_df = combined_df  # attach for analysis
+    agent = InsightAgent(
+        vectorstore=vectorstore, memory_manager=memory, raw_transactions_df=combined_df
+    )
 
     insights = agent.analyze_trends_and_generate_insights(
         start_date="2025-01-01", end_date="2025-01-07"

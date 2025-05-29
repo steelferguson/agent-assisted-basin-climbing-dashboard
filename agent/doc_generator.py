@@ -6,12 +6,43 @@ import pandas as pd
 from data_pipeline.upload_data import DataUploader
 from agent.data_loader import initialize_data_uploader, load_df_from_s3
 import data_pipeline.config as config
+import json
 
 
 def generate_timeperiod_summary_doc(
-    df: pd.DataFrame, start_date: str, end_date: str, category: str
+    df: pd.DataFrame,
+    start_date: str,
+    end_date: str,
+    category: str = None,
+    sub_category: str = None,
 ) -> Document:
-    summary = summarize_date_range(df, start_date, end_date, category)
+    """
+    Generate a summary document for a given date range and category (optional) and sub category (optional).
+    Document is in text format, suitable for a vector store and for LLM context.
+    Details include:
+    Summarize the data for a given date range, category (optional), and sub category (optional).
+    Gives the following info in plain text format:
+    - start_date: the start date of the date range
+    - end_date: the end date of the date range
+    - category: the category of the data
+    - total_revenue: the total revenue for the date range
+    - average_daily_revenue: the average daily revenue for the date range
+    - average_daily_day_passes: the average daily day passes for the date range
+    - highest_daily_revenue: the highest daily revenue for the date range
+    - lowest_daily_revenue: the lowest daily revenue for the date range
+    - num_days: the number of days in the date range
+    - num_transactions: the number of transactions for the date range
+    - top_5_sub_categories: the top 5 sub categories by revenue for the date range
+    - top_5_sub_categories_momentum_7: the momentum for the top 5 sub categories for the date range
+    - momentum_30: the momentum for the date range
+    - momentum_15: the momentum for the date range
+    - week_day_totals: the total revenue by week day for the date range
+    - daily_breakdown: the daily breakdown of revenue for the date range
+    - daily_day_passes_breakdown: the daily breakdown of day passes for the date range
+    """
+    summary = summarize_date_range(
+        df, start_date, end_date, category=category, sub_category=sub_category
+    )
 
     # Build the document content with all summary fields
     lines = [
@@ -19,7 +50,14 @@ def generate_timeperiod_summary_doc(
         f"Period: {start_date} to {end_date}",
     ]
     for key, value in summary.items():
-        if key not in ["daily_breakdown", "start_date", "end_date", "category", "day_passes_breakdown", "daily_day_passes_breakdown"]:
+        if key not in [
+            "daily_breakdown",
+            "start_date",
+            "end_date",
+            "category",
+            "day_passes_breakdown",
+            "daily_day_passes_breakdown",
+        ]:
             lines.append(f"{key.replace('_', ' ').title()}: {value}")
 
     lines.append("\nDaily Breakdown:")
@@ -30,7 +68,9 @@ def generate_timeperiod_summary_doc(
         lines.append("\nDaily Day Passes Breakdown:")
         for date, value in summary.get("daily_day_passes_breakdown", {}).items():
             # Format date as YYYY-MM-DD for readability
-            lines.append(f"  {date.strftime('%Y-%m-%d') if hasattr(date, 'strftime') else str(date)}: {value}")
+            lines.append(
+                f"  {date.strftime('%Y-%m-%d') if hasattr(date, 'strftime') else str(date)}: {value}"
+            )
 
     text = "\n".join(lines)
 
@@ -59,7 +99,9 @@ def batch_generate_category_docs(
         last_month = min(last_month, pd.to_datetime(end_date).replace(day=1))
     documents = []
     categories = df["revenue_category"].dropna().unique()
-    print(f"Generating documents for {first_month.date()} to {last_month.date()} and for categories {categories}")
+    print(
+        f"Generating documents for {first_month.date()} to {last_month.date()} and for categories {categories}"
+    )
 
     current = first_month
     while current <= last_month:
@@ -72,12 +114,16 @@ def batch_generate_category_docs(
                 df, str(month_start.date()), str(month_end), cat
             )
             documents.append(doc)
-        doc = generate_timeperiod_summary_doc(df, str(month_start.date()), str(month_end), None)
+        doc = generate_timeperiod_summary_doc(
+            df, str(month_start.date()), str(month_end), None
+        )
         documents.append(doc)
         # Move to next month
         current = (month_start + pd.offsets.MonthEnd(0)) + pd.Timedelta(days=1)
 
-    print(f"Generated {len(documents)} documents from {first_month.date()} to {last_month.date()}")
+    print(
+        f"Generated {len(documents)} documents from {first_month.date()} to {last_month.date()}"
+    )
     return documents
 
 
@@ -100,7 +146,7 @@ def generate_most_recent_weekly_docs(df: pd.DataFrame) -> list[Document]:
 
 def write_to_disk(doc: Document, filepath: str):
     with open(filepath, "w") as f:
-        f.write(doc.page_content)
+        json.dump({"content": doc.page_content, "metadata": doc.metadata}, f, indent=2)
 
 
 def add_to_vectorstore(doc: Document, vectorstore):
@@ -108,7 +154,9 @@ def add_to_vectorstore(doc: Document, vectorstore):
     vectorstore.save_local(vectorstore.persist_path)
 
 
-def add_original_json_files_to_local_folder(start_date: str = None, end_date: str = None):
+def add_original_json_files_to_local_folder(
+    start_date: str = None, end_date: str = None
+):
     import sys
 
     sys.path.append(".")
@@ -160,6 +208,6 @@ def add_weekly_json_files_to_aws():
 
 
 if __name__ == "__main__":
-    add_original_json_files_to_aws()
-    # add_original_json_files_to_local_folder()
+    # add_original_json_files_to_aws()
+    add_original_json_files_to_local_folder()
     # add_weekly_json_files_to_aws()

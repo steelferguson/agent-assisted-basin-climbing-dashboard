@@ -61,7 +61,6 @@ class SquareFetcher:
         )
         return sorted(set(subcats))
 
-
     @staticmethod
     def create_orders_dataframe(orders_list):
         """
@@ -102,7 +101,9 @@ class SquareFetcher:
 
                 data.append(
                     {
-                        "transaction_id": order_id + "_item_number_" + str(item_number_within_order),
+                        "transaction_id": order_id
+                        + "_item_number_"
+                        + str(item_number_within_order),
                         "Description": description,
                         "Pre-Tax Amount": item_pre_tax_money,
                         "Tax Amount": item_tax_money,
@@ -307,7 +308,9 @@ class SquareFetcher:
         invoices_df = self.pull_square_invoices(self.square_token, self.location_id)
         df_combined = pd.concat([df, invoices_df], ignore_index=True)
         if save_csv:
-            df_combined["Date"] = pd.to_datetime(df_combined["Date"].astype(str), errors="coerce", utc=True)
+            df_combined["Date"] = pd.to_datetime(
+                df_combined["Date"].astype(str), errors="coerce", utc=True
+            )
             df_combined["Date"] = df_combined["Date"].dt.tz_localize(None)
             df_combined["Date"] = df_combined["Date"].dt.strftime("%Y-%m-%d")
             self.save_data(df, "square_transaction_data")
@@ -341,7 +344,9 @@ if __name__ == "__main__":
     df_combined = square_fetcher.pull_and_transform_square_payment_data(
         start_date, end_date, save_json=True, save_csv=True
     )
-    df_combined["Date"] = pd.to_datetime(df_combined["Date"].astype(str), errors="coerce", utc=True)
+    df_combined["Date"] = pd.to_datetime(
+        df_combined["Date"].astype(str), errors="coerce", utc=True
+    )
     df_combined["Date"] = df_combined["Date"].dt.tz_localize(None)
     df_combined["Date"] = df_combined["Date"].dt.strftime("%Y-%m-%d")
     df_combined.to_csv("data/outputs/square_transaction_data.csv", index=False)

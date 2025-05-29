@@ -18,7 +18,30 @@ def summarize_date_range(
     day_passes_col: str = "Day Pass Count",
     already_filtered: bool = False,
 ) -> dict:
-    print(f"Summarizing date range {start_date} to {end_date} for category {category} and sub category {sub_category}")
+    """
+    Summarize the data for a given date range, category (optional), and sub category (optional).
+    Returns a dictionary with the following keys:
+    - start_date: the start date of the date range
+    - end_date: the end date of the date range
+    - category: the category of the data
+    - total_revenue: the total revenue for the date range
+    - average_daily_revenue: the average daily revenue for the date range
+    - average_daily_day_passes: the average daily day passes for the date range
+    - highest_daily_revenue: the highest daily revenue for the date range
+    - lowest_daily_revenue: the lowest daily revenue for the date range
+    - num_days: the number of days in the date range
+    - num_transactions: the number of transactions for the date range
+    - top_5_sub_categories: the top 5 sub categories by revenue for the date range
+    - top_5_sub_categories_momentum_7: the momentum for the top 5 sub categories for the date range
+    - momentum_30: the momentum for the date range
+    - momentum_15: the momentum for the date range
+    - week_day_totals: the total revenue by week day for the date range
+    - daily_breakdown: the daily breakdown of revenue for the date range
+    - daily_day_passes_breakdown: the daily breakdown of day passes for the date range
+    """
+    print(
+        f"Summarizing date range {start_date} to {end_date} for category {category} and sub category {sub_category}"
+    )
     df = df.copy()
     df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
     df[date_col] = df[date_col].dt.tz_localize(None)
@@ -60,7 +83,12 @@ def summarize_date_range(
     top_5_sub_categories = None
     # if there is no sub category, then get the top 5 sub categories by revenue
     if not sub_category and category:
-        top_5_sub_categories = df.groupby("sub_category")[total_col].sum().sort_values(ascending=False).head(5)
+        top_5_sub_categories = (
+            df.groupby("sub_category")[total_col]
+            .sum()
+            .sort_values(ascending=False)
+            .head(5)
+        )
         top_5_sub_categories = top_5_sub_categories.to_dict()
         # get momentum for the top 5 sub categories
         for sub_category in top_5_sub_categories.keys():
@@ -68,7 +96,7 @@ def summarize_date_range(
                 df,
                 days=7,
                 category=category,
-                sub_category=sub_category, 
+                sub_category=sub_category,
                 date_col=date_col,
                 total_col=total_col,
             )
@@ -126,9 +154,7 @@ def detect_momentum(
     df.loc[:, "period"] = df[date_col] >= (df[date_col].max() - timedelta(days=days))
 
     grouped = (
-        df.groupby(["sub_category", "period"])[total_col]
-        .sum()
-        .unstack(fill_value=0)
+        df.groupby(["sub_category", "period"])[total_col].sum().unstack(fill_value=0)
     )
     if grouped.empty or grouped.shape[1] != 2:
         return None
@@ -183,7 +209,7 @@ def detect_anomalies(
         window_size = pd.to_datetime(date_range[1]) - pd.to_datetime(date_range[0])
         end_date = pd.to_datetime(date_range[1])
         window_start_date = end_date - window_size
-    else: 
+    else:
         end_date = df[date_col].max()
         window_start_date = end_date - window_size
 
@@ -195,7 +221,7 @@ def detect_anomalies(
     daily["z_score"] = (daily["total_revenue"] - daily["total_revenue"].mean()) / daily[
         "total_revenue"
     ].std()
-    anomalies = daily[abs(daily["z_score"]) > 2].sort_values(
+    anomalies = daily[abs(daily["z_score"]) > 3].sort_values(
         by="z_score", key=abs, ascending=False
     )
     # convert string date to datetime
