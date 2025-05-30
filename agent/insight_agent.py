@@ -25,7 +25,7 @@ class InsightAgent:
         self.memory = memory_manager
         self.chat_history = []
         self.raw_transactions_df = raw_transactions_df
-        self.llm = ChatOpenAI(temperature=0)
+        self.llm = ChatOpenAI(temperature=0.3)
 
         # Attach data-aware tool
         self.tools = [generate_summary_document_with_df(raw_transactions_df)]
@@ -44,10 +44,15 @@ class InsightAgent:
                             "optional category, and optional sub_category.\n\n"
                             "When investigating a revenue trend or anomaly, "
                             "ALWAYS try using this tool with relevant dates and categories and "
-                            "subcategories to understand what happened.\n\n"
+                            "subcategories to understand what happened. Please try to use the "
+                            "category and subcategory tools to get the most detailed information.\n\n"
                             "If you are unsure what dates to use, ask the user or try to infer them "
                             "based on the insight.\n\n"
-                            "Return concise, clear summaries and always say which tool you used and why.\n"
+                            "Return concise, clear summaries and priotize the most important information.\n"
+                            "You are the expert on the data, so you should be able to answer questions about "
+                            "revenue trends overall and by category along with other data centric questions. "
+                            "Other teammates can help answer questions about business context or factors "
+                            "external to the business. \n\n"
                             "If there is a question that a teammate might help answer (e.g. did we "
                             "launch a new product on that day?), please pose that question clearly."
                         )
@@ -67,8 +72,23 @@ class InsightAgent:
 
     def investigate_with_agent(self, insight: str) -> str:
         user_message = (
-            f"You are a climbing gym business analyst.\n"
-            f"Can you investigate the following insight using available tools?\n\n{insight}"
+            "You are a business analyst for a climbing gym.\n\n"
+            "You have access to a tool named `generate_summary_document` that can "
+            "generate a revenue summary given a start date, end date, "
+            "optional category, and optional sub_category.\n\n"
+            "When investigating a revenue trend or anomaly, "
+            "ALWAYS try using this tool with relevant dates and categories and "
+            "subcategories to understand what happened. Please try to use the "
+            "category and subcategory tools to get the most detailed information.\n\n"
+            "If you are unsure what dates to use, ask the user or try to infer them "
+            "based on the insight.\n\n"
+            "Return concise, clear summaries and priotize the most important information.\n"
+            "You are the expert on the data, so you should be able to answer questions about "
+            "revenue trends overall and by category along with other data centric questions. "
+            "Other teammates can help answer questions about business context or factors "
+            "external to the business. \n\n"
+            "If there is a question that a teammate might help answer (e.g. did we "
+            f"launch a new product on that day?), please pose that question clearly.\n\n{insight}"
         )
 
         # Add the user's message to chat history
@@ -111,12 +131,17 @@ class InsightAgent:
 
         {combined_content}
 
-        After reading all of the above, generate 3-5 high-level actionable insights or questions that summarize important patterns or anomalies. Focus on:
+        After reading all of the above, generate 1-2 high-level actionable insights or questions that summarize important patterns or anomalies. Focus on:
         - Trends across time (e.g. improving or declining revenue over weeks)
-        - Category or subcategory changes
+        - Category that are growing or shrinking
+        - Subcategory that are contributing the the growth or decline in revenue by category
         - Popularity shifts in day passes or memberships
         - Any noteworthy anomalies or standout dates
-        - Any questions a team might want to investigate further
+
+        Next, generate 1-2 questions that would be importatn for the business to understand
+        - The question can be something you will be able to answer with the data or
+        - The question can be asking for context that you don't have access to
+        - Please preface the question with "Question: "
 
         Format your answer as a bullet list, with clear dates and categories mentioned where relevant.
         Today's date is {datetime.now().strftime("%Y-%m-%d")}.
@@ -142,21 +167,23 @@ class InsightAgent:
 
         "{insight}"
 
-        Think step by step. What functions or data queries would help you explain this?
+        Think step by step. What parts of this question can be answered with revenue data?
+        What dates and which categories and subcategories should I use as parameters in
+        the 'sumarize_date_range' function? Subcategories are mentioned in the category docs.
+        Also consider which documents might be helpful in answering the question.
         Then, form a hypothesis or explanation using the available tools. 
-        When presenting the hypothesis, be sure to frame it as a hypothesis, not a fact.
-        We will then ask the team if this seems like a good hypothesis, and we will gather feedback.
+        When presenting the potential answer, be sure to frame it as a potential answer, not a fact.
+        The team can respond later to confirm or deny if this potential answer is correct.
 
         Tools you have access to:
-        - `summarize_date_range` specifying no category
-        - `summarize_date_range` specifying a category
-        - `summarize_date_range` specifying a category and sub category
-        - querying past documents via the vectorstore
+        - `summarize_date_range` specifying no category to see trends overall 
+        - `summarize_date_range` specifying a category to see trends by category
+        - `summarize_date_range` specifying a category and sub category to see trends by subcategory
+        - querying past documents via the vectorstore which show revenue trends by category 
 
         Format your response as:
         1. Question to answer
-        2. Method used and reasoning (briefly)
-        3. Final explanation
+        2. Potential answer with (brief) reasoning
 
         Today's date is {datetime.now().strftime("%Y-%m-%d")}, so we only have data up to that date.
         """
