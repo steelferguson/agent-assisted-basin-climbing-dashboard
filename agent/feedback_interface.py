@@ -1,46 +1,54 @@
 import json
 from datetime import datetime
+import textwrap
 
+from agent.insight_agent import InsightAgent
 
-def capture_feedback(insights: str, agent) -> None:
+def pretty_print_insights(insights: str) -> None:
+    """
+    Nicely formats and prints the insights summary for easier CLI readability.
+    """
+    print("\n📊 Insights Summary:")
+    print("=" * 100)
+
+    lines = []
+    for line in insights.split("\n"):
+        if line.startswith("['") or line.startswith("[-") or line.strip().startswith("•"):
+            try:
+                items = eval(line)
+                if isinstance(items, list):
+                    lines.extend(items)
+                else:
+                    lines.append(line)
+            except Exception:
+                lines.append(line)
+        else:
+            lines.append(line)
+
+    for i, line in enumerate(lines):
+        wrapped = textwrap.fill(line.strip(), width=100)
+        print(f"{wrapped}\n")
+
+    print("=" * 100)
+
+def capture_feedback(insights: str, agent: InsightAgent):
     """
     Interactive CLI tool to collect feedback for insights.
     Shows all insights at once and allows for comprehensive feedback.
     Stores feedback in agent's memory via `store_feedback`.
     """
-    print("\n📊 Insights Summary:")
-    print("=" * 80)
+    pretty_print_insights(insights)
 
-    # Number the insights
-    insights_list = [i for i in insights.split("\n") if i.strip()]
-    numbered_insights = [
-        f"Line {i+1}: {insight}" for i, insight in enumerate(insights_list)
-    ]
-    print("\n".join(numbered_insights))
+    print("\n💭 Would you like to provide feedback on these insights? (y/n)")
+    if input().lower() != "y":
+        return
 
-    print("=" * 80)
-
-    user = input("Your name: ").strip()
-    if not user:
-        user = "anonymous"
-
-    while True:
-        print("\n📬 Feedback Collection")
-        print(
-            "Please provide your feedback below. If your insight is connected to a specific piece of information, it's helpful to include that in your comment."
-        )
-        print("Type 'done' when finished.\n")
-
-        comment = (
-            input("\nYour insights or hypothesis (type 'done' when finished): ")
-            .strip()
-            .lower()
-        )
-
-        if comment == "done":
-            break
-        if comment:
-            agent.store_feedback(user=user, comment=comment)
-            print("✅ Feedback recorded.")
-
-    print("\n✨ Thank you for your feedback!")
+    print("\n👤 What is your name?")
+    user = input().strip()
+    
+    print("\n💬 Please provide your feedback:")
+    comment = input().strip()
+    
+    if comment:
+        agent.store_feedback(user=user, comment=comment)
+        print("\n✅ Thank you for your feedback!")

@@ -27,7 +27,7 @@ class InsightAgent:
         self.raw_transactions_df = raw_transactions_df
         self.llm = ChatOpenAI(temperature=0)
 
-        # Attach your data-aware tool
+        # Attach data-aware tool
         self.tools = [generate_summary_document_with_df(raw_transactions_df)]
 
         # Modern agent setup
@@ -42,7 +42,7 @@ class InsightAgent:
                             "You have access to a tool named `generate_summary_document` that can "
                             "generate a revenue summary given a start date, end date, "
                             "optional category, and optional sub_category.\n\n"
-                            "When investigating a revenue trend or anomaly (like a spike or drop), "
+                            "When investigating a revenue trend or anomaly, "
                             "ALWAYS try using this tool with relevant dates and categories and "
                             "subcategories to understand what happened.\n\n"
                             "If you are unsure what dates to use, ask the user or try to infer them "
@@ -62,7 +62,7 @@ class InsightAgent:
         self.agent_executor = AgentExecutor(
             agent=agent,
             tools=self.tools,
-            verbose=True,
+            verbose=False,
         )
 
     def investigate_with_agent(self, insight: str) -> str:
@@ -130,7 +130,11 @@ class InsightAgent:
         self.memory.save_chat_history_to_file(self.chat_history, user_id="default")
 
         # Return each bullet as its own string
-        return [line.strip() for line in response.content.splitlines() if line.strip().startswith("•") or line.strip().startswith("-")]
+        return [
+            line.strip()
+            for line in response.content.splitlines()
+            if line.strip().startswith("•") or line.strip().startswith("-")
+        ]
 
     def explain_insight(self, insight: str) -> str:
         prompt = f"""
@@ -164,51 +168,55 @@ class InsightAgent:
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
         category: Optional[str] = None,
-        verbose: bool = False,
+        verbose: bool = True,
     ) -> str:
         if query is None:
-            query = (
-                f"Summarize recent revenue trends for {category}"
-                if category
-                else "Summarize recent revenue trends, considering all revenue categories"
-            )
+            if category:
+                query = """
+                    Summarize recent revenue trends for {category}.
+                    Are there new sub_categories that are causing the trend?
+                """
+            else:
+                query = """
+                    Summarize recent revenue trends overall.
+                    Are there new categories that are causing the trend?
+                """
 
-        retrieved_docs = self.vectorstore.similarity_search(query, k=10)
-
-        if category:
-            other_categories_query = "Summarize recent revenue trends"
-            other_docs = self.vectorstore.similarity_search(other_categories_query, k=5)
-            all_docs = retrieved_docs + [
-                doc for doc in other_docs if doc not in retrieved_docs
-            ]
-        else:
-            all_docs = retrieved_docs
+        all_docs = self.vectorstore.similarity_search(query, k=10)
 
         output = []
         final_insights = []
 
-        if all_docs:
-            output.append("📊 Historical Context:")
-            docs_by_category = {}
-            for doc in all_docs:
-                cat = doc.metadata.get("category", "All")
-                docs_by_category.setdefault(cat, []).append(doc)
+        # --- Historical Context ---
+        print("📚 I am analyzing historical context from revenue documents...")
+        output.append("📚 I am analyzing historical context from revenue documents...")
 
-            for cat, docs in docs_by_category.items():
-                output.append(f"\n{cat}:")
-                for doc in docs[:3]:
-                    period = f"{doc.metadata.get('start_date')} to {doc.metadata.get('end_date')}"
-                    output.append(
-                        f"- {period}: {doc.page_content.strip().splitlines()[0]}"
-                    )
+        docs_by_category = {}
+        for doc in all_docs:
+            cat = doc.metadata.get("category", "All")
+            docs_by_category.setdefault(cat, []).append(doc)
 
-            historical_insights = self.analyze_context_and_generate_insights(all_docs)
-            if historical_insights:
-                output.append("\n💭 Historical Insights:")
-                output.extend(historical_insights)
+        for cat, docs in docs_by_category.items():
+            output.append(f"\nCategory: {cat}")
+            for doc in docs[:3]:
+                period = f"{doc.metadata.get('start_date')} to {doc.metadata.get('end_date')}"
+                first_line = doc.page_content.strip().splitlines()[0]
+                output.append(f"- {period}: {first_line}")
 
+        historical_insights = self.analyze_context_and_generate_insights(all_docs)
+        print(f"📌 Some insights include:\n{historical_insights}")
+        output.append("\n📌 Some insights include:")
+        output.extend(historical_insights)
+
+        # --- Current Period Analysis ---
         if start_date and end_date:
-            output.append("\n🧪 Current Period Analysis:")
+            print(
+                f"📆 Now I am taking a look at recent trends from {start_date} to {end_date}..."
+            )
+            output.append(
+                f"\n📆 Now I am taking a look at recent trends from {start_date} to {end_date}..."
+            )
+
             summary = summarize_date_range(
                 df=self.raw_transactions_df,
                 start_date=start_date,
@@ -217,10 +225,9 @@ class InsightAgent:
             )
 
             insights = [
-                f"💡 {category or 'Overall'} revenue performance: "
-                f"${summary['total_revenue']:.2f} total, "
-                f"${summary['average_daily_revenue']:.2f}/day average "
-                f"across {summary['num_transactions']} transactions."
+                f"💡 {category or 'Overall'} revenue performance: ${summary['total_revenue']:.2f} total from {start_date} to {end_date}, "
+                f"${summary['average_daily_revenue']:.2f}/day average from {start_date} to {end_date}, "
+                f"across {summary['num_transactions']} transactions from {start_date} to {end_date}."
             ]
 
             anomalies = detect_anomalies(
@@ -232,93 +239,163 @@ class InsightAgent:
                         f"🚨 Revenue spike on {a['date']}: ${a['total_revenue']:.2f} (z = {a['z_score']:.2f})"
                     )
 
-            month_comparison = self.compare_current_month_to_previous_month(
-                self.raw_transactions_df, category
+            insights.append(
+                f"📈 {self.compare_current_month_to_previous_month(self.raw_transactions_df, start_date, end_date, category)}"
             )
-            week_comparison = self.compare_to_previous_week(
-                self.raw_transactions_df, start_date, end_date, category
+
+            print(
+                f"🧠 Here are some insights and things I would like to investigate:\n{insights}"
             )
-            insights.append(f"📈 {month_comparison}")
-            insights.append(f"📈 {week_comparison}")
+            output.append(
+                "\n🧠 Here are some insights and things I would like to investigate:"
+            )
+            output.extend(insights)
 
             all_insights_with_explanations = []
+            questions = []
 
             for insight in insights:
-                output.append(f"\n🧠 Insight:\n{insight}")
+                output.append(f"\n🔍 Insight:\n{insight}")
+
                 try:
-                    # 1. LLM explanation
+                    print(f"💬 Attempting to explain: {insight}")
                     explanation = self.explain_insight(insight)
                     output.append(f"🤖 Explanation:\n{explanation}")
                     all_insights_with_explanations.append(
                         f"• {insight}\n  → {explanation}"
                     )
 
-                    # 2. Attempt tool-based investigation using LangChain agent
-                    agent_reasoning = self.investigate_with_agent(insight)
-                    output.append(f"🧠 Agent Investigation:\n{agent_reasoning}")
-
-                    # 3. Try to extract a question from explanation
-                    lines = explanation.splitlines()
-                    for line in lines:
-                        if line.strip().lower().startswith("1. question to answer"):
+                    # Try to extract question
+                    for line in explanation.splitlines():
+                        if line.lower().startswith("1. question to answer"):
                             question = line.split(":", 1)[-1].strip()
                             if question:
-                                # inside your insight loop
-                                self.store_question(
+                                questions.append(question)
+                                self.memory.store_question(
                                     question=question,
                                     insight_context=insight,
                                     proposed_answer=explanation,
                                     source="agent",
                                 )
 
+                    print(
+                        f"🧪 Now I will attempt to investigate using LangChain tools..."
+                    )
+                    print(f"→ Function: investigate_with_agent(insight)")
+                    agent_reasoning = self.investigate_with_agent(insight)
+                    output.append(f"🧠 Agent Investigation:\n{agent_reasoning}")
+
                 except Exception as e:
                     output.append(f"⚠️ Could not explain insight due to error: {e}")
 
-            summary_prompt = f"""
-            You're a senior analyst reviewing insights and their possible explanations.
+            # --- Summary Phase ---
+            print("🧾 Now summarizing insights and highlighting top takeaways...")
 
-            Here is a list of insights and hypotheses:
+            top_doc_summaries = "\n\n".join(
+                f"[{doc.metadata.get('start_date')} to {doc.metadata.get('end_date')} | {doc.metadata.get('category', 'All')}]\n{doc.page_content}"
+                for doc in all_docs[:5]
+            )
+
+            summary_prompt = f"""
+            You're a senior analyst reviewing insights and their possible explanations for a climbing gym.
+
+            Here is context from the most relevant revenue documents:
+            {top_doc_summaries}
+
+            And here is a list of LLM-generated insights and hypotheses:
             {chr(10).join(all_insights_with_explanations)}
 
             Now do the following:
-            1. Pick the top 3-5 most important or actionable insights.
+            1. Pick the 3-5 most important or actionable insights.
             2. Summarize them in plain English with short titles.
             3. List any unanswered or weakly explained questions that may need human review.
 
             Format as:
             - 📌 Title: Brief Summary
-              - Explanation: ...
-              - Follow-up Question: ...
+            - Explanation: ...
+            - Follow-up Question: ...
 
-            Please always include dates, date ranges, and categories.
+            Include dates, date ranges, and categories.
             """
             summary_response = self.llm.invoke(summary_prompt).content
+            # 🆕 Store follow-up questions BEFORE trying to answer any
+            existing_questions = {q["question"] for q in self.memory.questions_log}
+            for line in summary_response.splitlines():
+                if "Follow-up Question:" in line:
+                    question = line.split("Follow-up Question:", 1)[-1].strip()
+                    if question and question not in existing_questions:
+                        self.memory.store_question(
+                            question=question,
+                            insight_context="summary",
+                            proposed_answer=None,
+                            source="summary"
+                        )
+
             final_insights.append("\n" + "=" * 80 + "\n🔍 Top Takeaways:")
             final_insights.append(summary_response)
 
-            final_insights.append("\n" + "=" * 80 + "\n🔍 Attempting to answer unresolved questions:")
+            # --- Try to answer unresolved questions ---
+            print("❓ Now I have these questions I would like to answer:")
+            final_insights.append(
+                "\n" + "=" * 80 + "\n🔍 Attempting to answer unresolved questions:"
+            )
             unanswered = [q for q in self.memory.questions_log if not q["answered"]]
             if not unanswered:
-                output.append("No unresolved questions found.")
+                final_insights.append("✅ No unresolved questions found.")
             else:
                 for q in unanswered:
                     try:
+                        print(f"→ I will attempt to answer:\n{q['question']}")
+                        print(
+                            f"→ Function: explain_insight(question)\n→ Dates: {start_date} to {end_date}\n→ Categories: {category or 'All'}"
+                        )
                         response = self.explain_insight(q["question"])
-                        output.append(
+                        final_insights.append(
                             f"\n❓ {q['question']}\n💬 Possible Answer: {response}"
                         )
+                        q["final_answer"] = response
                         q["answered"] = True
+                        q["answered_by"] = "agent"
                     except Exception as e:
-                        output.append(
+                        final_insights.append(
                             f"\n❓ {q['question']}\n⚠️ Could not answer due to: {e}"
                         )
 
+        # Save the final summary for use in email formatting
+        self.last_summary_response = summary_response
+        self.chat_history.append(AIMessage(content=summary_response))
+        self.memory.save_chat_history_to_file(self.chat_history, user_id="default")
+        existing_questions = {q["question"] for q in self.memory.questions_log}
+        for line in summary_response.splitlines():
+            if "Follow-up Question:" in line:
+                question = line.split("Follow-up Question:", 1)[-1].strip()
+                if question and question not in existing_questions:
+                    self.memory.store_question(
+                        question=question,
+                        insight_context="summary",
+                        proposed_answer=None,
+                        source="summary"
+                    )
+
+        # Try to answer newly stored summary questions right away
+        # for q in self.memory.questions_log:
+        #     if not q["answered"] and q["source"] == "summary":
+        #         try:
+        #             print(f"→ Auto-answering summary question:\n{q['question']}")
+        #             response = self.explain_insight(q["question"])
+        #             q["final_answer"] = response
+        #             q["answered"] = True
+        #             q["answered_by"] = "agent"
+        #         except Exception as e:
+        #             print(f"⚠️ Could not auto-answer: {e}")
         if verbose:
-            return "\n".join(output) + "\n" + "\n".join(final_insights)
+            return "\n".join(output) + "\n" + "\n".join(final_insights) + "\n" 
         else:
             return "\n".join(final_insights)
 
-    def answer_question(self, question_text: str, answer: str, answered_by: str = "agent"):
+    def answer_question(
+        self, question_text: str, answer: str, answered_by: str = "agent"
+    ):
         for q in self.memory.questions_log:
             if q["question"] == question_text:
                 q["final_answer"] = answer
@@ -330,12 +407,9 @@ class InsightAgent:
         open_qs = [q for q in self.memory.questions_log if not q["answered"]]
         closed_qs = [q for q in self.memory.questions_log if q["answered"]]
 
-        return {
-            "open_questions": open_qs,
-            "answered_questions": closed_qs
-        }
-    
-    def compare_to_previous_week(self, df, start_date, end_date, category=None):    
+        return {"open_questions": open_qs, "answered_questions": closed_qs}
+
+    def compare_to_previous_week(self, df, start_date, end_date, category=None):
         # Ensure start_date and end_date are datetime objects
         if isinstance(start_date, str):
             start_date = pd.to_datetime(start_date)
@@ -344,29 +418,7 @@ class InsightAgent:
         prev_start = (start_date - timedelta(days=7)).strftime("%Y-%m-%d")
         prev_end = (start_date - timedelta(days=1)).strftime("%Y-%m-%d")
         previous = summarize_date_range(df, prev_start, prev_end, category)
-        current = summarize_date_range(df, start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d"), category)
-
-        delta = current["total_revenue"] - previous["total_revenue"]
-        pct_change = (delta / previous["total_revenue"] * 100) if previous["total_revenue"] > 0 else 0
-
-        direction = "increased" if pct_change > 0 else "decreased"
-        insight = (
-            f"{category or 'Overall'} revenue {direction} by {abs(pct_change):.1f}% "
-            f"compared to the previous week (${previous['total_revenue']:.2f} → ${current['total_revenue']:.2f})."
-        )
-        return insight
-
-    def compare_current_month_to_previous_month(self, df, category=None):
-        max_date = pd.to_datetime(datetime.now().strftime("%Y-%m-%d"))
-        day_of_month = max_date.day
-        end_date = pd.to_datetime(max_date) - pd.DateOffset(months=1)
-        start_date = (end_date - pd.DateOffset(days=day_of_month)).replace(day=1)
-        end_date = pd.to_datetime(max_date)
-
         current = summarize_date_range(
-            df, start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d"), category
-        )
-        previous = summarize_date_range(
             df, start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d"), category
         )
 
@@ -379,21 +431,50 @@ class InsightAgent:
 
         direction = "increased" if pct_change > 0 else "decreased"
         insight = (
-            f"{category or 'Overall'} revenue {direction} by {abs(pct_change):.1f}% "
-            f"compared to the previous week (${previous['total_revenue']:.2f} → ${current['total_revenue']:.2f})."
+            f"{category or 'Overall'} revenue {direction} by {abs(pct_change):.1f}% from the {start_date} to {end_date} "
+            f"compared to the previous week (${previous['total_revenue']:.2f} → ${current['total_revenue']:.2f}) from {prev_start} to {prev_end}."
+        )
+        return insight
+
+    def compare_current_month_to_previous_month(
+        self, df, start_date, end_date, category=None
+    ):
+        # Ensure start_date and end_date are pandas Timestamps
+        if isinstance(start_date, str):
+            start_date = pd.to_datetime(start_date)
+        if isinstance(end_date, str):
+            end_date = pd.to_datetime(end_date)
+        max_date = pd.to_datetime(datetime.now().strftime("%Y-%m-%d"))
+        day_of_month = max_date.day
+        if start_date is None:
+            start_date = (end_date - pd.DateOffset(days=day_of_month)).replace(day=1)
+        if end_date is None:
+            end_date = pd.to_datetime(max_date)
+        prev_start = (start_date - pd.DateOffset(months=1)).replace(day=1)
+        prev_end = end_date - pd.DateOffset(months=1)
+
+        current = summarize_date_range(
+            df, start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d"), category
+        )
+        previous = summarize_date_range(
+            df, prev_start.strftime("%Y-%m-%d"), prev_end.strftime("%Y-%m-%d"), category
+        )
+
+        delta = current["total_revenue"] - previous["total_revenue"]
+        pct_change = (
+            (delta / previous["total_revenue"] * 100)
+            if previous["total_revenue"] > 0
+            else 0
+        )
+
+        direction = "increased" if pct_change > 0 else "decreased"
+        insight = (
+            f"{category or 'Overall'} revenue {direction} by {abs(pct_change):.1f}% from the {start_date} to {end_date} "
+            f"compared to the previous month (${previous['total_revenue']:.2f} → ${current['total_revenue']:.2f}) from {prev_start} to {prev_end}."
         )
 
         return insight
 
-    def store_question(self, question: str, source: str = "agent"):
-        self.memory.questions_log.append(
-            {
-                "timestamp": datetime.now(UTC).isoformat(),
-                "question": question,
-                "source": source,
-                "answered": False,
-            }
-        )
 
     def store_feedback(self, user: str, comment: str, source: str = "agent"):
         self.memory.feedback_log.append(
@@ -415,3 +496,50 @@ class InsightAgent:
         {chat_history}
         """
         return self.llm.invoke(prompt).content
+    
+    def format_insight_summary_email(self) -> str:
+        # Collect and format top insights
+        unanswered = [q for q in self.memory.questions_log if not q["answered"]]
+        answered = [q for q in self.memory.questions_log if q["answered"]]
+
+        top_takeaways = []
+        for msg in self.chat_history[-20:]:  # Tail of conversation, adjust as needed
+            if isinstance(msg, AIMessage) and "Top Takeaways" in msg.content:
+                top_takeaways.append(msg.content)
+
+        top_insights = self.last_summary_response.strip() if hasattr(self, "last_summary_response") else "(No top insights recorded.)"
+
+        # Format answered questions
+        answered_qs_formatted = "\n\n".join(
+            f"❓ {q['question']}\n💡 Hypothesis: {q['proposed_answer']}\n✅ Final Answer: {q.get('final_answer', 'N/A')}"
+            for q in answered if q.get("proposed_answer")
+        ) or "(No answered questions yet.)"
+
+        # Format unanswered questions
+        unanswered_qs_formatted = "\n\n".join(
+            f"❓ {q['question']}" for q in unanswered
+        ) or "(No unanswered questions at this time.)"
+
+        summary = f"""
+            🧾 *Weekly Insight Summary*
+
+            I looked at historical context and documents and then took a look at current trends for this month.
+
+            Here are some things that stood out to me:
+            {top_insights}
+
+            I had a few additional questions from that analysis:
+
+            {answered_qs_formatted}
+
+            Please feel free to add any insights to these and let me know if these seem like correct answers.
+
+            I also had a few questions that the team might be a better fit to answer:
+
+            {unanswered_qs_formatted}
+
+            Also feel free to add any new questions to my list. If you label them as "questions", that will help me recognize them.
+            """
+
+        return summary.strip()
+

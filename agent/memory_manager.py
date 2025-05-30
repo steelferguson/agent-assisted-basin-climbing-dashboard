@@ -28,22 +28,24 @@ class MemoryManager:
         source: str = "agent",
         asked_by: Optional[str] = "agent",
         insight_context: Optional[str] = None,
-        proposed_answer: Optional[str] = None
+        proposed_answer: Optional[str] = None,
     ):
-        self.memory.questions_log.append(
-            {
-                "timestamp": datetime.now(UTC).isoformat(),
-                "question": question,
-                "source": source,
-                "asked_by": asked_by,
-                "insight_context": insight_context,
-                "proposed_answer": proposed_answer,
-                "final_answer": None,
-                "answered": False,
-                "answered_by": None,
-            }
-        )
-        self.memory.save_questions_to_file(user_id="default")
+        if question not in [q["question"] for q in self.questions_log]:
+            print(f"Storing question: {question}")
+            self.questions_log.append(
+                {
+                    "timestamp": datetime.now(UTC).isoformat(),
+                    "question": question,
+                    "source": source,
+                    "asked_by": asked_by,
+                    "insight_context": insight_context,
+                    "proposed_answer": proposed_answer,
+                    "final_answer": None,
+                    "answered": False,
+                    "answered_by": None,
+                }
+            )
+            self.save_questions_to_file(user_id="default")
 
     def answer_question(self, question: str, user: str, answer: str):
         for q in self.questions_log:
@@ -109,7 +111,7 @@ class MemoryManager:
 
         # return summary + optionally trim history
         return summary
-    
+
     def save_questions_to_file(self, user_id: str, path: str = "chat_logs/"):
         os.makedirs(path, exist_ok=True)
         with open(f"{path}questions_{user_id}.json", "w") as f:

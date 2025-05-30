@@ -12,6 +12,7 @@ from agent.insight_agent import InsightAgent
 from datetime import datetime
 import pandas as pd
 
+
 def main():
     # Initialize vector store and memory manager
     vectorstore = VectorStoreManager(persist_path="agent/memory_store")
@@ -50,7 +51,9 @@ def main():
 
     today_date = datetime.now().strftime("%Y-%m-%d")
     insights = agent.analyze_trends_and_generate_insights(
-        start_date="2025-05-01", end_date=today_date
+        query="Is revenue increasing or decreasing for New Membership in April and May of 2025(and why)?",
+        start_date="2025-05-01",
+        end_date=today_date,
     )
 
     print("\n📊 Insights Generated:\n")
@@ -60,6 +63,8 @@ def main():
 
     print("\n🧠 Memory Summary:")
     print(agent.memory.summarize_knowledge())
+    print("\n\n\n🧠 Insight Summary Email:")
+    print(agent.format_insight_summary_email())
 
 
 if __name__ == "__main__":

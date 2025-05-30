@@ -7,13 +7,14 @@ from data_pipeline.upload_data import DataUploader
 from agent.data_loader import initialize_data_uploader, load_df_from_s3
 import data_pipeline.config as config
 import json
+from typing import Optional
 
 
 def generate_timeperiod_summary_doc(
     df: pd.DataFrame,
     start_date: str,
     end_date: str,
-    category: str = None,
+    category: Optional[str] = None,
     sub_category: str = None,
 ) -> Document:
     """
@@ -40,12 +41,20 @@ def generate_timeperiod_summary_doc(
     - daily_breakdown: the daily breakdown of revenue for the date range
     - daily_day_passes_breakdown: the daily breakdown of day passes for the date range
     """
+    # Convert start_date to datetime if it's a string
+    if isinstance(start_date, str):
+        start_date = pd.to_datetime(start_date)
+
     summary = summarize_date_range(
         df, start_date, end_date, category=category, sub_category=sub_category
     )
 
     # Build the document content with all summary fields
     lines = [
+        f"This is a revenue summary for {category if category else 'All Categories'} from {start_date} to {end_date}.",
+        f"This has transactions summarized for the month of {start_date.strftime('%B')} and the year of {start_date.strftime('%Y')}",
+        f"It contains information about the total revenue, average daily revenue, highest daily revenue, "
+        f"lowest daily revenue, number of transactions, some trend metrics like moementum and some daily breakdowns of revenue\n\n",
         f"Revenue Summary: {category if category else 'All Categories'}",
         f"Period: {start_date} to {end_date}",
     ]
@@ -77,8 +86,16 @@ def generate_timeperiod_summary_doc(
     return Document(
         page_content=text.strip(),
         metadata={
-            "start_date": summary.get("start_date", start_date),
-            "end_date": summary.get("end_date", end_date),
+            "start_date": (
+                summary.get("start_date", start_date).strftime("%Y-%m-%d")
+                if hasattr(summary.get("start_date", start_date), "strftime")
+                else str(summary.get("start_date", start_date))
+            ),
+            "end_date": (
+                summary.get("end_date", end_date).strftime("%Y-%m-%d")
+                if hasattr(summary.get("end_date", end_date), "strftime")
+                else str(summary.get("end_date", end_date))
+            ),
             "category": summary.get("category", category),
         },
     )
@@ -145,8 +162,14 @@ def generate_most_recent_weekly_docs(df: pd.DataFrame) -> list[Document]:
 
 
 def write_to_disk(doc: Document, filepath: str):
+    # Convert Timestamp objects in metadata to string dates
+    metadata = doc.metadata.copy()
+    for key, value in metadata.items():
+        if isinstance(value, pd.Timestamp):
+            metadata[key] = value.strftime("%Y-%m-%d")
+
     with open(filepath, "w") as f:
-        json.dump({"content": doc.page_content, "metadata": doc.metadata}, f, indent=2)
+        json.dump({"content": doc.page_content, "metadata": metadata}, f, indent=2)
 
 
 def add_to_vectorstore(doc: Document, vectorstore):
@@ -208,6 +231,6 @@ def add_weekly_json_files_to_aws():
 
 
 if __name__ == "__main__":
-    # add_original_json_files_to_aws()
-    add_original_json_files_to_local_folder()
+    add_original_json_files_to_aws()
+    # add_original_json_files_to_local_folder()
     # add_weekly_json_files_to_aws()
