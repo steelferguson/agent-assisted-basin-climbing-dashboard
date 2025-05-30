@@ -56,7 +56,7 @@ def main():
         end_date=today_date,
     )
 
-    print("\n📊 Insights Generated:\n")
+    print("\n📊 Insights Generated")
 
     # 🧠 Prompt user for feedback
     capture_feedback(insights, agent)
@@ -64,7 +64,7 @@ def main():
     print("\n🧠 Memory Summary:")
     print(agent.memory.summarize_knowledge())
     print("\n\n\n🧠 Insight Summary Email:")
-    print(agent.format_insight_summary_email())
+    print(agent.email_summary)
 
 
 if __name__ == "__main__":

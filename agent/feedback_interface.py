@@ -4,6 +4,7 @@ import textwrap
 
 from agent.insight_agent import InsightAgent
 
+
 def pretty_print_insights(insights: str) -> None:
     """
     Nicely formats and prints the insights summary for easier CLI readability.
@@ -13,7 +14,11 @@ def pretty_print_insights(insights: str) -> None:
 
     lines = []
     for line in insights.split("\n"):
-        if line.startswith("['") or line.startswith("[-") or line.strip().startswith("•"):
+        if (
+            line.startswith("['")
+            or line.startswith("[-")
+            or line.strip().startswith("•")
+        ):
             try:
                 items = eval(line)
                 if isinstance(items, list):
@@ -31,6 +36,7 @@ def pretty_print_insights(insights: str) -> None:
 
     print("=" * 100)
 
+
 def capture_feedback(insights: str, agent: InsightAgent):
     """
     Interactive CLI tool to collect feedback for insights.
@@ -45,10 +51,10 @@ def capture_feedback(insights: str, agent: InsightAgent):
 
     print("\n👤 What is your name?")
     user = input().strip()
-    
+
     print("\n💬 Please provide your feedback:")
     comment = input().strip()
-    
+
     if comment:
         agent.store_feedback(user=user, comment=comment)
         print("\n✅ Thank you for your feedback!")
