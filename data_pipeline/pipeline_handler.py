@@ -167,7 +167,7 @@ def upload_new_capitan_membership_data(save_local=False):
 
 
 if __name__ == "__main__":
-    add_new_transactions_to_combined_df()
+    add_new_transactions_to_combined_df(days=3)
     upload_new_capitan_membership_data()
     # df = fetch_stripe_and_square_and_combine(days=147)
     # df.to_csv("data/outputs/stripe_and_square_combined_data_20250527.csv", index=False)

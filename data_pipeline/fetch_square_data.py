@@ -298,6 +298,8 @@ class SquareFetcher:
         if save_json:
             self.save_raw_response({"orders": all_orders}, "square_orders")
         df = self.create_orders_dataframe(all_orders)
+        # drop row if Total Amount is > 1000000
+        df = df[df["Total Amount"] < 1000000] # because of a faulty scan
         df = transform_payments_data(
             df,
             assign_extra_subcategories=None,  # or your custom function if needed
