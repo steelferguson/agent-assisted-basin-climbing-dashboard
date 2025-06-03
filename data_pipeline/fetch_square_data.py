@@ -298,14 +298,14 @@ class SquareFetcher:
         if save_json:
             self.save_raw_response({"orders": all_orders}, "square_orders")
         df = self.create_orders_dataframe(all_orders)
-        # drop row if Total Amount is > 1000000
-        df = df[df["Total Amount"] < 1000000] # because of a faulty scan
         df = transform_payments_data(
             df,
             assign_extra_subcategories=None,  # or your custom function if needed
             data_source_name="Square",
             day_pass_count_logic=None,  # or your custom logic if needed
         )
+        # set Total Amount to 0 if Total Amount is > 100000
+        df.loc[df["Total Amount"] > 100000, "Total Amount"] = 0
         # separate API call for paid invoices through Square
         invoices_df = self.pull_square_invoices(self.square_token, self.location_id)
         df_combined = pd.concat([df, invoices_df], ignore_index=True)

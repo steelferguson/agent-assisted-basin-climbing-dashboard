@@ -323,6 +323,7 @@ def create_dashboard(app):
         df_filtered["date"] = (
             df_filtered["Date"].dt.to_period(selected_timeframe).dt.start_time
         )
+
         total_revenue = df_filtered.groupby("date")["Total Amount"].sum().reset_index()
 
         fig = px.line(
