@@ -45,10 +45,11 @@ class MemoryManager:
                     "final_answer": None,
                     "answered": False,
                     "answered_by": None,
+                    "answers": [],
                 }
             )
             self.save_questions_to_file(user_id="default")
-    
+
     def answer_question(self, question: str, user: str, proposed_answer: str):
         for q in self.questions_log:
             if q["question"] == question and not q["answered"]:
@@ -59,6 +60,10 @@ class MemoryManager:
                         "timestamp": datetime.now(UTC).isoformat(),
                     }
                 )
+                q["answered"] = True
+                q["answered_by"] = user
+                q["final_answer"] = proposed_answer
+                self.save_questions_to_file(user_id="default")
                 return True
         return False
 
@@ -122,5 +127,9 @@ class MemoryManager:
         try:
             with open(f"{path}questions_{user_id}.json", "r") as f:
                 self.questions_log = json.load(f)
+                # Patch missing "answers" key
+                for q in self.questions_log:
+                    if "answers" not in q:
+                        q["answers"] = []
         except FileNotFoundError:
             self.questions_log = []

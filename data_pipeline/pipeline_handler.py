@@ -117,7 +117,9 @@ def replace_days_in_transaction_df_in_s3(days=2, end_date=datetime.datetime.now(
     )
     df_yesterday = uploader.convert_csv_to_df(csv_content_yesterday)
     # Convert to datetime and remove timezone info
-    df_yesterday["Date"] = pd.to_datetime(df_yesterday["Date"], errors='coerce').dt.tz_localize(None)
+    df_yesterday["Date"] = pd.to_datetime(
+        df_yesterday["Date"], errors="coerce"
+    ).dt.tz_localize(None)
     # filter to up to the date up to start_date, and drop rows where Date is NaT
     df_yesterday = df_yesterday[df_yesterday["Date"] < start_date]
 
@@ -219,5 +221,5 @@ if __name__ == "__main__":
     upload_new_capitan_membership_data()
     # df = fetch_stripe_and_square_and_combine(days=147)
     # df.to_csv("data/outputs/stripe_and_square_combined_data_20250527.csv", index=False)
-    # replace_transaction_df_in_s3() 
+    # replace_transaction_df_in_s3()
     # replace_days_in_transaction_df_in_s3(days=4)

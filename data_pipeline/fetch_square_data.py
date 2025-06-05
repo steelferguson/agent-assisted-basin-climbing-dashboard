@@ -308,7 +308,9 @@ class SquareFetcher:
         df.loc[df["Total Amount"] > 100000, "Total Amount"] = 0
         # separate API call for paid invoices through Square
         invoices_df = self.pull_square_invoices(self.square_token, self.location_id)
-        invoices_df["Date"] = pd.to_datetime(invoices_df["Date"], errors='coerce').dt.tz_localize(None)
+        invoices_df["Date"] = pd.to_datetime(
+            invoices_df["Date"], errors="coerce"
+        ).dt.tz_localize(None)
         df_combined = pd.concat([df, invoices_df], ignore_index=True)
         if save_csv:
             df_combined["Date"] = pd.to_datetime(

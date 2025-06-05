@@ -12,7 +12,6 @@ from datetime import datetime
 import pandas as pd
 
 
-
 def main():
     # Initialize vector store and memory manager
     vectorstore = VectorStoreManager(persist_path="agent/memory_store")
@@ -53,7 +52,7 @@ def main():
     query = """
     Is revenue increasing or decreasing for New Membership in May of 2025(and why)?
     """
-    agent.run_insight_agent(query)
+    agent.run_weekly_cycle(query)
     print(agent.email_summary)
 
 
