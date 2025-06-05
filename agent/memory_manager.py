@@ -29,6 +29,7 @@ class MemoryManager:
         asked_by: Optional[str] = "agent",
         insight_context: Optional[str] = None,
         proposed_answer: Optional[str] = None,
+        agent_should_investigate: Optional[bool] = False,
     ):
         if question not in [q["question"] for q in self.questions_log]:
             print(f"Storing question: {question}")
@@ -38,6 +39,7 @@ class MemoryManager:
                     "question": question,
                     "source": source,
                     "asked_by": asked_by,
+                    "agent_should_investigate": agent_should_investigate,
                     "insight_context": insight_context,
                     "proposed_answer": proposed_answer,
                     "final_answer": None,
@@ -46,18 +48,17 @@ class MemoryManager:
                 }
             )
             self.save_questions_to_file(user_id="default")
-
-    def answer_question(self, question: str, user: str, answer: str):
+    
+    def answer_question(self, question: str, user: str, proposed_answer: str):
         for q in self.questions_log:
             if q["question"] == question and not q["answered"]:
                 q["answers"].append(
                     {
                         "user": user,
-                        "answer": answer,
+                        "proposed_answer": proposed_answer,
                         "timestamp": datetime.now(UTC).isoformat(),
                     }
                 )
-                q["answered"] = True
                 return True
         return False
 

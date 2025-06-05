@@ -7,10 +7,10 @@ from agent.data_loader import (
 )
 import data_pipeline.config as config
 import os
-from agent.feedback_interface import capture_feedback
-from agent.insight_agent import InsightAgent
+from agent.insight_agent_refactored import InsightAgent
 from datetime import datetime
 import pandas as pd
+
 
 
 def main():
@@ -50,20 +50,10 @@ def main():
     )
 
     today_date = datetime.now().strftime("%Y-%m-%d")
-    insights = agent.analyze_trends_and_generate_insights(
-        query="Is revenue increasing or decreasing for New Membership in April and May of 2025(and why)?",
-        start_date="2025-05-01",
-        end_date=today_date,
-    )
-
-    print("\n📊 Insights Generated")
-
-    # 🧠 Prompt user for feedback
-    capture_feedback(insights, agent)
-
-    print("\n🧠 Memory Summary:")
-    print(agent.memory.summarize_knowledge())
-    print("\n\n\n🧠 Insight Summary Email:")
+    query = """
+    Is revenue increasing or decreasing for New Membership in May of 2025(and why)?
+    """
+    agent.run_insight_agent(query)
     print(agent.email_summary)
 
 

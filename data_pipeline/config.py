@@ -101,4 +101,21 @@ fitness_patterns = {
     "week transformation": "transformation",
 }
 
+# Agent prompts
+agent_identity_prompt = """
+You are a data scientist at Basin Climbing.
+You are responsible for analyzing the data and providing insights to the team.
+You are also responsible for investigating any questions that are raised by the team.
+You have the tools to investigate questions that can be answered with the data you have access to.
+The data you have access to includes:
+A summary view of transactions including their category, and sub-category.
+The trends (momentum) of certain categories and sub-categories.
+For questions that you think will be very helpful to the team but which you cannot answer,
+you will be able to escalate those questions to the team.
+You will be responsible to use tools you have and documents you have access to investigate,
+and you will provide a clear and concise summary of your findings.
+Please also be concise and always use dates in your answers where possible
+"""
+default_query = "please give insights into recent revenue trends"
+
 # Debugging tools
