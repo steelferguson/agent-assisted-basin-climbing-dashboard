@@ -1,5 +1,9 @@
+import datetime
+import os
 import pandas as pd
 from data_pipeline import upload_data, config
+from data_pipeline.fetch_square_data import SquareFetcher
+import json
 
 # Load both CSVs
 # stripe_df = pd.read_csv('data/outputs/stripe_transaction_data.csv')
@@ -135,7 +139,67 @@ def download_and_convert_for_visual_inspection():
     return
 
 
+def download_and_convert_for_visual_inspection_square(
+    end_date: datetime.datetime = datetime.datetime.now(),
+    start_date: datetime.datetime = datetime.datetime.now() - datetime.timedelta(days=365)
+):
+    print(f"date types are {type(start_date)} and {type(end_date)}")
+    square_token = os.getenv("SQUARE_PRODUCTION_API_TOKEN")
+    square_fetcher = SquareFetcher(square_token, location_id="L37KDMNNG84EA")
+    df_combined = square_fetcher.pull_and_transform_square_payment_data(
+        start_date, end_date, save_json=True, save_csv=True
+    )
+    df_combined["Date"] = pd.to_datetime(
+        df_combined["Date"].astype(str), errors="coerce", utc=True
+    )
+    df_combined["Date"] = df_combined["Date"].dt.tz_localize(None)
+    df_combined["Date"] = df_combined["Date"].dt.strftime("%Y-%m-%d")
+    df_combined.to_csv("data/outputs/square_transaction_data_for_visual_inspection.csv", index=False)
+
+
+def find_duplicate_line_item_uids(square_orders_path='data/raw_data/square_orders.json', max_print=5):
+    """
+    Scan Square orders for line_item uids that appear in more than one order.
+    Print the parent order details for each duplicate uid.
+    """
+    with open(square_orders_path, 'r') as f:
+        data = json.load(f)
+    orders = data.get('orders', [])
+    
+    # Map uid -> list of (order_id, line_item, order)
+    uid_map = {}
+    for order in orders:
+        order_id = order.get('id')
+        for item in order.get('line_items', []):
+            uid = item.get('uid')
+            if uid:
+                uid_map.setdefault(uid, []).append((order_id, item, order))
+    
+    # Find uids that appear in more than one order
+    duplicates = {uid: entries for uid, entries in uid_map.items() if len(entries) > 1}
+    print(f"Found {len(duplicates)} duplicate line_item uids across orders.")
+    for i, (uid, entries) in enumerate(duplicates.items()):
+        print(f"\nDuplicate uid: {uid} (appears in {len(entries)} orders)")
+        for order_id, item, order in entries:
+            print(f"  Order ID: {order_id}")
+            print(f"    Created at: {order.get('created_at')}")
+            print(f"    Customer ID: {order.get('customer_id')}")
+            print(f"    Line item name: {item.get('name')}")
+            print(f"    Variation: {item.get('variation_name')}")
+            print(f"    Amount: {item.get('base_price_money', {}).get('amount')}")
+        if i + 1 >= max_print:
+            print(f"... (showing only first {max_print} duplicate uids)")
+            break
+    return duplicates
+
+
 if __name__ == "__main__":
-    see_transactions_by_date()
+    # see_transactions_by_date()
+    # start date and end date for the month of may 2025
+    # start_date = datetime.datetime(2025, 5, 1)
+    # end_date = datetime.datetime(2025, 5, 31)
+    # download_and_convert_for_visual_inspection_square(start_date, end_date)
     # download_fix_upload_combined_data(column_name="revenue_category", old_value="rental", new_value="Event Booking")
     # download_and_convert_for_visual_inspection()
+
+    find_duplicate_line_item_uids()

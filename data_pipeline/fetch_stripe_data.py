@@ -87,6 +87,8 @@ class StripeFetcher:
         data = []
         transaction_count = 0
         for charge in all_charges:
+            if charge.get("captured") is False:
+                continue
             transaction_count += 1
             created_at = datetime.datetime.fromtimestamp(
                 charge["created"]

@@ -112,6 +112,7 @@ class SquareFetcher:
                         "Total Amount": item_total_money,
                         "Date": created_at,
                         "base_price_amount": _item_pre_tax_money,
+                        "status": order.get("state"),
                     }
                 )
 
@@ -150,8 +151,14 @@ class SquareFetcher:
             result = client.orders.search_orders(body=body)
             if result.is_success():
                 orders = result.body.get("orders", [])
-                orders_list.extend(orders)
-                all_orders.extend(orders)
+                # Only record orders with state 'COMPLETED'
+                # completed_orders = [order for order in orders if order.get('state') == 'COMPLETED']
+                # completed_orders = [order for order in orders if order.get('state') == 'OPEN']
+                completed_orders = [order for order in orders if order.get('state') in ['OPEN', 'COMPLETED'] and "tenders" in order]
+                # completed_orders = [order for order in orders if order.get('state') not in ['OPEN', 'CANCELED', 'DRAFT']]
+                # completed_orders = [order for order in orders if order.get('state') not in ['CANCELED', 'DRAFT']]
+                orders_list.extend(completed_orders)
+                all_orders.extend(completed_orders)
                 cursor = result.body.get("cursor")
                 if cursor:
                     body["cursor"] = cursor  # Update body with cursor for next page
@@ -276,6 +283,42 @@ class SquareFetcher:
             print(f"Error retrieving Square invoices: {result.errors}")
             return []
 
+    @staticmethod
+    def deduplicate_orders_by_id(orders_list):
+        """
+        Remove duplicate orders by their 'id'. Keeps the first occurrence.
+        """
+        seen = set()
+        unique_orders = []
+        for order in orders_list:
+            order_id = order.get('id')
+            if order_id and order_id not in seen:
+                seen.add(order_id)
+                unique_orders.append(order)
+        return unique_orders
+
+    @staticmethod
+    def deduplicate_line_items_by_uid(orders_list):
+        """
+        Remove duplicate line items by their 'uid' and order 'created_at' across all orders. Keeps the first occurrence of each (uid, created_at) pair.
+        Returns a new orders_list with only unique line items by (uid, created_at).
+        """
+        seen = set()
+        new_orders_list = []
+        for order in orders_list:
+            created_at = order.get('created_at')
+            new_line_items = []
+            for item in order.get('line_items', []):
+                uid = item.get('uid')
+                key = (uid, created_at)
+                if uid and key not in seen:
+                    seen.add(key)
+                    new_line_items.append(item)
+            order_copy = order.copy()
+            order_copy['line_items'] = new_line_items
+            new_orders_list.append(order_copy)
+        return new_orders_list
+
     def pull_and_transform_square_payment_data(
         self,
         start_date: datetime.datetime,
@@ -295,6 +338,13 @@ class SquareFetcher:
         all_orders = self.pull_square_payments_data_raw(
             self.square_token, self.location_id, end_time, begin_time, limit
         )
+        print(f"Orders before deduplication: {len(all_orders)}")
+        # Deduplicate orders by id before further processing
+        all_orders = self.deduplicate_orders_by_id(all_orders)
+        print(f"Orders after deduplication: {len(all_orders)}")
+        all_orders = self.deduplicate_line_items_by_uid(all_orders)
+        print(f"Orders after deduplication of line items: {len(all_orders)}")
+
         if save_json:
             self.save_raw_response({"orders": all_orders}, "square_orders")
         df = self.create_orders_dataframe(all_orders)
@@ -342,8 +392,10 @@ class SquareFetcher:
 
 if __name__ == "__main__":
     # Get today's date and calculate the start date for the last year
-    end_date = datetime.datetime.now()
-    start_date = end_date - datetime.timedelta(days=365)
+    # end_date = datetime.datetime.now()
+    # start_date = end_date - datetime.timedelta(days=365)
+    start_date = datetime.datetime(2025, 5, 1)
+    end_date = datetime.datetime(2025, 5, 31)
     square_token = os.getenv("SQUARE_PRODUCTION_API_TOKEN")
     square_fetcher = SquareFetcher(square_token, location_id="L37KDMNNG84EA")
     df_combined = square_fetcher.pull_and_transform_square_payment_data(
@@ -354,7 +406,7 @@ if __name__ == "__main__":
     )
     df_combined["Date"] = df_combined["Date"].dt.tz_localize(None)
     df_combined["Date"] = df_combined["Date"].dt.strftime("%Y-%m-%d")
-    df_combined.to_csv("data/outputs/square_transaction_data.csv", index=False)
+    df_combined.to_csv("data/outputs/square_transaction_data_may_last_fixed.csv", index=False)
 
     # upload json as dictionary from local file
     # json_square = json.load(open("data/raw_data/square_orders.json"))
