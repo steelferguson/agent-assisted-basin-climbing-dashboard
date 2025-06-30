@@ -291,11 +291,22 @@ def compare_line_items_csv_vs_json(csv_path, json_path, output_file=None):
     
     # Convert timestamps to comparable format
     df_csv['created_at'] = pd.to_datetime(df_csv['created_at'])
-    df_json['created_at'] = pd.to_datetime(df_json['created_at'])
+    df_csv['created_at'] = df_csv['created_at'].dt.tz_localize(None)
+    df_csv['created_at'] = df_csv['created_at'].dt.strftime('%Y-%m-%d')
+    
+    # Fix the datetime parsing for JSON data by handling Z timezone indicator
+    # Replace Z with +00:00 to make it a standard timezone format
+    df_json['created_at'] = df_json['created_at'].str.replace('Z', '+00:00', regex=False)
+    df_json['created_at'] = pd.to_datetime(df_json['created_at'], errors="coerce")
+    # Convert to string format, handling NaT values
+    df_json['created_at'] = df_json['created_at'].apply(
+        lambda x: x.strftime('%Y-%m-%d') if pd.notna(x) else ''
+    )
     
     # Create matching keys for comparison
-    df_csv['match_key'] = df_csv['created_at'].dt.strftime('%Y-%m-%d %H:%M:%S') + '|' + df_csv['name'].fillna('') + '|' + df_csv['description'].fillna('')
-    df_json['match_key'] = df_json['created_at'].dt.strftime('%Y-%m-%d %H:%M:%S') + '|' + df_json['name'].fillna('') + '|' + df_json['description'].fillna('')
+    df_csv['match_key'] = df_csv['created_at'] + '|' + df_csv['name'].fillna('') 
+    df_json['match_key'] = df_json['created_at'] + '|' + df_json['name'].fillna('') 
+    df_json.to_csv('data/outputs/square_ui_json_transformed_temp.csv', index=False)
     
     # Find items in JSON but not in CSV
     csv_keys = set(df_csv['match_key'])
@@ -307,6 +318,8 @@ def compare_line_items_csv_vs_json(csv_path, json_path, output_file=None):
     print(f"\n=== COMPARISON RESULTS ===")
     print(f"Items in JSON but not in CSV: {len(in_json_not_csv)}")
     print(f"Items in CSV but not in JSON: {len(in_csv_not_json)}")
+    print(f"Items in CSV but not in JSON: {in_csv_not_json}")
+    print(f"Items in JSON but not in CSV: {in_json_not_csv}")
     
     # Get detailed info for items in JSON but not CSV
     if in_json_not_csv:
@@ -353,7 +366,107 @@ def compare_line_items_csv_vs_json(csv_path, json_path, output_file=None):
     }
 
 
+def debug_specific_order(json_path, target_order_id):
+    """
+    Debug function to check a specific order's data extraction
+    """
+    with open(json_path, 'r') as f:
+        json_data = json.load(f)
+    
+    # Find the specific order
+    target_order = None
+    for order in json_data.get('orders', []):
+        if order.get('id') == target_order_id:
+            target_order = order
+            break
+    
+    if not target_order:
+        print(f"Order {target_order_id} not found!")
+        return
+    
+    print(f"Found order: {target_order_id}")
+    print(f"Raw created_at: {target_order.get('created_at')}")
+    print(f"Raw state: {target_order.get('state')}")
+    print(f"Number of line items: {len(target_order.get('line_items', []))}")
+    
+    # Simulate the extraction logic
+    order_id = target_order.get('id')
+    created_at = target_order.get('created_at')
+    state = target_order.get('state')
+    
+    print(f"Extracted order_id: {order_id}")
+    print(f"Extracted created_at: {created_at}")
+    print(f"Extracted state: {state}")
+    
+    # Test datetime parsing
+    if created_at:
+        try:
+            parsed_date = pd.to_datetime(created_at, utc=True, errors="coerce")
+            print(f"Parsed date: {parsed_date}")
+            if pd.notna(parsed_date):
+                formatted_date = parsed_date.strftime('%Y-%m-%d')
+                print(f"Formatted date: {formatted_date}")
+            else:
+                print("Date parsing failed - result is NaT")
+        except Exception as e:
+            print(f"Date parsing error: {e}")
+    else:
+        print("No created_at field found in order")
+
+
+def test_datetime_parsing():
+    """
+    Test function to debug datetime parsing issues
+    """
+    test_date = "2025-05-28T19:00:27Z"
+    print(f"Original date string: {test_date}")
+    
+    # Test 1: Direct parsing
+    try:
+        parsed1 = pd.to_datetime(test_date)
+        print(f"Direct parsing: {parsed1}")
+    except Exception as e:
+        print(f"Direct parsing failed: {e}")
+    
+    # Test 2: With utc=True
+    try:
+        parsed2 = pd.to_datetime(test_date, utc=True)
+        print(f"With utc=True: {parsed2}")
+    except Exception as e:
+        print(f"With utc=True failed: {e}")
+    
+    # Test 3: With format='ISO8601'
+    try:
+        parsed3 = pd.to_datetime(test_date, format='ISO8601')
+        print(f"With format='ISO8601': {parsed3}")
+    except Exception as e:
+        print(f"With format='ISO8601' failed: {e}")
+    
+    # Test 4: Replace Z with +00:00
+    try:
+        modified_date = test_date.replace('Z', '+00:00')
+        print(f"Modified date: {modified_date}")
+        parsed4 = pd.to_datetime(modified_date)
+        print(f"After Z replacement: {parsed4}")
+    except Exception as e:
+        print(f"After Z replacement failed: {e}")
+    
+    # Test 5: Using str.replace method
+    try:
+        import pandas as pd
+        series = pd.Series([test_date])
+        modified_series = series.str.replace('Z', '+00:00', regex=False)
+        print(f"Series after replacement: {modified_series.iloc[0]}")
+        parsed5 = pd.to_datetime(modified_series)
+        print(f"Series parsing: {parsed5.iloc[0]}")
+    except Exception as e:
+        print(f"Series parsing failed: {e}")
+
+
 if __name__ == "__main__":
+    # Test datetime parsing
+    test_datetime_parsing()
+    
     # see_transactions_by_date()
     # start date and end date for the month of may 2025
     # start_date = datetime.datetime(2025, 5, 1)
@@ -362,7 +475,13 @@ if __name__ == "__main__":
     # download_fix_upload_combined_data(column_name="revenue_category", old_value="rental", new_value="Event Booking")
     # download_and_convert_for_visual_inspection()
 
-    find_duplicate_line_item_uids()
-    square_ui_csv_location = 'data/outputs/orders-2025-05-25-2025-05-31.csv'
-    square_ui_json_location = 'data/raw_data/square_orders.json'
-    print(compare_line_items_csv_vs_json(square_ui_csv_location, square_ui_json_location))
+    # find_duplicate_line_item_uids()
+    # square_ui_csv_location = 'data/outputs/orders-2025-05-25-2025-05-31.csv'
+    # square_ui_json_location = 'data/raw_data/square_orders.json'
+    # result = compare_line_items_csv_vs_json(square_ui_csv_location, square_ui_json_location)
+    # json_not_csv = result['missing_from_csv_details']
+    # json_not_csv.to_csv('data/outputs/square_ui_json_not_csv.csv', index=False)
+    # csv_not_json = result['missing_from_json_details']
+    # csv_not_json.to_csv('data/outputs/square_ui_csv_not_json.csv', index=False)
+
+    # debug_specific_order(square_ui_json_location, "nhNiiDqDomyQgIoY3JI6vqqeV")
