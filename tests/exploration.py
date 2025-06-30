@@ -193,6 +193,166 @@ def find_duplicate_line_item_uids(square_orders_path='data/raw_data/square_order
     return duplicates
 
 
+def transform_orders_csv_to_line_items(orders_csv_path, output_csv_path=None):
+    """
+    Transform the orders CSV into a per-line-item format.
+    Each row in the output will represent a single line item with its order details.
+    
+    Parameters:
+    orders_csv_path: Path to the original orders CSV
+    output_csv_path: Optional path to save the transformed CSV
+    
+    Returns:
+    pd.DataFrame: DataFrame with one row per line item
+    """
+    # Read the CSV
+    df = pd.read_csv(orders_csv_path)
+    
+    # Convert Order Date to datetime
+    df['Order Date'] = pd.to_datetime(df['Order Date'], format='%Y/%m/%d')
+    
+    # Create a line item DataFrame
+    line_items = []
+    for _, row in df.iterrows():
+        # Create a line item entry
+        line_item = {
+            'created_at': row['Order Date'],
+            'name': row['Item Name'],
+            'description': row['Item Variation'],
+            'quantity': row['Item Quantity'],
+            'unit_price': row['Item Price'],
+            'total_price': row['Item Total Price'],
+            'sku': row['Item SKU'],
+            'modifiers': row['Item Modifiers'],
+            'order_subtotal': row['Order Subtotal'],
+            'order_tax': row['Order Tax Total'],
+            'order_total': row['Order Total']
+        }
+        line_items.append(line_item)
+    
+    # Convert to DataFrame
+    df_line_items = pd.DataFrame(line_items)
+    
+    # Save if output path provided
+    if output_csv_path:
+        df_line_items.to_csv(output_csv_path, index=False)
+        print(f"Transformed line items saved to {output_csv_path}")
+    
+    return df_line_items
+
+
+def compare_line_items_csv_vs_json(csv_path, json_path, output_file=None):
+    """
+    Compare line items between a CSV file and a JSON orders file.
+    Now works with both the original Square CSV format and the transformed line items format.
+    
+    Parameters:
+    csv_path: Path to CSV file with line items
+    json_path: Path to JSON file with orders
+    output_file: Optional path to save detailed comparison results
+    """
+    # First, transform the CSV if it's in the original format
+    try:
+        df_csv = pd.read_csv(csv_path)
+        if 'Order Date' in df_csv.columns:  # Original format detected
+            print("Original orders CSV format detected, transforming to line items...")
+            df_csv = transform_orders_csv_to_line_items(csv_path)
+    except pd.errors.EmptyDataError:
+        print("Error reading CSV file")
+        return
+    
+    print(f"Loaded {len(df_csv)} items from CSV")
+    
+    # Load JSON data
+    with open(json_path, 'r') as f:
+        json_data = json.load(f)
+    
+    # Extract line items from JSON
+    json_items = []
+    for order in json_data.get('orders', []):
+        order_id = order.get('id')
+        created_at = order.get('created_at')
+        state = order.get('state')
+        
+        for item in order.get('line_items', []):
+            json_items.append({
+                'order_id': order_id,
+                'created_at': created_at,
+                'state': state,
+                'name': item.get('name'),
+                'description': item.get('variation_name'),
+                'uid': item.get('uid'),
+                'quantity': item.get('quantity', '1'),
+                'total_amount': item.get('total_money', {}).get('amount', 0) / 100 if item.get('total_money') else 0
+            })
+    
+    df_json = pd.DataFrame(json_items)
+    print(f"Loaded {len(df_json)} items from JSON")
+    
+    # Convert timestamps to comparable format
+    df_csv['created_at'] = pd.to_datetime(df_csv['created_at'])
+    df_json['created_at'] = pd.to_datetime(df_json['created_at'])
+    
+    # Create matching keys for comparison
+    df_csv['match_key'] = df_csv['created_at'].dt.strftime('%Y-%m-%d %H:%M:%S') + '|' + df_csv['name'].fillna('') + '|' + df_csv['description'].fillna('')
+    df_json['match_key'] = df_json['created_at'].dt.strftime('%Y-%m-%d %H:%M:%S') + '|' + df_json['name'].fillna('') + '|' + df_json['description'].fillna('')
+    
+    # Find items in JSON but not in CSV
+    csv_keys = set(df_csv['match_key'])
+    json_keys = set(df_json['match_key'])
+    
+    in_json_not_csv = json_keys - csv_keys
+    in_csv_not_json = csv_keys - json_keys
+    
+    print(f"\n=== COMPARISON RESULTS ===")
+    print(f"Items in JSON but not in CSV: {len(in_json_not_csv)}")
+    print(f"Items in CSV but not in JSON: {len(in_csv_not_json)}")
+    
+    # Get detailed info for items in JSON but not CSV
+    if in_json_not_csv:
+        print(f"\n=== ITEMS IN JSON BUT NOT IN CSV ===")
+        missing_from_csv = df_json[df_json['match_key'].isin(in_json_not_csv)]
+        for _, row in missing_from_csv.head(10).iterrows():
+            print(f"Order: {row['order_id']} | State: {row['state']} | Time: {row['created_at']} | Name: {row['name']} | Desc: {row['description']} | Amount: ${row['total_amount']:.2f}")
+        if len(missing_from_csv) > 10:
+            print(f"... and {len(missing_from_csv) - 10} more items")
+    
+    # Get detailed info for items in CSV but not JSON
+    if in_csv_not_json:
+        print(f"\n=== ITEMS IN CSV BUT NOT IN JSON ===")
+        missing_from_json = df_csv[df_csv['match_key'].isin(in_csv_not_json)]
+        for _, row in missing_from_json.head(10).iterrows():
+            print(f"Time: {row['created_at']} | Name: {row['name']} | Desc: {row['description']} | Total: ${row['total_price']:.2f}")
+        if len(missing_from_json) > 10:
+            print(f"... and {len(missing_from_json) - 10} more items")
+    
+    # Save detailed results if output file specified
+    if output_file:
+        results = {
+            'summary': {
+                'csv_total_items': len(df_csv),
+                'json_total_items': len(df_json),
+                'in_json_not_csv_count': len(in_json_not_csv),
+                'in_csv_not_json_count': len(in_csv_not_json)
+            },
+            'missing_from_csv': missing_from_csv.to_dict('records') if in_json_not_csv else [],
+            'missing_from_json': missing_from_json.to_dict('records') if in_csv_not_json else []
+        }
+        
+        with open(output_file, 'w') as f:
+            json.dump(results, f, indent=2, default=str)
+        print(f"\nDetailed results saved to {output_file}")
+    
+    return {
+        'csv_total': len(df_csv),
+        'json_total': len(df_json),
+        'in_json_not_csv': len(in_json_not_csv),
+        'in_csv_not_json': len(in_csv_not_json),
+        'missing_from_csv_details': missing_from_csv if in_json_not_csv else pd.DataFrame(),
+        'missing_from_json_details': missing_from_json if in_csv_not_json else pd.DataFrame()
+    }
+
+
 if __name__ == "__main__":
     # see_transactions_by_date()
     # start date and end date for the month of may 2025
@@ -203,3 +363,6 @@ if __name__ == "__main__":
     # download_and_convert_for_visual_inspection()
 
     find_duplicate_line_item_uids()
+    square_ui_csv_location = 'data/outputs/orders-2025-05-25-2025-05-31.csv'
+    square_ui_json_location = 'data/raw_data/square_orders.json'
+    print(compare_line_items_csv_vs_json(square_ui_csv_location, square_ui_json_location))

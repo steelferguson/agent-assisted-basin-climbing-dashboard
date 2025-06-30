@@ -394,7 +394,7 @@ if __name__ == "__main__":
     # Get today's date and calculate the start date for the last year
     # end_date = datetime.datetime.now()
     # start_date = end_date - datetime.timedelta(days=365)
-    start_date = datetime.datetime(2025, 5, 1)
+    start_date = datetime.datetime(2025, 5, 25)
     end_date = datetime.datetime(2025, 5, 31)
     square_token = os.getenv("SQUARE_PRODUCTION_API_TOKEN")
     square_fetcher = SquareFetcher(square_token, location_id="L37KDMNNG84EA")
