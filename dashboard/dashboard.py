@@ -219,10 +219,6 @@ def create_dashboard(app):
             ),
             dcc.Graph(id="membership-timeline-chart"),
             # Members over time chart section
-            html.H1(
-                children="Members over time",
-                style={"color": "#213B3F", "marginTop": "30px"},
-            ),
             dcc.Graph(id="members-timeline-chart"),
             # Youth Teams section
             html.H1(
