@@ -218,6 +218,12 @@ def create_dashboard(app):
                 ]
             ),
             dcc.Graph(id="membership-timeline-chart"),
+            # Members over time chart section
+            html.H1(
+                children="Members over time",
+                style={"color": "#213B3F", "marginTop": "30px"},
+            ),
+            dcc.Graph(id="members-timeline-chart"),
             # Youth Teams section
             html.H1(
                 children="Youth Teams Membership",
@@ -674,6 +680,121 @@ def create_dashboard(app):
             height=600,
             xaxis_title="Date",
             yaxis_title="Number of Active Memberships",
+            hovermode="x unified",
+        )
+        return fig
+
+    # Callback for Members Timeline chart
+    @app.callback(
+        Output("members-timeline-chart", "figure"),
+        [
+            Input("frequency-toggle", "value"),
+            Input("size-toggle", "value"),
+            Input("category-toggle", "value"),
+            Input("status-toggle", "value"),
+        ],
+    )
+    def update_members_timeline_chart(
+        frequency_toggle, size_toggle, category_toggle, status_toggle
+    ):
+        # Load the processed members DataFrame
+        df = df_members
+
+        # Filter by status
+        df = df[df["status"].isin(status_toggle)]
+        df["end_date"] = pd.to_datetime(df["end_date"], errors="coerce")
+        df["end_date"] = df["end_date"].dt.tz_localize(None)
+        df["start_date"] = pd.to_datetime(df["start_date"], errors="coerce")
+        df["start_date"] = df["start_date"].dt.tz_localize(None)
+
+        # Filter by frequency and size
+        df = df[df["frequency"].isin(frequency_toggle)]
+        df = df[df["size"].isin(size_toggle)]
+
+        # Filter by category toggles (if you want to keep these)
+        if "include_bcf" not in category_toggle:
+            df = df[~df["is_bcf"]]
+        if "founder" not in category_toggle:
+            df = df[~df["is_founder"]]
+        if "college" not in category_toggle:
+            df = df[~df["is_college"]]
+        if "corporate" not in category_toggle:
+            df = df[~df["is_corporate"]]
+        if "mid_day" not in category_toggle:
+            df = df[~df["is_mid_day"]]
+        if "fitness_only" not in category_toggle:
+            df = df[~df["is_fitness_only"]]
+        if "has_fitness_addon" not in category_toggle:
+            df = df[~df["has_fitness_addon"]]
+        if "team_dues" not in category_toggle:
+            df = df[~df["is_team_dues"]]
+        if "90_for_90" not in category_toggle:
+            df = df[~df["is_90_for_90"]]
+        if "not_special" not in category_toggle:
+            df = df[~df["is_not_in_special"]]
+
+        # Create a date range from the earliest start date to today
+        min_date = df["start_date"].min()
+        max_date = pd.Timestamp.now()
+        date_range = pd.date_range(start=min_date, end=max_date, freq="D")
+
+        # Calculate active members for each day by frequency
+        daily_counts = []
+        for date in date_range:
+            active = df[(df["start_date"] <= date) & (df["end_date"] >= date)]
+            counts = active["frequency"].value_counts().to_dict()
+            daily_counts.append(
+                {
+                    "date": date,
+                    **{freq: counts.get(freq, 0) for freq in frequency_toggle},
+                }
+            )
+
+        daily_counts_df = pd.DataFrame(daily_counts)
+
+        # Plot
+        fig = go.Figure()
+        frequency_colors = {
+            "bi_weekly": "#1f77b4",
+            "monthly": "#ff7f0e",
+            "annual": "#2ca02c",
+            "prepaid_3mo": "#8B4229",
+            "prepaid_6mo": "#BAA052",
+            "prepaid_12mo": "#96A682",
+            "unknown": "#1A2E31",
+        }
+        for freq in frequency_toggle:
+            if freq in daily_counts_df.columns:
+                fig.add_trace(
+                    go.Scatter(
+                        x=daily_counts_df["date"],
+                        y=daily_counts_df[freq],
+                        mode="lines",
+                        name=freq.replace("_", " ").title(),
+                        stackgroup="one",
+                        line=dict(color=frequency_colors.get(freq, None)),
+                    )
+                )
+
+        # Add total line
+        total = daily_counts_df[frequency_toggle].sum(axis=1)
+        fig.add_trace(
+            go.Scatter(
+                x=daily_counts_df["date"],
+                y=total,
+                mode="lines",
+                name="Total",
+                line=dict(color="#222222", width=2, dash="dash"),
+                hovertemplate="Total: %{y}<extra></extra>",
+            )
+        )
+
+        fig.update_layout(
+            title="Active Members Over Time by Payment Frequency",
+            showlegend=True,
+            height=600,
+            xaxis_title="Date",
+            yaxis_title="Number of Active Members",
             hovermode="x unified",
         )
         return fig
