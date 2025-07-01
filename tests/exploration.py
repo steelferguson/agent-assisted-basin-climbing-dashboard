@@ -463,9 +463,228 @@ def test_datetime_parsing():
         print(f"Series parsing failed: {e}")
 
 
+def compare_two_csvs(csv_path_1, csv_path_2, key_columns=None, column_mapping=None, output_file=None):
+    """
+    Compare two CSV files and show rows in csv_path_2 that are not in csv_path_1.
+    First checks for duplicates in each CSV, then compares without dropping duplicates.
+    
+    Parameters:
+    csv_path_1: Path to first CSV file
+    csv_path_2: Path to second CSV file  
+    key_columns: List of column names to use for comparison (from csv_path_2)
+    column_mapping: Dict mapping csv_path_2 columns to csv_path_1 columns
+    output_file: Optional path to save the result
+    """
+    import pandas as pd
+    df1 = pd.read_csv(csv_path_1)
+    df2 = pd.read_csv(csv_path_2)
+
+    print(f"CSV 1 ({csv_path_1}) columns: {list(df1.columns)}")
+    print(f"CSV 2 ({csv_path_2}) columns: {list(df2.columns)}")
+
+    # If column mapping provided, rename columns in df1 to match df2
+    if column_mapping:
+        df1_renamed = df1.rename(columns=column_mapping)
+        print(f"Renamed CSV 1 columns: {list(df1_renamed.columns)}")
+    else:
+        df1_renamed = df1
+
+    # If no key columns specified, use all common columns
+    if key_columns is None:
+        key_columns = list(set(df1_renamed.columns) & set(df2.columns))
+        if not key_columns:
+            raise ValueError("No common columns to compare on!")
+
+    print(f"Using key columns for comparison: {key_columns}")
+
+    print(f"=== DUPLICATE ANALYSIS ===")
+    print(f"CSV 1 ({csv_path_1}):")
+    print(f"  Total rows: {len(df1_renamed)}")
+    duplicates_1 = df1_renamed[df1_renamed.duplicated(subset=key_columns, keep=False)]
+    print(f"  Duplicate rows: {len(duplicates_1)}")
+    if not duplicates_1.empty:
+        print(f"  Unique duplicate keys: {duplicates_1[key_columns].drop_duplicates().shape[0]}")
+        print("  Sample duplicates:")
+        print(duplicates_1[key_columns].head(5))
+    
+    print(f"\nCSV 2 ({csv_path_2}):")
+    print(f"  Total rows: {len(df2)}")
+    duplicates_2 = df2[df2.duplicated(subset=key_columns, keep=False)]
+    print(f"  Duplicate rows: {len(duplicates_2)}")
+    if not duplicates_2.empty:
+        print(f"  Unique duplicate keys: {duplicates_2[key_columns].drop_duplicates().shape[0]}")
+        print("  Sample duplicates:")
+        print(duplicates_2[key_columns].head(5))
+
+    print(f"\n=== COMPARISON WITHOUT DROPPING DUPLICATES ===")
+    # Merge with indicator to find rows in df2 not in df1 (keeping all duplicates)
+    merged = df2.merge(df1_renamed, on=key_columns, how='left', indicator=True)
+    only_in_df2 = merged[merged['_merge'] == 'left_only']
+
+    print(f"Rows in {csv_path_2} not in {csv_path_1}: {len(only_in_df2)}")
+    if not only_in_df2.empty:
+        print("Sample rows only in CSV 2:")
+        print(only_in_df2[key_columns].head(10))
+        if len(only_in_df2) > 10:
+            print(f"... and {len(only_in_df2) - 10} more rows")
+
+    if output_file:
+        only_in_df2[key_columns].to_csv(output_file, index=False)
+        print(f"Rows only in {csv_path_2} saved to {output_file}")
+
+    return only_in_df2[key_columns]
+
+
+def compare_item_volumes(csv_path_1, csv_path_2, column_mapping=None, output_file=None):
+    """
+    Compare item volumes/quantities between two CSV files.
+    Groups by item characteristics and compares counts to find discrepancies.
+    
+    Parameters:
+    csv_path_1: Path to first CSV file (e.g., Square UI export)
+    csv_path_2: Path to second CSV file (e.g., processed data)
+    column_mapping: Dict mapping csv_path_2 columns to csv_path_1 columns
+    output_file: Optional path to save the comparison results
+    """
+    import pandas as pd
+    df1 = pd.read_csv(csv_path_1)
+    df2 = pd.read_csv(csv_path_2)
+
+    print(f"CSV 1 ({csv_path_1}) columns: {list(df1.columns)}")
+    print(f"CSV 2 ({csv_path_2}) columns: {list(df2.columns)}")
+
+    # If column mapping provided, rename columns in df1 to match df2
+    if column_mapping:
+        df1_renamed = df1.rename(columns=column_mapping)
+        print(f"Renamed CSV 1 columns: {list(df1_renamed.columns)}")
+    else:
+        df1_renamed = df1
+
+    # Define grouping columns (adjust based on your data structure)
+    # These should be columns that uniquely identify an item type
+    grouping_cols = ['Name', 'Date']  # Group by item name and date
+    
+    print(f"\n=== VOLUME COMPARISON BY {grouping_cols} ===")
+    
+    # Count items in each CSV by grouping columns
+    df1_counts = df1_renamed.groupby(grouping_cols).size().reset_index(name='count_csv1')
+    df2_counts = df2.groupby(grouping_cols).size().reset_index(name='count_csv2')
+    
+    print(f"CSV 1 unique item-date combinations: {len(df1_counts)}")
+    print(f"CSV 2 unique item-date combinations: {len(df2_counts)}")
+    
+    # Merge the counts
+    comparison = df1_counts.merge(df2_counts, on=grouping_cols, how='outer', indicator=True)
+    
+    # Fill NaN counts with 0
+    comparison['count_csv1'] = comparison['count_csv1'].fillna(0).astype(int)
+    comparison['count_csv2'] = comparison['count_csv2'].fillna(0).astype(int)
+    
+    # Calculate differences
+    comparison['difference'] = comparison['count_csv2'] - comparison['count_csv1']
+    comparison['abs_difference'] = abs(comparison['difference'])
+    
+    # Categorize the differences
+    comparison['status'] = comparison.apply(lambda row: 
+        'missing_from_csv1' if row['count_csv1'] == 0 and row['count_csv2'] > 0 else
+        'missing_from_csv2' if row['count_csv2'] == 0 and row['count_csv1'] > 0 else
+        'count_mismatch' if row['difference'] != 0 else
+        'match', axis=1)
+    
+    # Summary statistics
+    print(f"\n=== SUMMARY ===")
+    print(f"Total item-date combinations: {len(comparison)}")
+    print(f"Perfect matches: {len(comparison[comparison['status'] == 'match'])}")
+    print(f"Count mismatches: {len(comparison[comparison['status'] == 'count_mismatch'])}")
+    print(f"Missing from CSV 1: {len(comparison[comparison['status'] == 'missing_from_csv1'])}")
+    print(f"Missing from CSV 2: {len(comparison[comparison['status'] == 'missing_from_csv2'])}")
+    
+    # Show items with count mismatches
+    mismatches = comparison[comparison['status'] == 'count_mismatch'].sort_values('abs_difference', ascending=False)
+    if not mismatches.empty:
+        print(f"\n=== COUNT MISMATCHES (showing top 20) ===")
+        print("Item | Date | CSV1 Count | CSV2 Count | Difference")
+        print("-" * 60)
+        for _, row in mismatches.head(20).iterrows():
+            print(f"{row['Name']} | {row['Date']} | {row['count_csv1']} | {row['count_csv2']} | {row['difference']:+d}")
+        if len(mismatches) > 20:
+            print(f"... and {len(mismatches) - 20} more mismatches")
+    
+    # Show items missing from CSV 1
+    missing_from_1 = comparison[comparison['status'] == 'missing_from_csv1'].sort_values('count_csv2', ascending=False)
+    if not missing_from_1.empty:
+        print(f"\n=== ITEMS IN CSV 2 BUT NOT IN CSV 1 (showing top 10) ===")
+        print("Item | Date | Count in CSV 2")
+        print("-" * 40)
+        for _, row in missing_from_1.head(10).iterrows():
+            print(f"{row['Name']} | {row['Date']} | {row['count_csv2']}")
+        if len(missing_from_1) > 10:
+            print(f"... and {len(missing_from_1) - 10} more items")
+    
+    # Show items missing from CSV 2
+    missing_from_2 = comparison[comparison['status'] == 'missing_from_csv2'].sort_values('count_csv1', ascending=False)
+    if not missing_from_2.empty:
+        print(f"\n=== ITEMS IN CSV 1 BUT NOT IN CSV 2 (showing top 10) ===")
+        print("Item | Date | Count in CSV 1")
+        print("-" * 40)
+        for _, row in missing_from_2.head(10).iterrows():
+            print(f"{row['Name']} | {row['Date']} | {row['count_csv1']}")
+        if len(missing_from_2) > 10:
+            print(f"... and {len(missing_from_2) - 10} more items")
+    
+    # Save detailed results if output file specified
+    if output_file:
+        comparison.to_csv(output_file, index=False)
+        print(f"\nDetailed comparison saved to {output_file}")
+    
+    return comparison
+
+
+def get_item_details_for_investigation(csv_path_1, csv_path_2, item_name, date, column_mapping=None):
+    """
+    Get detailed information about a specific item on a specific date from both CSVs.
+    Useful for investigating why counts don't match.
+    
+    Parameters:
+    csv_path_1: Path to first CSV file
+    csv_path_2: Path to second CSV file
+    item_name: Name of the item to investigate
+    date: Date to investigate
+    column_mapping: Dict mapping csv_path_2 columns to csv_path_1 columns
+    """
+    import pandas as pd
+    df1 = pd.read_csv(csv_path_1)
+    df2 = pd.read_csv(csv_path_2)
+
+    # If column mapping provided, rename columns in df1 to match df2
+    if column_mapping:
+        df1_renamed = df1.rename(columns=column_mapping)
+    else:
+        df1_renamed = df1
+
+    print(f"\n=== DETAILED INVESTIGATION: {item_name} on {date} ===")
+    
+    # Get all rows for this item and date from both CSVs
+    item_csv1 = df1_renamed[(df1_renamed['Name'] == item_name) & (df1_renamed['Date'] == date)]
+    item_csv2 = df2[(df2['Name'] == item_name) & (df2['Date'] == date)]
+    
+    print(f"CSV 1: {len(item_csv1)} rows")
+    print(f"CSV 2: {len(item_csv2)} rows")
+    
+    if not item_csv1.empty:
+        print(f"\nCSV 1 details:")
+        print(item_csv1.to_string(index=False))
+    
+    if not item_csv2.empty:
+        print(f"\nCSV 2 details:")
+        print(item_csv2.to_string(index=False))
+    
+    return item_csv1, item_csv2
+
+
 if __name__ == "__main__":
     # Test datetime parsing
-    test_datetime_parsing()
+    # test_datetime_parsing()
     
     # see_transactions_by_date()
     # start date and end date for the month of may 2025
@@ -485,3 +704,28 @@ if __name__ == "__main__":
     # csv_not_json.to_csv('data/outputs/square_ui_csv_not_json.csv', index=False)
 
     # debug_specific_order(square_ui_json_location, "nhNiiDqDomyQgIoY3JI6vqqeV")
+
+    square_ui_csv_location = 'data/outputs/orders-2025-05-25-2025-05-31.csv'
+    square_output_csv_location = 'data/outputs/square_transaction_data_may_last_week.csv'
+    
+    # Define column mapping from Square UI CSV to processed CSV format
+    # Square UI CSV columns -> Processed CSV columns
+    column_mapping = {
+        'Order Date': 'Date',
+        'Item Name': 'Name', 
+        'Item Total Price': 'Total Amount'
+    }
+    
+    # Compare item volumes between the two CSVs
+    volume_comparison = compare_item_volumes(
+        square_ui_csv_location, 
+        square_output_csv_location,
+        column_mapping=column_mapping,
+        output_file='data/outputs/volume_comparison_results.csv'
+    )
+    
+    # Example: Investigate a specific item if there are mismatches
+    # Uncomment and modify the line below to investigate a specific item
+    # get_item_details_for_investigation(square_ui_csv_location, square_output_csv_location, 
+    #                                   "CAPITAN: Day Pass with Gear (Adult 14 and Up)", "2025-05-30", 
+    #                                   column_mapping=column_mapping)
