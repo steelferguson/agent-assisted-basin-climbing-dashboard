@@ -120,7 +120,7 @@ def replace_days_in_transaction_df_in_s3(days=2, end_date=datetime.datetime.now(
     df_yesterday["Date"] = pd.to_datetime(
         df_yesterday["Date"], errors="coerce"
     ).dt.tz_localize(None)
-    # filter to up to the date up to start_date, and drop rows where Date is NaT
+    # filter to up to the start_date, and drop rows where Date is NaT
     df_yesterday = df_yesterday[df_yesterday["Date"] < start_date]
 
     print("combining with previous day's df")
@@ -217,9 +217,10 @@ def upload_new_capitan_membership_data(save_local=False):
 
 
 if __name__ == "__main__":
-    add_new_transactions_to_combined_df()
-    upload_new_capitan_membership_data()
+    # add_new_transactions_to_combined_df()
+    # upload_new_capitan_membership_data()
+
     # df = fetch_stripe_and_square_and_combine(days=147)
     # df.to_csv("data/outputs/stripe_and_square_combined_data_20250527.csv", index=False)
     # replace_transaction_df_in_s3()
-    # replace_days_in_transaction_df_in_s3(days=4)
+    replace_days_in_transaction_df_in_s3(days=60)
