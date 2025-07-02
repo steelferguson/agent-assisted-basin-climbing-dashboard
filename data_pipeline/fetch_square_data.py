@@ -444,14 +444,14 @@ class SquareFetcher:
         # Combine payments and invoices
         df_combined = pd.concat([payments_df, invoices_df], ignore_index=True)
         
+        # Transform Date column to ensure proper formatting
+        df_combined["Date"] = pd.to_datetime(
+            df_combined["Date"].astype(str), errors="coerce", utc=True
+        )
+        df_combined["Date"] = df_combined["Date"].dt.tz_localize(None)
+        df_combined["Date"] = df_combined["Date"].dt.strftime("%Y-%m-%d")
+        
         if save_csv:
-            # Format dates for CSV output
-            df_combined["Date"] = pd.to_datetime(
-                df_combined["Date"].astype(str), errors="coerce", utc=True
-            )
-            df_combined["Date"] = df_combined["Date"].dt.tz_localize(None)
-            df_combined["Date"] = df_combined["Date"].dt.strftime("%Y-%m-%d")
-            
             self.save_data(payments_df, "square_payments_data")
             self.save_data(invoices_df, "square_invoices_data")
             self.save_data(df_combined, "square_payments_and_invoices_combined")
@@ -512,7 +512,7 @@ class SquareFetcher:
                         "Name": name,
                         "Total Amount": split_amount,
                         "Date": created_at,
-                        "base_price_amount": None,
+                        "base_price_amount": item_pre_tax_money,
                         "status": order.get("state"),
                         "payment_id": payment_id,
                         "order_id": order_id,
@@ -623,7 +623,7 @@ if __name__ == "__main__":
     # df_combined["Date"] = df_combined["Date"].dt.strftime("%Y-%m-%d")
     # df_combined.to_csv("data/outputs/square_transaction_data_may_last_fixed.csv", index=False)
 
-    start_date = datetime.datetime(2025, 5, 1)
+    start_date = datetime.datetime(2025, 6, 1)
     end_date = datetime.datetime(2025, 6, 30)
     square_token = os.getenv("SQUARE_PRODUCTION_API_TOKEN")
     square_fetcher = SquareFetcher(square_token, location_id="L37KDMNNG84EA")
@@ -633,14 +633,7 @@ if __name__ == "__main__":
         start_date, end_date, save_json=True, save_csv=True
     )
     
-    # Format dates for final output
-    df_combined["Date"] = pd.to_datetime(
-        df_combined["Date"].astype(str), errors="coerce", utc=True
-    )
-    df_combined["Date"] = df_combined["Date"].dt.tz_localize(None)
-    df_combined["Date"] = df_combined["Date"].dt.strftime("%Y-%m-%d")
-    
-    # Save the final combined dataset
+    # Save the final combined dataset (dates already formatted in the function)
     df_combined.to_csv("data/outputs/square_transaction_data_1h2025.csv", index=False)
     print("Data processing complete!")
 

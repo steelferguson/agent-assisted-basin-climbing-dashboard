@@ -32,6 +32,18 @@ def fetch_stripe_and_square_and_combine(days=2, end_date=datetime.datetime.now()
     )
 
     df_combined = pd.concat([stripe_df, square_df], ignore_index=True)
+    
+    # Standardize date format to datetime objects (not strings)
+    # Convert to datetime first, then ensure consistent format
+    df_combined["Date"] = pd.to_datetime(df_combined["Date"], errors="coerce")
+    # Remove timezone info if present
+    if df_combined["Date"].dt.tz is not None:
+        df_combined["Date"] = df_combined["Date"].dt.tz_localize(None)
+    # Remove time portion to match old data format (keep only date)
+    df_combined["Date"] = df_combined["Date"].dt.date
+    # Convert back to datetime to maintain datetime type
+    df_combined["Date"] = pd.to_datetime(df_combined["Date"])
+    
     return df_combined
 
 
@@ -223,4 +235,4 @@ if __name__ == "__main__":
     # df = fetch_stripe_and_square_and_combine(days=147)
     # df.to_csv("data/outputs/stripe_and_square_combined_data_20250527.csv", index=False)
     # replace_transaction_df_in_s3()
-    replace_days_in_transaction_df_in_s3(days=60)
+    replace_days_in_transaction_df_in_s3(days=71)
