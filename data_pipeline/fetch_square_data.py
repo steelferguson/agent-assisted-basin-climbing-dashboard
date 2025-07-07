@@ -490,7 +490,7 @@ class SquareFetcher:
             order = orders_lookup.get(order_id) if order_id else None
             
             if order and order.get("line_items"):
-                # Split payment amount across line items
+                # Use actual line item amounts, but split payment amount if there are discrepancies
                 line_items = order.get("line_items", [])
                 split_amounts = self.split_payment_amount(payment_amount, line_items)
                 
@@ -502,7 +502,15 @@ class SquareFetcher:
                     item_tax_money = item.get("total_tax_money", {}).get("amount", 0) / 100
                     item_discount_money = item.get("total_discount_money", {}).get("amount", 0) / 100
                     
-                    # Create row with split amount
+                    if payment_id == "hoI4Pjxa4MadKiTr7yXl8NF6Y3XZY":
+                        print(f"Payment {payment_id} - Item {i+1}:")
+                        print(f"  item_total_money: {item.get('total_money', {}).get('amount', 0) / 100}")
+                        print(f"  split_amount: {split_amount}")
+                        print(f"  payment_amount: {payment_amount}")
+                        print(f"  line_items_total: {sum(item.get('total_money', {}).get('amount', 0) for item in line_items) / 100}")
+                    
+                    # Use actual line item amounts for individual fields
+                    # Use split amount for Total Amount to account for any payment-level adjustments
                     data.append({
                         "transaction_id": f"{payment_id}_item_{i+1}",
                         "Description": description,
@@ -510,7 +518,7 @@ class SquareFetcher:
                         "Tax Amount": item_tax_money,
                         "Discount Amount": item_discount_money,
                         "Name": name,
-                        "Total Amount": split_amount,
+                        "Total Amount": split_amount,  # Always use the split amount here!
                         "Date": created_at,
                         "base_price_amount": item_pre_tax_money,
                         "status": order.get("state"),
@@ -560,25 +568,33 @@ class SquareFetcher:
     def split_payment_amount(self, payment_amount, line_items):
         """
         Intelligently split payment amount across line items.
-        Handles cases where amounts don't perfectly match.
+        Handles cases where amounts don't perfectly match due to discounts, fees, etc.
         """
         if not line_items:
             return []
         
         # Calculate total from line items
-        line_items_total = sum(item.get("total_money", {}).get("amount", 0) for item in line_items)
+        line_items_total = sum(item.get("total_money", {}).get("amount", 0) for item in line_items) / 100
         
         if line_items_total == 0:
             # Equal split if no line item amounts
             split_amount = payment_amount / len(line_items)
             return [split_amount] * len(line_items)
         
+        # Check if there's a discrepancy between line items total and payment amount
+        if abs(line_items_total - payment_amount) > 0.01:  # If difference > 1 cent
+            print(f"Payment amount ({payment_amount}) doesn't match line items total ({line_items_total})")
+            print("This could be due to discounts, fees, or other adjustments")
+        
         # Proportional split based on line item amounts
         splits = []
         for item in line_items:
             item_amount = item.get("total_money", {}).get("amount", 0) / 100
-            proportion = item_amount / (line_items_total / 100)
-            splits.append(payment_amount * proportion)
+            if line_items_total > 0:
+                proportion = item_amount / line_items_total
+                splits.append(payment_amount * proportion)
+            else:
+                splits.append(0)
         
         # Adjust for rounding errors
         total_split = sum(splits)
