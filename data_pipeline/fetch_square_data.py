@@ -120,6 +120,7 @@ class SquareFetcher:
         df = pd.DataFrame(data)
         df["Date"] = pd.to_datetime(df["Date"].astype(str), errors="coerce", utc=True)
         df["Date"] = df["Date"].dt.tz_localize(None)
+        df["Date"] = df["Date"].dt.strftime("%Y-%m-%d")
         # Drop rows where 'Date' is null
         df = df.dropna(subset=["Date"])
         return df
@@ -612,11 +613,11 @@ class SquareFetcher:
         
         # Retail only
         if amount < 10:
-            return "retail item"
+            return "retail item", "small retail"
         if amount < 80:
-            return "Day Pass likely"
+            return "Day Pass likely", "day pass"
         else:
-            return "unknown"
+            return "unknown", "unknown"
 
 
 

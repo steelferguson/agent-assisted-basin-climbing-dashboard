@@ -187,7 +187,7 @@ def transform_payments_data(
 
     # Date/time conversions
     df["date_"] = pd.to_datetime(df["Date"], errors="coerce", utc=True)
-    df["Date"] = df["date_"].dt.date
+    df["Date"] = df["date_"].dt.strftime("%Y-%m-%d")
 
     # Amounts
     if "Tax Amount" in df.columns:

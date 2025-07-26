@@ -33,16 +33,14 @@ def fetch_stripe_and_square_and_combine(days=2, end_date=datetime.datetime.now()
 
     df_combined = pd.concat([stripe_df, square_df], ignore_index=True)
     
-    # Standardize date format to datetime objects (not strings)
-    # Convert to datetime first, then ensure consistent format
+    # Ensure consistent date format as strings in "M/D/YYYY" format
+    # Convert to datetime first to handle any timezone issues
     df_combined["Date"] = pd.to_datetime(df_combined["Date"], errors="coerce")
     # Remove timezone info if present
     if df_combined["Date"].dt.tz is not None:
         df_combined["Date"] = df_combined["Date"].dt.tz_localize(None)
-    # Remove time portion to match old data format (keep only date)
-    df_combined["Date"] = df_combined["Date"].dt.date
-    # Convert back to datetime to maintain datetime type
-    df_combined["Date"] = pd.to_datetime(df_combined["Date"])
+    # Format as string in the expected format "YYYY-MM-DD"
+    df_combined["Date"] = df_combined["Date"].dt.strftime("%Y-%m-%d")
     
     return df_combined
 
@@ -68,6 +66,12 @@ def add_new_transactions_to_combined_df(
         config.aws_bucket_name, config.s3_path_combined
     )
     df_yesterday = uploader.convert_csv_to_df(csv_content_yesterday)
+    
+    # Ensure existing data from S3 has dates formatted as strings
+    df_yesterday["Date"] = pd.to_datetime(df_yesterday["Date"], errors="coerce")
+    if df_yesterday["Date"].dt.tz is not None:
+        df_yesterday["Date"] = df_yesterday["Date"].dt.tz_localize(None)
+    df_yesterday["Date"] = df_yesterday["Date"].dt.strftime("%Y-%m-%d")
 
     print("combining with previous day's df")
     df_combined = pd.concat([df_yesterday, df_today], ignore_index=True)
@@ -128,12 +132,14 @@ def replace_days_in_transaction_df_in_s3(days=2, end_date=datetime.datetime.now(
         config.aws_bucket_name, config.s3_path_combined
     )
     df_yesterday = uploader.convert_csv_to_df(csv_content_yesterday)
-    # Convert to datetime and remove timezone info
+    # Convert to datetime for filtering, then format back as string
     df_yesterday["Date"] = pd.to_datetime(
         df_yesterday["Date"], errors="coerce"
     ).dt.tz_localize(None)
     # filter to up to the start_date, and drop rows where Date is NaT
     df_yesterday = df_yesterday[df_yesterday["Date"] < start_date]
+    # Format back as string in the expected format
+    df_yesterday["Date"] = df_yesterday["Date"].dt.strftime("%Y-%m-%d")
 
     print("combining with previous day's df")
     df_combined = pd.concat([df_yesterday, df_today], ignore_index=True)
@@ -235,4 +241,4 @@ if __name__ == "__main__":
     # df = fetch_stripe_and_square_and_combine(days=147)
     # df.to_csv("data/outputs/stripe_and_square_combined_data_20250527.csv", index=False)
     # replace_transaction_df_in_s3()
-    # replace_days_in_transaction_df_in_s3(days=71)
+    # replace_days_in_transaction_df_in_s3(days=31)
