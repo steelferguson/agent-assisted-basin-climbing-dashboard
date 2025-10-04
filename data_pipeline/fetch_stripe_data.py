@@ -74,6 +74,45 @@ class StripeFetcher:
         print(f"Retrieved {len(all_charges)} charges from Stripe API")
         return all_charges
 
+    def pull_stripe_payment_intents_data_raw(
+        self,
+        stripe_key: str,
+        start_date: datetime.datetime,
+        end_date: datetime.datetime,
+    ) -> list:
+        """
+        Pull Payment Intents data (new method) with proper completion filtering.
+        Only includes payments with status='succeeded' for accurate revenue tracking.
+        """
+        print(f"Pulling Stripe Payment Intents data from {start_date} to {end_date}")
+        stripe.api_key = stripe_key
+        
+        payment_intents = stripe.PaymentIntent.list(
+            created={
+                "gte": int(start_date.timestamp()),
+                "lte": int(end_date.timestamp()),
+            },
+            limit=1000000,
+        )
+
+        # Collect all Payment Intents first
+        all_payment_intents = []
+        for payment_intent in payment_intents.auto_paging_iter():
+            all_payment_intents.append(payment_intent)
+
+        print(f"Retrieved {len(all_payment_intents)} total Payment Intents from Stripe API")
+        
+        # Filter for only successfully completed payments
+        completed_payment_intents = [
+            pi for pi in all_payment_intents 
+            if pi.status == "succeeded"
+        ]
+        
+        print(f"Filtered to {len(completed_payment_intents)} completed Payment Intents (status='succeeded')")
+        print(f"Filtering removed {len(all_payment_intents) - len(completed_payment_intents)} incomplete payments")
+        
+        return completed_payment_intents
+
     def create_stripe_payments_df(self, all_charges: list) -> pd.DataFrame:
         """
         Create a DataFrame from raw Stripe JSON data.
@@ -126,6 +165,63 @@ class StripeFetcher:
         df = pd.DataFrame(data)
         return df
 
+    def create_stripe_payment_intents_df(self, payment_intents: list) -> pd.DataFrame:
+        """
+        Create a DataFrame from Payment Intents data (new method).
+        """
+        data = []
+        transaction_count = 0
+        
+        for payment_intent in payment_intents:
+            # Only process succeeded payment intents (already filtered)
+            transaction_count += 1
+            
+            # Get basic payment intent data
+            created_at = datetime.datetime.fromtimestamp(payment_intent["created"])
+            total_money = payment_intent["amount"] / 100  # Stripe amounts are in cents
+            currency = payment_intent["currency"]
+            description = payment_intent.get("description", "No Description")
+            
+            # Get customer name from latest charge if available
+            name = "No Name"
+            if payment_intent.get("latest_charge"):
+                try:
+                    charge = stripe.Charge.retrieve(payment_intent["latest_charge"])
+                    if charge.get("billing_details", {}).get("name"):
+                        name = charge["billing_details"]["name"]
+                except:
+                    pass  # Keep default name if charge retrieval fails
+            
+            # Calculate tax (using same estimation as old method for consistency)
+            pre_tax_money = total_money / (1 + 0.0825)  # ESTIMATED
+            tax_money = total_money - pre_tax_money
+            
+            # Discount amount (Payment Intents don't directly track discounts like charges)
+            discount_money = 0  # Could be enhanced later with invoice line items
+            
+            transaction_id = payment_intent.get("id", None)
+
+            data.append(
+                {
+                    "transaction_id": transaction_id,
+                    "Description": description,
+                    "Pre-Tax Amount": pre_tax_money,
+                    "Tax Amount": tax_money,
+                    "Total Amount": total_money,
+                    "Discount Amount": discount_money,
+                    "Name": name,
+                    "Date": created_at.date(),
+                    "payment_intent_status": payment_intent["status"],  # Track for debugging
+                }
+            )
+
+        print(f"Processed {transaction_count} Stripe Payment Intents (all succeeded status)")
+        print(f"Created DataFrame with {len(data)} rows")
+
+        # Create DataFrame
+        df = pd.DataFrame(data)
+        return df
+
     def pull_and_transform_stripe_payment_data(
         self,
         stripe_key: str,
@@ -148,6 +244,42 @@ class StripeFetcher:
         )
         if save_csv:
             self.save_data(df, "stripe_transaction_data")
+        return df
+
+    def pull_and_transform_stripe_payment_intents_data(
+        self,
+        stripe_key: str,
+        start_date: datetime.datetime,
+        end_date: datetime.datetime,
+        save_json: bool = False,
+        save_csv: bool = False,
+    ) -> pd.DataFrame:
+        """
+        New method using Payment Intents API with proper completion filtering.
+        Only includes payments with status='succeeded'.
+        """
+        # Pull Payment Intents data (already filtered for succeeded status)
+        payment_intents = self.pull_stripe_payment_intents_data_raw(
+            stripe_key, start_date, end_date
+        )
+        
+        if save_json:
+            self.save_raw_response(payment_intents, "stripe_payment_intents")
+            
+        # Create DataFrame from Payment Intents
+        df = self.create_stripe_payment_intents_df(payment_intents)
+        
+        # Apply same transformations as original method for consistency
+        df = transform_payments_data(
+            df,
+            assign_extra_subcategories=None,
+            data_source_name="Stripe",
+            day_pass_count_logic=None,
+        )
+        
+        if save_csv:
+            self.save_data(df, "stripe_payment_intents_data")
+            
         return df
 
 

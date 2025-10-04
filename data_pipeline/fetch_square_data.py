@@ -1,5 +1,5 @@
-from square.client import Client
-from square.http.auth.o_auth_2 import BearerAuthCredentials
+from square import Square
+from square.environment import SquareEnvironment
 import os
 import datetime
 import pandas as pd
@@ -76,7 +76,7 @@ class SquareFetcher:
         for order in orders_list:
             order_id = order.get("id", None)
             created_at = order.get("created_at")  # Order creation date
-            line_items = order.get("line_items", [])
+            line_items = order.line_items or []
             item_number_within_order = 0
 
             for item in line_items:
@@ -112,7 +112,7 @@ class SquareFetcher:
                         "Total Amount": item_total_money,
                         "Date": created_at,
                         "base_price_amount": _item_pre_tax_money,
-                        "status": order.get("state"),
+                        "status": order.state,
                     }
                 )
 
@@ -128,10 +128,10 @@ class SquareFetcher:
     def pull_square_payments_data_raw(
         self, square_token, location_id, end_time, begin_time, limit
     ):
-        # Initialize the Square Client with bearer_auth_credentials
-        client = Client(
-            bearer_auth_credentials=BearerAuthCredentials(access_token=square_token),
-            environment="production",
+        # Initialize the Square Client
+        client = Square(
+            token=square_token,
+            environment=SquareEnvironment.PRODUCTION
         )
         body = {
             "location_ids": [location_id],
@@ -149,7 +149,7 @@ class SquareFetcher:
         orders_list = []
         all_orders = []
         while True:
-            result = client.orders.search_orders(body=body)
+            result = client.orders.search(body=body)
             if result.is_success():
                 orders = result.body.get("orders", [])
                 # Only record orders with state 'COMPLETED'
@@ -188,30 +188,26 @@ class SquareFetcher:
         """
         data = []
         for invoice in invoices_list:
-            if invoice.get("status") == "PAID":  # Filter for paid invoices
-                created_at = invoice.get("created_at")
+            if invoice.status == "PAID":  # Filter for paid invoices
+                created_at = invoice.created_at
                 # convert to datetime from format 2025-06-12T12:20:13Z
                 created_at = pd.to_datetime(created_at)
                 if created_at.tz is not None:
                     created_at = created_at.tz_localize(None)
                 created_at = created_at.strftime("%Y-%m-%d")
-                payment_requests = invoice.get("payment_requests", [])
+                payment_requests = invoice.payment_requests or []
                 if payment_requests and isinstance(payment_requests, list):
                     total_money = (
-                        payment_requests[0]
-                        .get("total_completed_amount_money", {})
-                        .get("amount", 0)
-                        / 100
+                        payment_requests[0].total_completed_amount_money.amount / 100
+                        if payment_requests[0].total_completed_amount_money else 0
                     )
                 else:
                     total_money = 0
                 pre_tax_money = total_money / (1 + 0.0825)
                 tax_money = total_money - pre_tax_money
-                description = invoice.get("title", "No Description")
-                name = invoice.get("primary_recipient", {}).get(
-                    "customer_id", "No Name"
-                )
-                transaction_id = invoice.get("id", None)
+                description = invoice.title or "No Description"
+                name = invoice.primary_recipient.customer_id if invoice.primary_recipient else "No Name"
+                transaction_id = invoice.id
                 data.append(
                     {
                         "transaction_id": transaction_id,
@@ -269,26 +265,23 @@ class SquareFetcher:
         Returns a DataFrame of paid invoices.
         """
         # Initialize Square client
-        client = Client(
-            bearer_auth_credentials=BearerAuthCredentials(square_token),
-            environment="production",
+        client = Square(
+            token=square_token,
+            environment=SquareEnvironment.PRODUCTION
         )
 
         # Get invoices
-        result = client.invoices.list_invoices(location_id=location_id)
+        pager = client.invoices.list(location_id=location_id)
+        
+        # Collect all invoices from paginator
+        invoices_list = list(pager)
+        print(f"Retrieved {len(invoices_list)} invoices from Square API")
+        
+        # Save raw response (all invoices) - skip JSON serialization for now due to complex objects
+        # self.save_raw_response({"invoices": [invoice.__dict__ for invoice in invoices_list]}, "square_invoices")
 
-        if result.is_success():
-            # Save raw response (all invoices)
-            self.save_raw_response(result.body, "square_invoices")
-
-            invoices_list = result.body.get("invoices", [])
-            print(f"Retrieved {len(invoices_list)} invoices from Square API")
-
-            # Create DataFrame from invoices (only paid ones)
-            return self.create_invoices_dataframe(invoices_list)
-        else:
-            print(f"Error retrieving Square invoices: {result.errors}")
-            return []
+        # Create DataFrame from invoices (only paid ones)
+        return self.create_invoices_dataframe(invoices_list)
 
     @staticmethod
     def deduplicate_orders_by_id(orders_list):
@@ -338,9 +331,9 @@ class SquareFetcher:
         This approach should resolve mismatches between orders and actual payments.
         """
         # Initialize the Square Client
-        client = Client(
-            bearer_auth_credentials=BearerAuthCredentials(access_token=self.square_token),
-            environment="production",
+        client = Square(
+            token=self.square_token,
+            environment=SquareEnvironment.PRODUCTION
         )
 
         # Format the dates in ISO 8601 format
@@ -351,58 +344,42 @@ class SquareFetcher:
 
         # Step 1: Pull all payments
         payments = []
-        cursor = None
-        while True:
-            resp = client.payments.list_payments(begin_time=begin_time, end_time=end_time, cursor=cursor)
-            if resp.is_success():
-                result = resp.body
-                batch_payments = result.get('payments', [])
-                # Filter for only completed payments
-                completed_payments = [payment for payment in batch_payments if payment.get('status') == 'COMPLETED']
-                payments.extend(completed_payments)
-                print(f"Retrieved {len(batch_payments)} payments, {len(completed_payments)} completed")
-                cursor = result.get('cursor')
-                if not cursor:
-                    break
-            else:
-                print("Error fetching payments:", resp.errors)
-                break
-
-        print(f"Total payments retrieved: {len(payments)}")
+        pager = client.payments.list(begin_time=begin_time, end_time=end_time)
+        for payment in pager:
+            # Filter for only completed payments
+            if payment.status == 'COMPLETED':
+                payments.append(payment)
+        
+        print(f"Total completed payments retrieved: {len(payments)}")
 
         # Step 2: Pull all orders for the same time period
         orders = []
-        body = {
-            "location_ids": [self.location_id],
-            "query": {
-                "filter": {
-                    "date_time_filter": {
-                        "created_at": {"start_at": begin_time, "end_at": end_time}
-                    }
+        query = {
+            "filter": {
+                "date_time_filter": {
+                    "created_at": {"start_at": begin_time, "end_at": end_time}
                 }
-            },
-            "limit": 1000,
+            }
         }
 
         cursor = None
         while True:
-            if cursor:
-                body["cursor"] = cursor
-                
-            result = client.orders.search_orders(body=body)
-            if result.is_success():
-                batch_orders = result.body.get("orders", [])
-                # Only include orders that have payments (check if order_id exists in payments)
-                payment_order_ids = {payment.get("order_id") for payment in payments if payment.get("order_id")}
-                relevant_orders = [order for order in batch_orders if order.get("id") in payment_order_ids]
-                orders.extend(relevant_orders)
-                print(f"Retrieved {len(batch_orders)} orders, {len(relevant_orders)} have payments")
-                
-                cursor = result.body.get("cursor")
-                if not cursor:
-                    break
-            else:
-                print("Error fetching orders:", result.errors)
+            result = client.orders.search(
+                location_ids=[self.location_id],
+                query=query,
+                limit=1000,
+                cursor=cursor
+            )
+            # New API doesn't have is_success(), just access the orders directly
+            batch_orders = result.orders or []
+            # Only include orders that have payments (check if order_id exists in payments)
+            payment_order_ids = {payment.order_id for payment in payments if payment.order_id}
+            relevant_orders = [order for order in batch_orders if order.id in payment_order_ids]
+            orders.extend(relevant_orders)
+            print(f"Retrieved {len(batch_orders)} orders, {len(relevant_orders)} have payments")
+            
+            cursor = result.cursor
+            if not cursor:
                 break
 
         print(f"Total orders retrieved: {len(orders)}")
@@ -479,36 +456,36 @@ class SquareFetcher:
         """
         Enhanced version that handles amount splitting and categorization.
         """
-        orders_lookup = {order.get("id"): order for order in orders_list}
+        orders_lookup = {order.id: order for order in orders_list}
         
         data = []
         for payment in payments_list:
-            payment_id = payment.get("id")
-            order_id = payment.get("order_id")
-            created_at = payment.get("created_at")
-            payment_amount = payment.get("amount_money", {}).get("amount", 0) / 100
+            payment_id = payment.id
+            order_id = payment.order_id
+            created_at = payment.created_at
+            payment_amount = payment.amount_money.amount / 100 if payment.amount_money else 0
             
             order = orders_lookup.get(order_id) if order_id else None
             
-            if order and order.get("line_items"):
+            if order and order.line_items:
                 # Use actual line item amounts, but split payment amount if there are discrepancies
-                line_items = order.get("line_items", [])
+                line_items = order.line_items or []
                 split_amounts = self.split_payment_amount(payment_amount, line_items)
                 
                 for i, (item, split_amount) in enumerate(zip(line_items, split_amounts)):
-                    name = item.get("name", "No Name")
-                    description = item.get("variation_name", "No Description")
-                    item_total_money = item.get("total_money", {}).get("amount", 0) / 100
-                    item_pre_tax_money = item.get("base_price_money", {}).get("amount", 0) / 100
-                    item_tax_money = item.get("total_tax_money", {}).get("amount", 0) / 100
-                    item_discount_money = item.get("total_discount_money", {}).get("amount", 0) / 100
+                    name = item.name or "No Name"
+                    description = item.variation_name or "No Description"
+                    item_total_money = item.total_money.amount / 100 if item.total_money else 0
+                    item_pre_tax_money = item.base_price_money.amount / 100 if item.base_price_money else 0
+                    item_tax_money = item.total_tax_money.amount / 100 if item.total_tax_money else 0
+                    item_discount_money = item.total_discount_money.amount / 100 if item.total_discount_money else 0
                     
                     if payment_id == "hoI4Pjxa4MadKiTr7yXl8NF6Y3XZY":
                         print(f"Payment {payment_id} - Item {i+1}:")
-                        print(f"  item_total_money: {item.get('total_money', {}).get('amount', 0) / 100}")
+                        print(f"  item_total_money: {item.total_money.amount / 100 if item.total_money else 0}")
                         print(f"  split_amount: {split_amount}")
                         print(f"  payment_amount: {payment_amount}")
-                        print(f"  line_items_total: {sum(item.get('total_money', {}).get('amount', 0) for item in line_items) / 100}")
+                        print(f"  line_items_total: {sum(item.total_money.amount if item.total_money else 0 for item in line_items) / 100}")
                     
                     # Use actual line item amounts for individual fields
                     # Use split amount for Total Amount to account for any payment-level adjustments
@@ -522,11 +499,11 @@ class SquareFetcher:
                         "Total Amount": split_amount,  # Always use the split amount here!
                         "Date": created_at,
                         "base_price_amount": item_pre_tax_money,
-                        "status": order.get("state"),
+                        "status": order.state,
                         "payment_id": payment_id,
                         "order_id": order_id,
-                        "payment_status": payment.get("status"),
-                        "payment_type": payment.get("source_type"),
+                        "payment_status": payment.status,
+                        "payment_type": payment.source_type,
                     })
             else:
                 # Categorize payment without order
@@ -575,7 +552,7 @@ class SquareFetcher:
             return []
         
         # Calculate total from line items
-        line_items_total = sum(item.get("total_money", {}).get("amount", 0) for item in line_items) / 100
+        line_items_total = sum(item.total_money.amount if item.total_money else 0 for item in line_items) / 100
         
         if line_items_total == 0:
             # Equal split if no line item amounts
@@ -590,7 +567,7 @@ class SquareFetcher:
         # Proportional split based on line item amounts
         splits = []
         for item in line_items:
-            item_amount = item.get("total_money", {}).get("amount", 0) / 100
+            item_amount = item.total_money.amount / 100 if item.total_money else 0
             if line_items_total > 0:
                 proportion = item_amount / line_items_total
                 splits.append(payment_amount * proportion)
@@ -618,6 +595,141 @@ class SquareFetcher:
             return "Day Pass likely", "day pass"
         else:
             return "unknown", "unknown"
+
+    def pull_and_transform_square_payment_data_strict(
+        self,
+        start_date: datetime.datetime,
+        end_date: datetime.datetime,
+        save_json: bool = False,
+        save_csv: bool = False,
+    ) -> pd.DataFrame:
+        """
+        Strict validation method: Only include transactions where BOTH payment is COMPLETED 
+        AND associated order is COMPLETED. This ensures only fully completed transactions.
+        """
+        # Initialize the Square Client
+        client = Square(
+            token=self.square_token,
+            environment=SquareEnvironment.PRODUCTION
+        )
+
+        # Format the dates in ISO 8601 format
+        end_time = end_date.strftime("%Y-%m-%dT%H:%M:%SZ")
+        begin_time = start_date.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        print(f"Pulling STRICT Square data from {begin_time} to {end_time}")
+
+        # Step 1: Pull all payments with COMPLETED status
+        payments = []
+        pager = client.payments.list(begin_time=begin_time, end_time=end_time)
+        for payment in pager:
+            # Filter for only completed payments
+            if payment.status == 'COMPLETED':
+                payments.append(payment)
+        
+        print(f"Total COMPLETED payments retrieved: {len(payments)}")
+
+        # Step 2: For each completed payment, validate the associated order is also COMPLETED
+        validated_transactions = []
+        orders_checked = 0
+        orders_completed = 0
+        payments_without_orders = 0
+        
+        for payment in payments:
+            order_id = payment.order_id
+            if order_id:
+                orders_checked += 1
+                try:
+                    # Get the specific order
+                    order_resp = client.orders.get(order_id=order_id)
+                    # Extract the order from the response
+                    order = order_resp.order
+                    if order.state == "COMPLETED":
+                        orders_completed += 1
+                        validated_transactions.append((payment, order))
+                    else:
+                        print(f"Payment {payment.id} has order {order_id} with state '{order.state}' - FILTERED OUT")
+                except Exception as e:
+                    print(f"Error retrieving order {order_id}: {e}")
+            else:
+                payments_without_orders += 1
+
+        print(f"STRICT validation results:")
+        print(f"  Orders checked: {orders_checked}")
+        print(f"  Orders with COMPLETED state: {orders_completed}")
+        print(f"  Payments without orders: {payments_without_orders}")
+        print(f"  Final validated transactions: {len(validated_transactions)}")
+        print(f"  Filtered out: {len(payments) - len(validated_transactions)} transactions")
+
+        # Step 3: Create DataFrame from validated transactions only
+        data = []
+        for payment, order in validated_transactions:
+            payment_id = payment.id
+            created_at = payment.created_at
+            payment_amount = payment.amount_money.amount / 100 if payment.amount_money else 0
+            
+            # Process line items from the validated order
+            line_items = order.line_items or []
+            if line_items:
+                split_amounts = self.split_payment_amount(payment_amount, line_items)
+                
+                for i, (item, split_amount) in enumerate(zip(line_items, split_amounts)):
+                    name = item.name or "No Name"
+                    description = item.variation_name or "No Description"
+                    item_pre_tax_money = item.base_price_money.amount / 100 if item.base_price_money else 0
+                    item_tax_money = item.total_tax_money.amount / 100 if item.total_tax_money else 0
+                    item_discount_money = item.total_discount_money.amount / 100 if item.total_discount_money else 0
+                    
+                    data.append({
+                        "transaction_id": f"{payment_id}_item_{i+1}",
+                        "Description": description,
+                        "Pre-Tax Amount": item_pre_tax_money,
+                        "Tax Amount": item_tax_money,
+                        "Discount Amount": item_discount_money,
+                        "Name": name,
+                        "Total Amount": split_amount,
+                        "Date": created_at,
+                        "base_price_amount": item_pre_tax_money,
+                        "status": "VALIDATED_COMPLETED",  # Mark as validated
+                        "payment_id": payment_id,
+                        "order_id": order.id,
+                    })
+
+        # Create DataFrame
+        df = pd.DataFrame(data)
+        
+        # Apply transformations if data exists
+        if not df.empty:
+            df = transform_payments_data(
+                df,
+                assign_extra_subcategories=None,
+                data_source_name="Square",
+                day_pass_count_logic=None,
+            )
+
+        # Handle invoices separately (same as existing method)
+        try:
+            invoices_df = self.pull_square_invoices(self.square_token, self.location_id)
+        except:
+            print("Warning: Could not retrieve invoices")
+            invoices_df = pd.DataFrame()
+        
+        # Combine payments and invoices
+        df_combined = pd.concat([df, invoices_df], ignore_index=True)
+        
+        # Transform Date column
+        if not df_combined.empty:
+            df_combined["Date"] = pd.to_datetime(
+                df_combined["Date"].astype(str), errors="coerce", utc=True
+            )
+            df_combined["Date"] = df_combined["Date"].dt.tz_localize(None)
+            df_combined["Date"] = df_combined["Date"].dt.strftime("%Y-%m-%d")
+        
+        if save_csv:
+            self.save_data(df, "square_strict_payments_data")
+            self.save_data(df_combined, "square_strict_combined_data")
+
+        return df_combined
 
 
 
