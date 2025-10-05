@@ -102,10 +102,10 @@ class StripeFetcher:
 
         print(f"Retrieved {len(all_payment_intents)} total Payment Intents from Stripe API")
         
-        # Filter for only successfully completed payments
+        # Filter for only successfully completed payments AND live mode (no test transactions)
         completed_payment_intents = [
             pi for pi in all_payment_intents 
-            if pi.status == "succeeded"
+            if pi.status == "succeeded" and pi.livemode == True
         ]
         
         print(f"Filtered to {len(completed_payment_intents)} completed Payment Intents (status='succeeded')")
@@ -178,7 +178,7 @@ class StripeFetcher:
             
             # Get basic payment intent data
             created_at = datetime.datetime.fromtimestamp(payment_intent["created"])
-            total_money = payment_intent["amount"] / 100  # Stripe amounts are in cents
+            total_money = payment_intent["amount_received"] / 100  # Use actual received amount, not intended
             currency = payment_intent["currency"]
             description = payment_intent.get("description", "No Description")
             

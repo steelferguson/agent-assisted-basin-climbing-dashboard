@@ -10,10 +10,10 @@ sys.path.append('./data_pipeline')
 from fetch_stripe_data import StripeFetcher
 
 def test_stripe_methods():
-    """Compare old vs new Stripe methods on a small date range"""
-    # Test with a recent week to see differences
-    end_date = datetime.datetime(2025, 5, 7)  # Based on our sample data
-    start_date = datetime.datetime(2025, 5, 1) 
+    """Compare old vs new Stripe methods on August 2025"""
+    # Test with full month of August 2025
+    end_date = datetime.datetime(2025, 8, 31, 23, 59, 59)
+    start_date = datetime.datetime(2025, 8, 1, 0, 0, 0) 
     
     stripe_key = os.getenv("STRIPE_PRODUCTION_API_KEY")
     if not stripe_key:

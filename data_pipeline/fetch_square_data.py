@@ -416,11 +416,13 @@ class SquareFetcher:
             day_pass_count_logic=None,
         )
 
-        # Handle invoices separately (same as before)
-        invoices_df = self.pull_square_invoices(self.square_token, self.location_id)
+        # Handle invoices separately (commenting out to avoid double counting)
+        # invoices_df = self.pull_square_invoices(self.square_token, self.location_id)
         
-        # Combine payments and invoices
-        df_combined = pd.concat([payments_df, invoices_df], ignore_index=True)
+        # DO NOT combine payments and invoices to avoid double counting!
+        # When an invoice is paid, Square creates both a payment record AND marks invoice as "PAID"
+        # Using payments_df only to avoid double counting
+        df_combined = payments_df
         
         # Transform Date column to ensure proper formatting
         df_combined["Date"] = pd.to_datetime(
@@ -707,15 +709,16 @@ class SquareFetcher:
                 day_pass_count_logic=None,
             )
 
-        # Handle invoices separately (same as existing method)
-        try:
-            invoices_df = self.pull_square_invoices(self.square_token, self.location_id)
-        except:
-            print("Warning: Could not retrieve invoices")
-            invoices_df = pd.DataFrame()
+        # Handle invoices separately (commenting out to avoid double counting)
+        # try:
+        #     invoices_df = self.pull_square_invoices(self.square_token, self.location_id)
+        # except:
+        #     print("Warning: Could not retrieve invoices")
+        #     invoices_df = pd.DataFrame()
         
-        # Combine payments and invoices
-        df_combined = pd.concat([df, invoices_df], ignore_index=True)
+        # DO NOT combine payments and invoices to avoid double counting!
+        # Using validated payments only
+        df_combined = df
         
         # Transform Date column
         if not df_combined.empty:

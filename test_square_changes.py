@@ -10,10 +10,10 @@ sys.path.append('./data_pipeline')
 from fetch_square_data import SquareFetcher
 
 def test_square_methods():
-    """Compare current vs strict Square methods on a small date range"""
-    # Test with a recent week
-    end_date = datetime.datetime(2025, 5, 7)  # Based on our sample data
-    start_date = datetime.datetime(2025, 5, 1) 
+    """Compare current vs strict Square methods on August 2025"""
+    # Test with full month of August 2025  
+    end_date = datetime.datetime(2025, 8, 31, 23, 59, 59)
+    start_date = datetime.datetime(2025, 8, 1, 0, 0, 0) 
     
     square_token = os.getenv("SQUARE_PRODUCTION_API_TOKEN")
     if not square_token:
