@@ -17,8 +17,8 @@ def quick_stripe_net():
         print("ERROR: STRIPE_PRODUCTION_API_KEY not found")
         return
     
-    start_date = datetime.datetime(2025, 8, 1, 0, 0, 0)
-    end_date = datetime.datetime(2025, 8, 31, 23, 59, 59)
+    start_date = datetime.datetime(2025, 9, 1, 0, 0, 0)
+    end_date = datetime.datetime(2025, 9, 30, 23, 59, 59)
     
     print("=== QUICK STRIPE NET REVENUE TEST ===")
     print(f"Date range: {start_date.date()} to {end_date.date()}")

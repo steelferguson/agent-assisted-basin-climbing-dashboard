@@ -278,6 +278,41 @@ def create_dashboard(app):
                     "marginBottom": "40px",
                 },
             ),
+            # 90 for 90 Membership Analysis section
+            html.H1(
+                children="90 for 90 Membership Analysis",
+                style={"color": "#213B3F", "marginTop": "30px"},
+            ),
+            html.Div(
+                [
+                    html.Div(
+                        [
+                            html.H2(
+                                "90 for 90 Expiration Timeline",
+                                style={"textAlign": "center", "marginBottom": "20px"},
+                            ),
+                            dcc.Graph(id="ninety-for-ninety-timeline-chart"),
+                        ],
+                        style={"marginBottom": "40px"},
+                    ),
+                    html.Div(
+                        [
+                            html.H2(
+                                "90 for 90 Status Summary",
+                                style={"textAlign": "center", "marginBottom": "20px"},
+                            ),
+                            dcc.Graph(id="ninety-for-ninety-summary-chart"),
+                        ],
+                        style={"marginBottom": "40px"},
+                    ),
+                ],
+                style={
+                    "backgroundColor": "#F5F5F5",
+                    "padding": "20px",
+                    "borderRadius": "10px",
+                    "marginBottom": "40px",
+                },
+            ),
         ],
         style={
             "margin": "0 auto",
@@ -1176,4 +1211,187 @@ def create_dashboard(app):
             font_color=chart_colors["text"],
         )
 
+        return fig
+
+    # Callback for 90 for 90 Timeline chart
+    @app.callback(
+        Output("ninety-for-ninety-timeline-chart", "figure"), [Input("timeframe-toggle", "value")]
+    )
+    def update_ninety_for_ninety_timeline_chart(selected_timeframe):
+        """
+        Create a timeline chart showing 90 for 90 membership expirations colored by renewal status.
+        Based on members who had is_90_for_90 = True on July 31, 2025.
+        """
+        # Filter for 90 for 90 memberships that were active on July 31, 2025
+        july_31_2025 = pd.Timestamp("2025-07-31")
+        ninety_for_ninety_df = df_memberships[
+            (df_memberships["is_90_for_90"] == True) &
+            (pd.to_datetime(df_memberships["start_date"]) <= july_31_2025) &
+            (pd.to_datetime(df_memberships["end_date"]) >= july_31_2025)
+        ].copy()
+
+        if ninety_for_ninety_df.empty:
+            fig = px.scatter(title="No 90 for 90 memberships found for July 31, 2025")
+            fig.add_annotation(
+                text="No 90 for 90 memberships found for July 31, 2025",
+                xref="paper",
+                yref="paper",
+                showarrow=False,
+                font=dict(size=16),
+            )
+            return fig
+
+        # Convert dates
+        ninety_for_ninety_df["end_date"] = pd.to_datetime(ninety_for_ninety_df["end_date"])
+        ninety_for_ninety_df["start_date"] = pd.to_datetime(ninety_for_ninety_df["start_date"])
+        
+        # Determine renewal status for each membership
+        def determine_renewal_status(row):
+            today = pd.Timestamp.now()
+            has_upcoming_bills = pd.notna(row["upcoming_bill_dates"]) and str(row["upcoming_bill_dates"]).strip() != ""
+            is_currently_active = row["status"] == "ACT"
+            end_date = row["end_date"]
+            
+            # Check if they have a different membership type now (not 90 for 90)
+            member_current_memberships = df_memberships[
+                (df_memberships["membership_owner_age"] == row["membership_owner_age"]) &
+                (df_memberships["status"] == "ACT") &
+                (df_memberships["is_90_for_90"] == False)
+            ]
+            has_different_membership = len(member_current_memberships) > 0
+            
+            if has_different_membership or has_upcoming_bills:
+                return "Renewed"
+            elif is_currently_active and end_date > today:
+                return "Not Expired Yet"  
+            else:
+                return "Expired & Not Set Up"
+        
+        ninety_for_ninety_df["renewal_status"] = ninety_for_ninety_df.apply(determine_renewal_status, axis=1)
+        
+        # Create scatter plot with expiration dates
+        fig = px.scatter(
+            ninety_for_ninety_df,
+            x="end_date",
+            y="name",
+            color="renewal_status",
+            title="90 for 90 Membership Expirations (July 31 Cohort)",
+            color_discrete_map={
+                "Renewed": chart_colors["secondary"],  # Gold - good news
+                "Not Expired Yet": chart_colors["tertiary"],  # Sage - neutral
+                "Expired & Not Set Up": chart_colors["primary"],  # Rust - needs attention
+            },
+            hover_data=["start_date", "status", "membership_owner_age"]
+        )
+        
+        # Add vertical line for today
+        fig.add_vline(
+            x=pd.Timestamp.now(),
+            line_dash="dash",
+            line_color="black",
+            annotation_text="Today"
+        )
+        
+        fig.update_layout(
+            plot_bgcolor=chart_colors["background"],
+            paper_bgcolor=chart_colors["background"],
+            font_color=chart_colors["text"],
+            height=600,
+            xaxis_title="Expiration Date",
+            yaxis_title="Membership Name",
+        )
+        
+        return fig
+
+    # Callback for 90 for 90 Summary chart
+    @app.callback(
+        Output("ninety-for-ninety-summary-chart", "figure"), [Input("timeframe-toggle", "value")]
+    )
+    def update_ninety_for_ninety_summary_chart(selected_timeframe):
+        """
+        Create a summary bar chart showing counts of 90 for 90 members by renewal status.
+        """
+        # Filter for 90 for 90 memberships that were active on July 31, 2025
+        july_31_2025 = pd.Timestamp("2025-07-31")
+        ninety_for_ninety_df = df_memberships[
+            (df_memberships["is_90_for_90"] == True) &
+            (pd.to_datetime(df_memberships["start_date"]) <= july_31_2025) &
+            (pd.to_datetime(df_memberships["end_date"]) >= july_31_2025)
+        ].copy()
+
+        if ninety_for_ninety_df.empty:
+            fig = px.bar(title="No 90 for 90 memberships found for July 31, 2025")
+            fig.add_annotation(
+                text="No 90 for 90 memberships found for July 31, 2025",
+                xref="paper",
+                yref="paper",
+                showarrow=False,
+                font=dict(size=16),
+            )
+            return fig
+
+        # Convert dates
+        ninety_for_ninety_df["end_date"] = pd.to_datetime(ninety_for_ninety_df["end_date"])
+        
+        # Determine renewal status (same logic as timeline chart)
+        def determine_renewal_status(row):
+            today = pd.Timestamp.now()
+            has_upcoming_bills = pd.notna(row["upcoming_bill_dates"]) and str(row["upcoming_bill_dates"]).strip() != ""
+            is_currently_active = row["status"] == "ACT"
+            end_date = row["end_date"]
+            
+            # Check if they have a different membership type now (not 90 for 90)
+            member_current_memberships = df_memberships[
+                (df_memberships["membership_owner_age"] == row["membership_owner_age"]) &
+                (df_memberships["status"] == "ACT") &
+                (df_memberships["is_90_for_90"] == False)
+            ]
+            has_different_membership = len(member_current_memberships) > 0
+            
+            if has_different_membership or has_upcoming_bills:
+                return "Renewed"
+            elif is_currently_active and end_date > today:
+                return "Not Expired Yet"
+            else:
+                return "Expired & Not Set Up"
+        
+        ninety_for_ninety_df["renewal_status"] = ninety_for_ninety_df.apply(determine_renewal_status, axis=1)
+        
+        # Count by renewal status
+        status_counts = ninety_for_ninety_df["renewal_status"].value_counts().reset_index()
+        status_counts.columns = ["Status", "Count"]
+        
+        # Ensure all categories are present
+        all_statuses = ["Renewed", "Not Expired Yet", "Expired & Not Set Up"]
+        for status in all_statuses:
+            if status not in status_counts["Status"].values:
+                new_row = pd.DataFrame({"Status": [status], "Count": [0]})
+                status_counts = pd.concat([status_counts, new_row], ignore_index=True)
+        
+        # Create bar chart
+        fig = px.bar(
+            status_counts,
+            x="Status", 
+            y="Count",
+            title="90 for 90 Status Summary (July 31 Cohort)",
+            color="Status",
+            color_discrete_map={
+                "Renewed": chart_colors["secondary"],  # Gold
+                "Not Expired Yet": chart_colors["tertiary"],  # Sage  
+                "Expired & Not Set Up": chart_colors["primary"],  # Rust
+            },
+        )
+        
+        # Add count labels on bars
+        fig.update_traces(texttemplate="%{y}", textposition="outside")
+        
+        fig.update_layout(
+            plot_bgcolor=chart_colors["background"],
+            paper_bgcolor=chart_colors["background"],
+            font_color=chart_colors["text"],
+            height=400,
+            showlegend=False,
+            yaxis_title="Number of Members",
+        )
+        
         return fig
