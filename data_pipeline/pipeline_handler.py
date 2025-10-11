@@ -11,23 +11,28 @@ from data_pipeline import config
 def fetch_stripe_and_square_and_combine(days=2, end_date=datetime.datetime.now()):
     """
     Fetches Stripe and Square data for the last X days and combines them into a single DataFrame.
+    Uses corrected methods with refund handling (Payment Intents) and strict validation.
+
+    Note: Stripe Payment Intents already represents completed transactions.
+    Refunds are handled separately and not included in the transaction data.
     """
     end_date = end_date
     start_date = end_date - datetime.timedelta(days=days)
 
-    # Fetch Stripe data
+    # Fetch Stripe data using Payment Intents (only completed transactions)
     stripe_key = config.stripe_key
     stripe_fetcher = fetch_stripe_data.StripeFetcher(stripe_key=stripe_key)
-    stripe_df = stripe_fetcher.pull_and_transform_stripe_payment_data(
+
+    stripe_df = stripe_fetcher.pull_and_transform_stripe_payment_intents_data(
         stripe_key, start_date, end_date, save_json=False, save_csv=False
     )
 
-    # Fetch Square data
+    # Fetch Square data with strict validation (only COMPLETED payment + COMPLETED order)
     square_token = config.square_token
     square_fetcher = fetch_square_data.SquareFetcher(
         square_token, location_id="L37KDMNNG84EA"
     )
-    square_df = square_fetcher.pull_and_transform_square_payment_data(
+    square_df = square_fetcher.pull_and_transform_square_payment_data_strict(
         start_date, end_date, save_json=False, save_csv=False
     )
 

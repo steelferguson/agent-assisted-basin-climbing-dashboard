@@ -1,9 +1,11 @@
 import sys
+import os
 
-sys.path.append("./src")
+# Add parent directory to path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from dash import Dash
 from dashboard.dashboard import create_dashboard
-import os
 
 # Initialize the Dash app
 app = Dash(__name__)
