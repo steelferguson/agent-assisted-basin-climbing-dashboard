@@ -1284,13 +1284,24 @@ def create_dashboard(app):
             hover_data=["start_date", "status", "membership_owner_age"]
         )
         
-        # Add vertical line for today (convert timestamp to date string to avoid pandas compatibility issues)
-        today = pd.Timestamp.now().strftime("%Y-%m-%d")
-        fig.add_vline(
+        # Add vertical line for today using a shape instead of vline to avoid pandas compatibility issues
+        today = pd.Timestamp.now()
+        fig.add_shape(
+            type="line",
+            x0=today,
+            x1=today,
+            y0=0,
+            y1=1,
+            yref="paper",
+            line=dict(color="black", width=2, dash="dash")
+        )
+        fig.add_annotation(
             x=today,
-            line_dash="dash",
-            line_color="black",
-            annotation_text="Today"
+            y=1,
+            yref="paper",
+            text="Today",
+            showarrow=False,
+            yshift=10
         )
         
         fig.update_layout(
