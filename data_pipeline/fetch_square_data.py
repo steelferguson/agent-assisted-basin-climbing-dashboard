@@ -778,12 +778,74 @@ class SquareFetcher:
 
         print(f"Total COMPLETED payments retrieved: {len(payments)} (from {page_count} pages)")
 
-        # Step 2: For each completed payment, validate the associated order is also COMPLETED
+        # Step 2: Batch fetch all orders using search_orders (much faster than individual retrieve calls)
+        print(f"Batch fetching orders for validation...")
+
+        # Get unique order IDs from payments
+        order_ids = set()
+        for payment in payments:
+            order_id = payment.get('order_id') if isinstance(payment, dict) else payment.order_id
+            if order_id:
+                order_ids.add(order_id)
+
+        print(f"Found {len(order_ids)} unique orders to validate")
+
+        # Fetch all orders in batches using search_orders
+        orders_dict = {}
+        cursor = None
+        orders_page_count = 0
+
+        while True:
+            orders_page_count += 1
+            body = {
+                "location_ids": [self.location_id],
+                "query": {
+                    "filter": {
+                        "date_time_filter": {
+                            "created_at": {"start_at": begin_time, "end_at": end_time}
+                        }
+                    }
+                },
+                "limit": 1000
+            }
+            if cursor:
+                body["cursor"] = cursor
+
+            result = client.orders.search_orders(body=body)
+            if hasattr(result, 'is_success') and result.is_success():
+                batch_orders = result.body.get('orders', [])
+            elif hasattr(result, 'orders'):
+                batch_orders = result.orders or []
+            else:
+                batch_orders = result.get('orders', []) if isinstance(result, dict) else []
+
+            # Build lookup dictionary
+            for order in batch_orders:
+                order_id = order.get('id') if isinstance(order, dict) else order.id
+                if order_id in order_ids:  # Only store orders we need
+                    orders_dict[order_id] = order
+
+            print(f"  Orders page {orders_page_count}: Retrieved {len(batch_orders)} orders, {len([o for o in batch_orders if (o.get('id') if isinstance(o, dict) else o.id) in order_ids])} relevant")
+
+            # Check for more pages
+            if hasattr(result, 'cursor'):
+                cursor = result.cursor
+            elif hasattr(result, 'body'):
+                cursor = result.body.get('cursor')
+            else:
+                cursor = result.get('cursor') if isinstance(result, dict) else None
+
+            if not cursor:
+                break
+
+        print(f"Loaded {len(orders_dict)} orders for validation")
+
+        # Step 3: Validate payments against orders in memory (no more API calls!)
         validated_transactions = []
         orders_checked = 0
         orders_completed = 0
         payments_without_orders = 0
-        
+
         for payment in payments:
             # Handle dict format
             order_id = payment.get('order_id') if isinstance(payment, dict) else payment.order_id
@@ -791,28 +853,18 @@ class SquareFetcher:
 
             if order_id:
                 orders_checked += 1
-                try:
-                    # Get the specific order
-                    order_result = client.orders.retrieve_order(order_id=order_id)
+                order = orders_dict.get(order_id)
 
-                    # Handle both dict and object response formats
-                    if hasattr(order_result, 'is_success') and order_result.is_success():
-                        order = order_result.body.get('order')
-                        order_state = order.get('state') if isinstance(order, dict) else order.state
-                    elif hasattr(order_result, 'order'):
-                        order = order_result.order
-                        order_state = order.get('state') if isinstance(order, dict) else order.state
-                    else:
-                        order = order_result.get('order') if isinstance(order_result, dict) else None
-                        order_state = order.get('state') if order and isinstance(order, dict) else (order.state if order else None)
+                if order:
+                    order_state = order.get('state') if isinstance(order, dict) else order.state
 
                     if order_state == "COMPLETED":
                         orders_completed += 1
                         validated_transactions.append((payment, order))
                     else:
                         print(f"Payment {payment_id} has order {order_id} with state '{order_state}' - FILTERED OUT")
-                except Exception as e:
-                    print(f"Error retrieving order {order_id}: {e}")
+                else:
+                    print(f"Payment {payment_id} order {order_id} not found in search results - FILTERED OUT")
             else:
                 payments_without_orders += 1
 
