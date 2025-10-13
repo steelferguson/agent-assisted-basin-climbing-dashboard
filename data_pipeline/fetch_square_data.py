@@ -348,18 +348,41 @@ class SquareFetcher:
 
         print(f"Pulling payments from {begin_time} to {end_time}")
 
-        # Step 1: Pull all payments
+        # Step 1: Pull all payments (with pagination)
         payments = []
-        result = client.payments.list_payments(begin_time=begin_time, end_time=end_time)
-        if result.is_success():
-            for payment in result.body.get('payments', []):
-                # Filter for only completed payments
-                if payment.get('status') == 'COMPLETED':
-                    payments.append(payment)
-        elif result.is_error():
-            print("Error fetching payments:", result.errors)
-        
-        print(f"Total completed payments retrieved: {len(payments)}")
+        cursor = None
+        page_count = 0
+
+        while True:
+            page_count += 1
+            # Build parameters for list_payments
+            params = {
+                'begin_time': begin_time,
+                'end_time': end_time,
+                'limit': 100  # Max per page
+            }
+            if cursor:
+                params['cursor'] = cursor
+
+            result = client.payments.list_payments(**params)
+            if result.is_success():
+                batch_payments = result.body.get('payments', [])
+                print(f"  Page {page_count}: Retrieved {len(batch_payments)} payments")
+
+                for payment in batch_payments:
+                    # Filter for only completed payments
+                    if payment.get('status') == 'COMPLETED':
+                        payments.append(payment)
+
+                # Check for more pages
+                cursor = result.body.get('cursor')
+                if not cursor:
+                    break
+            elif result.is_error():
+                print("Error fetching payments:", result.errors)
+                break
+
+        print(f"Total completed payments retrieved: {len(payments)} (from {page_count} pages)")
 
         # Step 2: Pull all orders for the same time period
         orders = []
@@ -719,18 +742,41 @@ class SquareFetcher:
 
         print(f"Pulling STRICT Square data from {begin_time} to {end_time}")
 
-        # Step 1: Pull all payments with COMPLETED status
+        # Step 1: Pull all payments with COMPLETED status (with pagination)
         payments = []
-        result = client.payments.list_payments(begin_time=begin_time, end_time=end_time)
-        if result.is_success():
-            for payment in result.body.get('payments', []):
-                # Filter for only completed payments
-                if payment.get('status') == 'COMPLETED':
-                    payments.append(payment)
-        elif result.is_error():
-            print("Error fetching payments:", result.errors)
-        
-        print(f"Total COMPLETED payments retrieved: {len(payments)}")
+        cursor = None
+        page_count = 0
+
+        while True:
+            page_count += 1
+            # Build parameters for list_payments
+            params = {
+                'begin_time': begin_time,
+                'end_time': end_time,
+                'limit': 100  # Max per page
+            }
+            if cursor:
+                params['cursor'] = cursor
+
+            result = client.payments.list_payments(**params)
+            if result.is_success():
+                batch_payments = result.body.get('payments', [])
+                print(f"  Page {page_count}: Retrieved {len(batch_payments)} payments")
+
+                for payment in batch_payments:
+                    # Filter for only completed payments
+                    if payment.get('status') == 'COMPLETED':
+                        payments.append(payment)
+
+                # Check for more pages
+                cursor = result.body.get('cursor')
+                if not cursor:
+                    break
+            elif result.is_error():
+                print("Error fetching payments:", result.errors)
+                break
+
+        print(f"Total COMPLETED payments retrieved: {len(payments)} (from {page_count} pages)")
 
         # Step 2: For each completed payment, validate the associated order is also COMPLETED
         validated_transactions = []

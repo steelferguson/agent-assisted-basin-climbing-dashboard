@@ -13,8 +13,7 @@ def fetch_stripe_and_square_and_combine(days=2, end_date=datetime.datetime.now()
     Fetches Stripe and Square data for the last X days and combines them into a single DataFrame.
     Uses corrected methods with refund handling (Payment Intents) and strict validation.
 
-    Note: Stripe Payment Intents already represents completed transactions.
-    Refunds are handled separately and not included in the transaction data.
+    Refunds are included as negative transactions to show NET revenue.
     """
     end_date = end_date
     start_date = end_date - datetime.timedelta(days=days)
@@ -26,6 +25,36 @@ def fetch_stripe_and_square_and_combine(days=2, end_date=datetime.datetime.now()
     stripe_df = stripe_fetcher.pull_and_transform_stripe_payment_intents_data(
         stripe_key, start_date, end_date, save_json=False, save_csv=False
     )
+
+    # Fetch Stripe refunds for the same period
+    print(f"Fetching Stripe refunds from {start_date} to {end_date}")
+    refunds = stripe_fetcher.get_refunds_for_period(stripe_key, start_date, end_date)
+
+    # Convert refunds to negative transactions
+    refund_rows = []
+    for refund in refunds:
+        if refund.status == 'succeeded':
+            refund_amount = refund.amount / 100
+            refund_date = datetime.datetime.fromtimestamp(refund.created).date()
+
+            refund_rows.append({
+                'transaction_id': f'refund_{refund.id}',
+                'Description': f'Refund for charge {refund.charge}',
+                'Pre-Tax Amount': -refund_amount / 1.0825,
+                'Tax Amount': -refund_amount + (refund_amount / 1.0825),
+                'Total Amount': -refund_amount,  # Negative to subtract from revenue
+                'Discount Amount': 0,
+                'Name': 'Refund',
+                'Date': refund_date,
+                'revenue_category': 'Refund',
+                'Data Source': 'Stripe',
+                'Day Pass Count': 0,
+            })
+
+    if refund_rows:
+        refunds_df = pd.DataFrame(refund_rows)
+        print(f"Adding {len(refunds_df)} refunds totaling ${-refunds_df['Total Amount'].sum():,.2f}")
+        stripe_df = pd.concat([stripe_df, refunds_df], ignore_index=True)
 
     # Fetch Square data with strict validation (only COMPLETED payment + COMPLETED order)
     square_token = config.square_token
