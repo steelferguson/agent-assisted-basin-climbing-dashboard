@@ -146,6 +146,66 @@ def replace_transaction_df_in_s3():
     uploader.upload_to_s3(df, config.aws_bucket_name, config.s3_path_combined)
 
 
+def replace_date_range_in_transaction_df_in_s3(start_date, end_date):
+    """
+    Replaces data for a specific date range in S3, preserving data outside that range.
+
+    Args:
+        start_date: datetime object for the start of the range to replace
+        end_date: datetime object for the end of the range to replace
+    """
+    days = (end_date - start_date).days + 1
+    print(f"Replacing data from {start_date.date()} to {end_date.date()} ({days} days)")
+
+    # Fetch fresh data for the specified range
+    df_new = fetch_stripe_and_square_and_combine(days=days, end_date=end_date)
+
+    print("Downloading existing combined df from s3")
+    uploader = upload_data.DataUploader()
+    csv_content = uploader.download_from_s3(
+        config.aws_bucket_name, config.s3_path_combined
+    )
+    df_existing = uploader.convert_csv_to_df(csv_content)
+
+    # Convert dates for filtering
+    df_existing["Date"] = pd.to_datetime(
+        df_existing["Date"], errors="coerce"
+    ).dt.tz_localize(None)
+
+    # Keep data OUTSIDE the replacement range
+    df_before = df_existing[df_existing["Date"] < start_date]
+    df_after = df_existing[df_existing["Date"] > end_date]
+
+    print(f"Keeping {len(df_before)} transactions before {start_date.date()}")
+    print(f"Keeping {len(df_after)} transactions after {end_date.date()}")
+    print(f"Replacing with {len(df_new)} new transactions in the range")
+
+    # Format dates back to strings
+    df_before["Date"] = df_before["Date"].dt.strftime("%Y-%m-%d")
+    df_after["Date"] = df_after["Date"].dt.strftime("%Y-%m-%d")
+
+    # Combine: before + new data + after
+    df_combined = pd.concat([df_before, df_new, df_after], ignore_index=True)
+
+    print("Dropping duplicates")
+    df_combined = df_combined.drop_duplicates(subset=["transaction_id", "Date"])
+
+    print(f"Final dataset has {len(df_combined)} transactions")
+    print("Uploading to s3 at path:", config.s3_path_combined)
+    uploader.upload_to_s3(df_combined, config.aws_bucket_name, config.s3_path_combined)
+
+    today = datetime.datetime.now()
+    if today.day == config.snapshot_day_of_month:
+        print(
+            "Uploading transaction data to s3 with date in the filename since it is the first day of the month"
+        )
+        uploader.upload_to_s3(
+            df_combined,
+            config.aws_bucket_name,
+            config.s3_path_combined_snapshot + f'_{today.strftime("%Y-%m-%d")}',
+        )
+
+
 def replace_days_in_transaction_df_in_s3(days=2, end_date=datetime.datetime.now()):
     """
     Uploads a new transaction df to s3, replacing the existing one.
