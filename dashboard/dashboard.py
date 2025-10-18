@@ -851,19 +851,27 @@ def create_dashboard(app):
         df["end_date"] = pd.to_datetime(df["end_date"], errors="coerce")
         df["end_date"] = df["end_date"].dt.tz_localize(None)
 
-        # Calculate new memberships by period
+        # Filter to only include dates up to today
+        today = pd.Timestamp.now().normalize()
+
+        # Calculate new memberships by period (only up to today)
         df_new = df.dropna(subset=["start_date"]).copy()
+        df_new = df_new[df_new["start_date"] <= today]
         df_new["period"] = df_new["start_date"].dt.to_period(selected_timeframe).dt.start_time
         new_memberships = df_new.groupby("period").size().reset_index(name="new_count")
 
-        # Calculate attrition (ended memberships) by period
+        # Calculate attrition (ended memberships) by period (only up to today)
         df_ended = df.dropna(subset=["end_date"]).copy()
+        df_ended = df_ended[df_ended["end_date"] <= today]
         df_ended["period"] = df_ended["end_date"].dt.to_period(selected_timeframe).dt.start_time
         ended_memberships = df_ended.groupby("period").size().reset_index(name="ended_count")
 
         # Merge the two datasets on period
         combined = pd.merge(new_memberships, ended_memberships, on="period", how="outer").fillna(0)
         combined = combined.sort_values("period")
+
+        # Filter periods to only show up to today
+        combined = combined[combined["period"] <= today]
 
         # Create the figure with two line traces
         fig = go.Figure()
@@ -1188,6 +1196,9 @@ def create_dashboard(app):
             .reset_index(name="count")
         )
 
+        # Sort session labels alphabetically for consistent ordering
+        sorted_sessions = sorted(camp_counts["session_label"].unique())
+
         # Create stacked bar chart
         fig = px.bar(
             camp_counts,
@@ -1195,6 +1206,7 @@ def create_dashboard(app):
             y="count",
             color="formatted_date",
             title="Camp Session Purchases by Session and Purchase Period",
+            category_orders={"session_label": sorted_sessions},
             labels={
                 "session_label": "Camp Session",
                 "count": "Number of Purchases",
