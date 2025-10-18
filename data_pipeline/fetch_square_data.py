@@ -554,12 +554,14 @@ class SquareFetcher:
                         item_pre_tax_money = item.get('base_price_money', {}).get('amount', 0) / 100
                         item_tax_money = item.get('total_tax_money', {}).get('amount', 0) / 100
                         item_discount_money = item.get('total_discount_money', {}).get('amount', 0) / 100
+                        quantity = int(item.get('quantity', '1'))
                     else:
                         name = item.name or "No Name"
                         description = item.variation_name or "No Description"
                         item_pre_tax_money = item.base_price_money.amount / 100 if item.base_price_money else 0
                         item_tax_money = item.total_tax_money.amount / 100 if item.total_tax_money else 0
                         item_discount_money = item.total_discount_money.amount / 100 if item.total_discount_money else 0
+                        quantity = int(item.quantity if hasattr(item, 'quantity') and item.quantity else 1)
 
                     # Use actual line item amounts for individual fields
                     # Use split amount for Total Amount to account for any payment-level adjustments
@@ -578,6 +580,7 @@ class SquareFetcher:
                         "order_id": order_id,
                         "payment_status": payment_status,
                         "payment_type": payment_type,
+                        "quantity": quantity,  # Store quantity for later use
                     })
             else:
                 # Categorize payment without order
@@ -909,12 +912,14 @@ class SquareFetcher:
                         item_pre_tax_money = item.get('base_price_money', {}).get('amount', 0) / 100
                         item_tax_money = item.get('total_tax_money', {}).get('amount', 0) / 100
                         item_discount_money = item.get('total_discount_money', {}).get('amount', 0) / 100
+                        quantity = int(item.get('quantity', '1'))
                     else:
                         name = item.name or "No Name"
                         description = item.variation_name or "No Description"
                         item_pre_tax_money = item.base_price_money.amount / 100 if item.base_price_money else 0
                         item_tax_money = item.total_tax_money.amount / 100 if item.total_tax_money else 0
                         item_discount_money = item.total_discount_money.amount / 100 if item.total_discount_money else 0
+                        quantity = int(item.quantity if hasattr(item, 'quantity') and item.quantity else 1)
 
                     data.append({
                         "transaction_id": f"{payment_id}_item_{i+1}",
@@ -929,6 +934,7 @@ class SquareFetcher:
                         "status": "VALIDATED_COMPLETED",  # Mark as validated
                         "payment_id": payment_id,
                         "order_id": order_id,
+                        "quantity": quantity,  # Store quantity for later use
                     })
 
         # Create DataFrame

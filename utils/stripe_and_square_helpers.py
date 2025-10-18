@@ -132,10 +132,11 @@ def transform_payments_data(
         df["Description"].str.contains("Summer Camp", case=False, na=False),
         "sub_category",
     ] = "camps"
+    # Extract session number OR "BONUS WEEK"
     df.loc[
         df["Description"].str.contains("Summer Camp", case=False, na=False),
         "sub_category_detail",
-    ] = df["Description"].str.extract(r"(Summer Camp Session \d+)", expand=False)
+    ] = df["Description"].str.extract(r"(Summer Camp (?:Session \d+|BONUS WEEK))", expand=False, flags=re.IGNORECASE)
 
     # Birthday
     for pattern, detail in config.birthday_sub_category_patterns.items():
@@ -201,8 +202,12 @@ def transform_payments_data(
     if day_pass_count_logic:
         df["Day Pass Count"] = df.apply(day_pass_count_logic, axis=1)
     else:
+        # Use quantity field if available (for Square), otherwise default to 1
         df["Day Pass Count"] = df.apply(
-            lambda row: 1 if row["revenue_category"] == "Day Pass" else 0, axis=1
+            lambda row: (
+                int(row.get("quantity", 1)) if row["revenue_category"] == "Day Pass" else 0
+            ),
+            axis=1
         )
 
     return df
