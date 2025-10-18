@@ -171,6 +171,7 @@ class CapitanDataFetcher:
             upcoming_bill_dates = membership.get("upcoming_bill_dates", [])
             membership_unfreeze_date = membership.get("membership_unfreeze_date")
             owner_birthday = membership.get("owner_birthday")
+            owner_id = membership.get("owner_id")  # Customer ID
             membership_owner_age = self.calculate_age(owner_birthday)
 
             # Projected amount: billing_amount if not frozen, else 0
@@ -192,6 +193,7 @@ class CapitanDataFetcher:
                     "projected_amount": projected_amount,
                     "interval": membership.get("interval", ""),
                     "status": membership.get("status", ""),
+                    "owner_id": owner_id,
                     "membership_owner_age": membership_owner_age,
                     **features,
                 }

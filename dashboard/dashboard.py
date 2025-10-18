@@ -220,6 +220,12 @@ def create_dashboard(app):
             dcc.Graph(id="membership-timeline-chart"),
             # Members over time chart section
             dcc.Graph(id="members-timeline-chart"),
+            # Membership Attrition and New Membership chart section
+            html.H1(
+                children="Membership Attrition & New Membership",
+                style={"color": "#213B3F", "marginTop": "30px"},
+            ),
+            dcc.Graph(id="membership-attrition-new-chart"),
             # Youth Teams section
             html.H1(
                 children="Youth Teams Membership",
@@ -830,6 +836,77 @@ def create_dashboard(app):
         )
         return fig
 
+    # Callback for Membership Attrition and New Membership chart
+    @app.callback(
+        Output("membership-attrition-new-chart", "figure"),
+        [Input("timeframe-toggle", "value")],
+    )
+    def update_membership_attrition_new_chart(selected_timeframe):
+        # Load the membership data
+        df = df_memberships.copy()
+
+        # Convert dates to datetime
+        df["start_date"] = pd.to_datetime(df["start_date"], errors="coerce")
+        df["start_date"] = df["start_date"].dt.tz_localize(None)
+        df["end_date"] = pd.to_datetime(df["end_date"], errors="coerce")
+        df["end_date"] = df["end_date"].dt.tz_localize(None)
+
+        # Calculate new memberships by period
+        df_new = df.dropna(subset=["start_date"]).copy()
+        df_new["period"] = df_new["start_date"].dt.to_period(selected_timeframe).dt.start_time
+        new_memberships = df_new.groupby("period").size().reset_index(name="new_count")
+
+        # Calculate attrition (ended memberships) by period
+        df_ended = df.dropna(subset=["end_date"]).copy()
+        df_ended["period"] = df_ended["end_date"].dt.to_period(selected_timeframe).dt.start_time
+        ended_memberships = df_ended.groupby("period").size().reset_index(name="ended_count")
+
+        # Merge the two datasets on period
+        combined = pd.merge(new_memberships, ended_memberships, on="period", how="outer").fillna(0)
+        combined = combined.sort_values("period")
+
+        # Create the figure with two line traces
+        fig = go.Figure()
+
+        # Add new memberships line
+        fig.add_trace(
+            go.Scatter(
+                x=combined["period"],
+                y=combined["new_count"],
+                mode="lines+markers",
+                name="New Memberships",
+                line=dict(color=chart_colors["secondary"], width=2),  # Gold
+                marker=dict(size=6),
+            )
+        )
+
+        # Add attrition line
+        fig.add_trace(
+            go.Scatter(
+                x=combined["period"],
+                y=combined["ended_count"],
+                mode="lines+markers",
+                name="Membership Attrition",
+                line=dict(color=chart_colors["primary"], width=2),  # Rust
+                marker=dict(size=6),
+            )
+        )
+
+        # Update layout
+        fig.update_layout(
+            title="Membership Attrition & New Membership Over Time",
+            showlegend=True,
+            height=500,
+            xaxis_title="Period",
+            yaxis_title="Number of Memberships",
+            hovermode="x unified",
+            plot_bgcolor=chart_colors["background"],
+            paper_bgcolor=chart_colors["background"],
+            font_color=chart_colors["text"],
+        )
+
+        return fig
+
     # Callback for Youth Teams chart
     @app.callback(
         Output("youth-teams-chart", "figure"), [Input("timeframe-toggle", "value")]
@@ -1099,6 +1176,11 @@ def create_dashboard(app):
             "Summer Camp ", "", regex=False
         )
 
+        # Remove "Capitan reservation #xxx: " or "Capitan reservation (xxx): " pattern from labels
+        camp_data["session_label"] = camp_data["session_label"].str.replace(
+            r"Capitan reservation [#\(]?\d+[\)]?: ", "", regex=True
+        )
+
         # Group by session and purchase period
         camp_counts = (
             camp_data.groupby(["session_label", "formatted_date"])
@@ -1209,12 +1291,12 @@ def create_dashboard(app):
     def update_ninety_for_ninety_timeline_chart(selected_timeframe):
         """
         Show 90 for 90 purchase volume by week, colored by conversion status.
-        Uses membership data to determine conversions.
+        Uses member data (df_members) to track unique people and their conversions.
         """
-        # Use 90 for 90 memberships (not transactions) for accurate counting
-        ninety_memberships = df_memberships[df_memberships["is_90_for_90"] == True].copy()
+        # Use members data with 90 for 90
+        ninety_members = df_members[df_members["is_90_for_90"] == True].copy()
 
-        if ninety_memberships.empty:
+        if ninety_members.empty:
             fig = px.bar(title="No 90 for 90 memberships found")
             fig.add_annotation(
                 text="No 90 for 90 memberships found",
@@ -1225,35 +1307,36 @@ def create_dashboard(app):
             )
             return fig
 
+        # Create person identifier from name (temporary until we have owner_id)
+        ninety_members["person_id"] = ninety_members["member_first_name"] + " " + ninety_members["member_last_name"]
+
         # Convert start dates and group by week
-        ninety_memberships["start_date"] = pd.to_datetime(ninety_memberships["start_date"], errors="coerce")
-        ninety_memberships["start_date"] = ninety_memberships["start_date"].dt.tz_localize(None)
-        ninety_memberships["week"] = ninety_memberships["start_date"].dt.to_period("W").dt.start_time
+        ninety_members["start_date"] = pd.to_datetime(ninety_members["start_date"], errors="coerce")
+        ninety_members["start_date"] = ninety_members["start_date"].dt.tz_localize(None)
+        ninety_members["week"] = ninety_members["start_date"].dt.to_period("W").dt.start_time
 
-        # Determine conversion status: 90 for 90 ended AND they have a new active regular membership
+        # For each unique person, determine if they converted
+        df_members_copy = df_members.copy()
+        df_members_copy["person_id"] = df_members_copy["member_first_name"] + " " + df_members_copy["member_last_name"]
+
         def check_conversion_status(row):
-            # Use membership_owner_age as unique identifier
-            member_id = row["membership_owner_age"]
-            ninety_status = row["status"]
+            person_id = row["person_id"]
+            ninety_start_date = row["start_date"]
 
-            # Look for active regular memberships for this person (not 90 for 90)
-            regular_memberships = df_memberships[
-                (df_memberships["membership_owner_age"] == member_id) &
-                (df_memberships["status"] == "ACT") &
-                (df_memberships["is_90_for_90"] == False)
+            # Look for regular memberships for this person that started after their 90 for 90
+            regular_memberships = df_members_copy[
+                (df_members_copy["person_id"] == person_id) &
+                (df_members_copy["is_90_for_90"] == False) &
+                (pd.to_datetime(df_members_copy["start_date"], errors="coerce").dt.tz_localize(None) > ninety_start_date)
             ]
 
-            # Converted = 90 for 90 ended AND they have a regular membership now
-            has_regular_membership = len(regular_memberships) > 0
-            ninety_ended = ninety_status == "END"
+            return "Converted" if len(regular_memberships) > 0 else "Not Converted"
 
-            return "Converted" if (ninety_ended and has_regular_membership) else "Not Converted"
+        ninety_members["conversion_status"] = ninety_members.apply(check_conversion_status, axis=1)
 
-        ninety_memberships["conversion_status"] = ninety_memberships.apply(check_conversion_status, axis=1)
-
-        # Group by week and conversion status
+        # Group by week and conversion status - count unique people per week
         weekly_counts = (
-            ninety_memberships.groupby(["week", "conversion_status"])
+            ninety_members.groupby(["week", "conversion_status"])
             .size()
             .reset_index(name="count")
         )
@@ -1295,11 +1378,12 @@ def create_dashboard(app):
     def update_ninety_for_ninety_summary_chart(selected_timeframe):
         """
         Show conversion summary for 90 for 90 memberships.
+        Uses member data to track unique people.
         """
-        # Use 90 for 90 memberships for accurate counting
-        ninety_memberships = df_memberships[df_memberships["is_90_for_90"] == True].copy()
+        # Use members data with 90 for 90
+        ninety_members = df_members[df_members["is_90_for_90"] == True].copy()
 
-        if ninety_memberships.empty:
+        if ninety_members.empty:
             fig = px.bar(title="No 90 for 90 memberships found")
             fig.add_annotation(
                 text="No 90 for 90 memberships found",
@@ -1310,28 +1394,36 @@ def create_dashboard(app):
             )
             return fig
 
-        # Get unique members
-        unique_member_ids = ninety_memberships["membership_owner_age"].unique()
+        # Create person identifier from name
+        ninety_members["person_id"] = ninety_members["member_first_name"] + " " + ninety_members["member_last_name"]
+        df_members_copy = df_members.copy()
+        df_members_copy["person_id"] = df_members_copy["member_first_name"] + " " + df_members_copy["member_last_name"]
+
+        # Get unique people
+        unique_person_ids = ninety_members["person_id"].unique()
 
         # Count conversions
         converted_count = 0
         not_converted_count = 0
 
-        for member_id in unique_member_ids:
-            # Get this member's 90 for 90 membership status
-            member_ninety = ninety_memberships[ninety_memberships["membership_owner_age"] == member_id]
-            ninety_ended = (member_ninety["status"] == "END").any()
+        for person_id in unique_person_ids:
+            # Get this person's 90 for 90 membership(s)
+            person_ninety = ninety_members[ninety_members["person_id"] == person_id]
+            # Get the earliest start date of their 90 for 90 membership(s)
+            ninety_start_date = pd.to_datetime(person_ninety["start_date"].min(), errors="coerce")
+            if pd.notna(ninety_start_date):
+                ninety_start_date = ninety_start_date.tz_localize(None)
 
-            # Check if this member has an active regular membership
-            regular_memberships = df_memberships[
-                (df_memberships["membership_owner_age"] == member_id) &
-                (df_memberships["status"] == "ACT") &
-                (df_memberships["is_90_for_90"] == False)
+            # Check if this person got a regular membership that started after their 90 for 90
+            regular_memberships = df_members_copy[
+                (df_members_copy["person_id"] == person_id) &
+                (df_members_copy["is_90_for_90"] == False) &
+                (pd.to_datetime(df_members_copy["start_date"], errors="coerce").dt.tz_localize(None) > ninety_start_date)
             ]
             has_regular = len(regular_memberships) > 0
 
-            # Converted = 90 for 90 ended AND they have a regular membership
-            if ninety_ended and has_regular:
+            # Converted = they got a regular membership after their 90 for 90
+            if has_regular:
                 converted_count += 1
             else:
                 not_converted_count += 1
