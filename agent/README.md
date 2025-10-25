@@ -98,6 +98,12 @@ Available commands:
 - "Compare revenue from January to February"
 - "What's the difference in new memberships between Q1 and Q2?"
 
+**Visualization Questions:**
+- "Create a chart showing revenue over time for the last 3 months"
+- "Show me a pie chart of revenue by category for September"
+- "Create a membership trends chart for the last 6 months"
+- "Make a bar chart of day pass types sold this month"
+
 ## Available Tools
 
 The agent has access to the following analytical tools:
@@ -115,6 +121,14 @@ The agent has access to the following analytical tools:
 ### Day Pass Tools
 - `get_day_pass_count` - Count of day passes sold
 - `get_day_pass_revenue` - Day pass revenue with metrics
+
+### Visualization Tools
+- `create_revenue_timeseries_chart` - Line chart showing revenue over time (day/week/month)
+- `create_revenue_category_chart` - Bar or pie chart of revenue by category
+- `create_membership_trend_chart` - Line chart showing new memberships vs attrition
+- `create_day_pass_breakdown_chart` - Bar chart of day pass types
+
+Charts are saved as interactive HTML files in `agent/charts/` and can be opened in any web browser.
 
 ## Architecture
 
@@ -137,8 +151,10 @@ The agent uses:
 
 Planned features:
 - [ ] Generic pandas query tool for ad-hoc analysis
-- [ ] Visualization support (return Plotly charts)
+- [x] Visualization support (Plotly charts)
 - [ ] Web interface (Streamlit/Gradio)
 - [ ] Export results to CSV/Excel
 - [ ] Scheduled reports via email
 - [ ] Comparative analysis tools
+- [ ] More chart types (scatter, heatmap, etc.)
+- [ ] Chart customization options (colors, titles, etc.)

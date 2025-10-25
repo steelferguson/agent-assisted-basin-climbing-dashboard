@@ -180,4 +180,7 @@ cython_debug/
 # the txt files created by the doc_generator.py script
 **/plain_text_files/*.txt
 
+# Generated charts
+agent/charts/
+
 **/.DS_Store

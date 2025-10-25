@@ -9,10 +9,14 @@ These tools provide pre-built functions for common analytical questions about:
 """
 
 import pandas as pd
+import plotly.graph_objects as go
+import plotly.express as px
 from typing import Optional, Literal
 from datetime import datetime, timedelta
 from pydantic import BaseModel, Field
 from langchain_core.tools import StructuredTool
+import json
+import os
 
 
 # ============================================================================
@@ -416,6 +420,300 @@ def create_get_day_pass_revenue_tool(df_transactions: pd.DataFrame):
 
 
 # ============================================================================
+# VISUALIZATION TOOLS
+# ============================================================================
+
+class RevenueTimeseriesInput(BaseModel):
+    start_date: str = Field(description="Start date in YYYY-MM-DD format")
+    end_date: str = Field(description="End date in YYYY-MM-DD format")
+    grouping: Literal['day', 'week', 'month'] = Field('day', description="Time grouping: 'day', 'week', or 'month'")
+    category: Optional[str] = Field(None, description="Filter by revenue category")
+
+
+def create_revenue_timeseries_chart_tool(df_transactions: pd.DataFrame):
+    """Create a line chart showing revenue over time."""
+
+    def create_revenue_timeseries(
+        start_date: str,
+        end_date: str,
+        grouping: Literal['day', 'week', 'month'] = 'day',
+        category: Optional[str] = None
+    ) -> str:
+        df = df_transactions.copy()
+
+        # Filter by date
+        start = pd.to_datetime(start_date)
+        end = pd.to_datetime(end_date)
+        df = df[(df['Date'] >= start) & (df['Date'] <= end)]
+
+        # Filter by category if provided
+        if category:
+            df = df[df['revenue_category'] == category]
+
+        # Convert Date to datetime if it's not already
+        df['Date'] = pd.to_datetime(df['Date'])
+
+        # Group by time period
+        if grouping == 'day':
+            df_grouped = df.groupby(df['Date'].dt.date)['Total Amount'].sum().reset_index()
+            df_grouped.columns = ['Date', 'Revenue']
+        elif grouping == 'week':
+            df['Week'] = df['Date'].dt.to_period('W').dt.start_time
+            df_grouped = df.groupby('Week')['Total Amount'].sum().reset_index()
+            df_grouped.columns = ['Date', 'Revenue']
+        elif grouping == 'month':
+            df['Month'] = df['Date'].dt.to_period('M').dt.start_time
+            df_grouped = df.groupby('Month')['Total Amount'].sum().reset_index()
+            df_grouped.columns = ['Date', 'Revenue']
+
+        # Create chart
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=df_grouped['Date'],
+            y=df_grouped['Revenue'],
+            mode='lines+markers',
+            name='Revenue',
+            line=dict(color='#2ecc71', width=2),
+            marker=dict(size=6)
+        ))
+
+        title = f"Revenue Over Time ({grouping.capitalize()})"
+        if category:
+            title += f" - {category}"
+
+        fig.update_layout(
+            title=title,
+            xaxis_title='Date',
+            yaxis_title='Revenue ($)',
+            hovermode='x unified',
+            template='plotly_white'
+        )
+
+        # Save chart
+        os.makedirs('agent/charts', exist_ok=True)
+        filename = f"agent/charts/revenue_timeseries_{grouping}_{start_date}_{end_date}.html"
+        fig.write_html(filename)
+
+        total = df_grouped['Revenue'].sum()
+        avg = df_grouped['Revenue'].mean()
+
+        return f"Revenue timeseries chart created and saved to {filename}\n\nSummary:\n- Total revenue: ${total:,.2f}\n- Average per {grouping}: ${avg:,.2f}\n- Data points: {len(df_grouped)}"
+
+    return StructuredTool.from_function(
+        name="create_revenue_timeseries_chart",
+        func=create_revenue_timeseries,
+        description="Create a line chart showing revenue over time, grouped by day/week/month",
+        args_schema=RevenueTimeseriesInput
+    )
+
+
+class RevenueCategoryChartInput(BaseModel):
+    start_date: str = Field(description="Start date in YYYY-MM-DD format")
+    end_date: str = Field(description="End date in YYYY-MM-DD format")
+    chart_type: Literal['bar', 'pie'] = Field('bar', description="Chart type: 'bar' or 'pie'")
+
+
+def create_revenue_category_chart_tool(df_transactions: pd.DataFrame):
+    """Create a chart showing revenue breakdown by category."""
+
+    def create_revenue_category_chart(
+        start_date: str,
+        end_date: str,
+        chart_type: Literal['bar', 'pie'] = 'bar'
+    ) -> str:
+        df = df_transactions.copy()
+
+        # Filter by date
+        start = pd.to_datetime(start_date)
+        end = pd.to_datetime(end_date)
+        df = df[(df['Date'] >= start) & (df['Date'] <= end)]
+
+        # Group by category
+        category_revenue = df.groupby('revenue_category')['Total Amount'].sum().sort_values(ascending=False)
+
+        # Create chart
+        if chart_type == 'bar':
+            fig = go.Figure()
+            fig.add_trace(go.Bar(
+                x=category_revenue.index,
+                y=category_revenue.values,
+                marker_color='#3498db'
+            ))
+            fig.update_layout(
+                title=f"Revenue by Category ({start_date} to {end_date})",
+                xaxis_title='Category',
+                yaxis_title='Revenue ($)',
+                template='plotly_white'
+            )
+        else:  # pie
+            fig = go.Figure()
+            fig.add_trace(go.Pie(
+                labels=category_revenue.index,
+                values=category_revenue.values,
+                hole=0.3
+            ))
+            fig.update_layout(
+                title=f"Revenue by Category ({start_date} to {end_date})",
+                template='plotly_white'
+            )
+
+        # Save chart
+        os.makedirs('agent/charts', exist_ok=True)
+        filename = f"agent/charts/revenue_category_{chart_type}_{start_date}_{end_date}.html"
+        fig.write_html(filename)
+
+        total = category_revenue.sum()
+        top_category = category_revenue.index[0]
+        top_amount = category_revenue.values[0]
+
+        return f"Revenue category {chart_type} chart created and saved to {filename}\n\nSummary:\n- Total revenue: ${total:,.2f}\n- Top category: {top_category} (${top_amount:,.2f}, {top_amount/total*100:.1f}%)\n- Categories: {len(category_revenue)}"
+
+    return StructuredTool.from_function(
+        name="create_revenue_category_chart",
+        func=create_revenue_category_chart,
+        description="Create a bar or pie chart showing revenue breakdown by category",
+        args_schema=RevenueCategoryChartInput
+    )
+
+
+class MembershipTrendChartInput(BaseModel):
+    months_back: int = Field(12, description="Number of months to look back (default 12)")
+
+
+def create_membership_trend_chart_tool(df_memberships: pd.DataFrame):
+    """Create a chart showing membership trends (new vs attrition)."""
+
+    def create_membership_trend_chart(months_back: int = 12) -> str:
+        df = df_memberships.copy()
+
+        # Calculate date range
+        end_date = pd.Timestamp.now()
+        start_date = end_date - pd.DateOffset(months=months_back)
+
+        # Create monthly buckets
+        months = pd.date_range(start=start_date, end=end_date, freq='MS')
+
+        new_counts = []
+        attrition_counts = []
+
+        for month in months:
+            month_end = month + pd.offsets.MonthEnd(0)
+
+            # New memberships
+            new = df[(df['start_date'] >= month) & (df['start_date'] <= month_end)]
+            new_counts.append(len(new))
+
+            # Attrition
+            ended = df[(df['end_date'] >= month) & (df['end_date'] <= month_end)]
+            attrition_counts.append(len(ended))
+
+        # Create chart
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=months,
+            y=new_counts,
+            mode='lines+markers',
+            name='New Memberships',
+            line=dict(color='#2ecc71', width=2),
+            marker=dict(size=8)
+        ))
+        fig.add_trace(go.Scatter(
+            x=months,
+            y=attrition_counts,
+            mode='lines+markers',
+            name='Attrition',
+            line=dict(color='#e74c3c', width=2),
+            marker=dict(size=8)
+        ))
+
+        fig.update_layout(
+            title=f"Membership Trends (Last {months_back} Months)",
+            xaxis_title='Month',
+            yaxis_title='Count',
+            hovermode='x unified',
+            template='plotly_white',
+            legend=dict(x=0.01, y=0.99)
+        )
+
+        # Save chart
+        os.makedirs('agent/charts', exist_ok=True)
+        filename = f"agent/charts/membership_trends_{months_back}mo.html"
+        fig.write_html(filename)
+
+        total_new = sum(new_counts)
+        total_attrition = sum(attrition_counts)
+        net_growth = total_new - total_attrition
+
+        return f"Membership trend chart created and saved to {filename}\n\nSummary ({months_back} months):\n- Total new memberships: {total_new}\n- Total attrition: {total_attrition}\n- Net growth: {net_growth:+d}\n- Average new per month: {total_new/months_back:.1f}\n- Average attrition per month: {total_attrition/months_back:.1f}"
+
+    return StructuredTool.from_function(
+        name="create_membership_trend_chart",
+        func=create_membership_trend_chart,
+        description="Create a line chart showing new memberships vs attrition over time",
+        args_schema=MembershipTrendChartInput
+    )
+
+
+class DayPassChartInput(BaseModel):
+    start_date: str = Field(description="Start date in YYYY-MM-DD format")
+    end_date: str = Field(description="End date in YYYY-MM-DD format")
+
+
+def create_day_pass_breakdown_chart_tool(df_transactions: pd.DataFrame):
+    """Create a chart showing day pass breakdown by type."""
+
+    def create_day_pass_breakdown_chart(
+        start_date: str,
+        end_date: str
+    ) -> str:
+        df = df_transactions.copy()
+
+        # Filter by date
+        start = pd.to_datetime(start_date)
+        end = pd.to_datetime(end_date)
+        df = df[(df['Date'] >= start) & (df['Date'] <= end)]
+
+        # Filter to day passes
+        df = df[df['revenue_category'] == 'Day Pass']
+
+        # Group by type
+        pass_counts = df.groupby('sub_category')['Day Pass Count'].sum().sort_values(ascending=False)
+
+        # Create chart
+        fig = go.Figure()
+        fig.add_trace(go.Bar(
+            x=pass_counts.index,
+            y=pass_counts.values,
+            marker_color='#9b59b6'
+        ))
+
+        fig.update_layout(
+            title=f"Day Pass Breakdown ({start_date} to {end_date})",
+            xaxis_title='Pass Type',
+            yaxis_title='Count',
+            template='plotly_white'
+        )
+
+        # Save chart
+        os.makedirs('agent/charts', exist_ok=True)
+        filename = f"agent/charts/day_pass_breakdown_{start_date}_{end_date}.html"
+        fig.write_html(filename)
+
+        total = pass_counts.sum()
+        top_type = pass_counts.index[0]
+        top_count = pass_counts.values[0]
+
+        return f"Day pass breakdown chart created and saved to {filename}\n\nSummary:\n- Total day passes: {int(total)}\n- Most popular: {top_type} ({int(top_count)} passes, {top_count/total*100:.1f}%)\n- Pass types: {len(pass_counts)}"
+
+    return StructuredTool.from_function(
+        name="create_day_pass_breakdown_chart",
+        func=create_day_pass_breakdown_chart,
+        description="Create a bar chart showing day pass counts by type",
+        args_schema=DayPassChartInput
+    )
+
+
+# ============================================================================
 # CREATE ALL TOOLS
 # ============================================================================
 
@@ -439,6 +737,12 @@ def create_all_tools():
         # Day pass tools
         create_get_day_pass_count_tool(df_transactions),
         create_get_day_pass_revenue_tool(df_transactions),
+
+        # Visualization tools
+        create_revenue_timeseries_chart_tool(df_transactions),
+        create_revenue_category_chart_tool(df_transactions),
+        create_membership_trend_chart_tool(df_memberships),
+        create_day_pass_breakdown_chart_tool(df_transactions),
     ]
 
     return tools
