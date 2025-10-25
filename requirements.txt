@@ -36,6 +36,7 @@ jsonpatch==1.33
 jsonpickle==3.0.4
 jsonpointer==2.4
 langchain==0.3.25
+langchain-anthropic==0.3.6
 langchain-community==0.3.24
 langchain-core==0.3.59
 langchain-openai==0.3.16
