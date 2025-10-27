@@ -183,4 +183,8 @@ cython_debug/
 # Generated charts
 agent/charts/
 
+# Local test scripts with API keys
+run_agent.sh
+my_test.py
+
 **/.DS_Store

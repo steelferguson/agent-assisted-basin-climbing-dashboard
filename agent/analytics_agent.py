@@ -106,11 +106,27 @@ Always convert these to specific YYYY-MM-DD dates before calling tools."""
                 "chat_history": self.conversation_history
             })
 
+            # Extract the output text
+            output = response["output"]
+
+            # Handle case where output is a list of dicts (from Claude's response format)
+            if isinstance(output, list):
+                # Extract text from list of content blocks
+                text_parts = []
+                for item in output:
+                    if isinstance(item, dict) and 'text' in item:
+                        text_parts.append(item['text'])
+                    elif isinstance(item, str):
+                        text_parts.append(item)
+                output_text = ' '.join(text_parts)
+            else:
+                output_text = str(output)
+
             # Store in conversation history
             self.conversation_history.append(HumanMessage(content=question))
-            self.conversation_history.append(AIMessage(content=response["output"]))
+            self.conversation_history.append(AIMessage(content=output_text))
 
-            return response["output"]
+            return output_text
 
         except Exception as e:
             error_msg = f"Error processing question: {str(e)}"
