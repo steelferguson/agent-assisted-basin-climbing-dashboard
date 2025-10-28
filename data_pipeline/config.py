@@ -4,9 +4,12 @@ import os
 stripe_key = os.getenv("STRIPE_PRODUCTION_API_KEY")
 square_token = os.getenv("SQUARE_PRODUCTION_API_TOKEN")
 capitan_token = os.getenv("CAPITAN_API_TOKEN")
+instagram_access_token = os.getenv("INSTAGRAM_ACCESS_TOKEN")
+instagram_business_account_id = os.getenv("INSTAGRAM_BUSINESS_ACCOUNT_ID", "17841455043408233")
 aws_access_key_id = os.getenv("AWS_ACCESS_KEY_ID")
 aws_secret_access_key = os.getenv("AWS_SECRET_ACCESS_KEY")
 openai_api_key = os.getenv("OPENAI_API_KEY")
+anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
 df_path_recent_days = "data/outputs/stripe_and_square_combined_data_recent_days.csv"
 df_path_combined = "data/outputs/stripe_and_square_combined_data.csv"
 aws_bucket_name = "basin-climbing-data-prod"
@@ -23,6 +26,10 @@ s3_path_capitan_members_snapshot = "capitan/snapshots/members.csv"
 s3_path_capitan_membership_revenue_projection_snapshot = (
     "capitan/snapshots/membership_revenue_projection.csv"
 )
+s3_path_instagram_posts = "instagram/posts_data.csv"
+s3_path_instagram_comments = "instagram/comments_data.csv"
+s3_path_instagram_posts_snapshot = "instagram/snapshots/posts_data.csv"
+s3_path_instagram_comments_snapshot = "instagram/snapshots/comments_data.csv"
 snapshot_day_of_month = 1
 s3_path_text_and_metadata = "agent/text_and_metadata"
 

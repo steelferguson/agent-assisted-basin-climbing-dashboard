@@ -187,4 +187,8 @@ outputs/
 run_agent.sh
 my_test.py
 
+# Credentials and secrets
+INSTAGRAM_CREDENTIALS.md
+*_CREDENTIALS.md
+
 **/.DS_Store

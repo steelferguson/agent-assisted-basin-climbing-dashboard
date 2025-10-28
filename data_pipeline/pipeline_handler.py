@@ -1,6 +1,7 @@
 from data_pipeline import fetch_stripe_data
 from data_pipeline import fetch_square_data
 from data_pipeline import fetch_capitan_membership_data
+from data_pipeline import fetch_instagram_data
 from data_pipeline import upload_data as upload_data
 import datetime
 import os
@@ -328,9 +329,135 @@ def upload_new_capitan_membership_data(save_local=False):
         )
 
 
+def upload_new_instagram_data(save_local=False, enable_vision_analysis=True, days_to_fetch=30):
+    """
+    Fetches Instagram posts and comments from the last N days, merges with existing data,
+    and uploads to S3.
+
+    Args:
+        save_local: Whether to save CSV files locally
+        enable_vision_analysis: Whether to run AI vision analysis on images
+        days_to_fetch: Number of days of posts to fetch (default: 30)
+    """
+    print(f"\n=== Fetching Instagram Data (last {days_to_fetch} days) ===")
+
+    # Initialize fetcher
+    instagram_token = config.instagram_access_token
+    instagram_account_id = config.instagram_business_account_id
+    anthropic_api_key = config.anthropic_api_key
+
+    if not instagram_token:
+        print("Error: INSTAGRAM_ACCESS_TOKEN not found in environment")
+        return
+
+    fetcher = fetch_instagram_data.InstagramDataFetcher(
+        access_token=instagram_token,
+        business_account_id=instagram_account_id,
+        anthropic_api_key=anthropic_api_key
+    )
+
+    # Fetch new posts
+    since_date = datetime.datetime.now() - datetime.timedelta(days=days_to_fetch)
+    print(f"Fetching posts since {since_date.date()}...")
+
+    new_posts_df, new_comments_df = fetcher.fetch_and_process_posts(
+        limit=1000,  # High limit to get all recent posts
+        since=since_date,
+        enable_vision_analysis=enable_vision_analysis,
+        fetch_comments=True
+    )
+
+    if new_posts_df.empty:
+        print("No new Instagram posts found")
+        return
+
+    print(f"Fetched {len(new_posts_df)} posts and {len(new_comments_df)} comments")
+
+    # Upload to S3 and merge with existing data
+    uploader = upload_data.DataUploader()
+
+    # Handle POSTS
+    print("\nMerging Instagram posts with existing data...")
+    try:
+        csv_content_existing_posts = uploader.download_from_s3(
+            config.aws_bucket_name, config.s3_path_instagram_posts
+        )
+        existing_posts_df = uploader.convert_csv_to_df(csv_content_existing_posts)
+        print(f"Found {len(existing_posts_df)} existing posts in S3")
+
+        # Combine and remove duplicates (keep newer data)
+        combined_posts_df = pd.concat([existing_posts_df, new_posts_df], ignore_index=True)
+        combined_posts_df = combined_posts_df.drop_duplicates(subset=['post_id'], keep='last')
+        print(f"Combined dataset has {len(combined_posts_df)} unique posts")
+
+    except Exception as e:
+        print(f"No existing posts data found (first upload?): {e}")
+        combined_posts_df = new_posts_df
+
+    # Handle COMMENTS
+    print("\nMerging Instagram comments with existing data...")
+    try:
+        csv_content_existing_comments = uploader.download_from_s3(
+            config.aws_bucket_name, config.s3_path_instagram_comments
+        )
+        existing_comments_df = uploader.convert_csv_to_df(csv_content_existing_comments)
+        print(f"Found {len(existing_comments_df)} existing comments in S3")
+
+        # Combine and remove duplicates
+        combined_comments_df = pd.concat([existing_comments_df, new_comments_df], ignore_index=True)
+        combined_comments_df = combined_comments_df.drop_duplicates(subset=['comment_id'], keep='last')
+        print(f"Combined dataset has {len(combined_comments_df)} unique comments")
+
+    except Exception as e:
+        print(f"No existing comments data found (first upload?): {e}")
+        combined_comments_df = new_comments_df
+
+    # Save locally if requested
+    if save_local:
+        print("\nSaving Instagram data locally...")
+        os.makedirs("data/outputs", exist_ok=True)
+        combined_posts_df.to_csv("data/outputs/instagram_posts.csv", index=False)
+        combined_comments_df.to_csv("data/outputs/instagram_comments.csv", index=False)
+        print("Saved to data/outputs/instagram_posts.csv and instagram_comments.csv")
+
+    # Upload to S3
+    print("\nUploading Instagram data to S3...")
+    uploader.upload_to_s3(
+        combined_posts_df,
+        config.aws_bucket_name,
+        config.s3_path_instagram_posts
+    )
+    uploader.upload_to_s3(
+        combined_comments_df,
+        config.aws_bucket_name,
+        config.s3_path_instagram_comments
+    )
+    print("✅ Successfully uploaded Instagram data to S3")
+
+    # Monthly snapshots
+    today = datetime.datetime.now()
+    if today.day == config.snapshot_day_of_month:
+        print("\nCreating monthly Instagram snapshot (1st of month)...")
+        uploader.upload_to_s3(
+            combined_posts_df,
+            config.aws_bucket_name,
+            config.s3_path_instagram_posts_snapshot + f'_{today.strftime("%Y-%m-%d")}'
+        )
+        uploader.upload_to_s3(
+            combined_comments_df,
+            config.aws_bucket_name,
+            config.s3_path_instagram_comments_snapshot + f'_{today.strftime("%Y-%m-%d")}'
+        )
+        print("✅ Monthly snapshot saved")
+
+    print(f"\n=== Instagram Data Upload Complete ===")
+    print(f"Posts: {len(combined_posts_df)} | Comments: {len(combined_comments_df)}")
+
+
 if __name__ == "__main__":
     add_new_transactions_to_combined_df()
     upload_new_capitan_membership_data()
+    # upload_new_instagram_data(save_local=False, enable_vision_analysis=True, days_to_fetch=30)
 
     # df = fetch_stripe_and_square_and_combine(days=147)
     # df.to_csv("data/outputs/stripe_and_square_combined_data_20250527.csv", index=False)
