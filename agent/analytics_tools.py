@@ -49,7 +49,21 @@ def load_data_frames():
     df_members['start_date'] = pd.to_datetime(df_members['start_date'], errors='coerce')
     df_members['end_date'] = pd.to_datetime(df_members['end_date'], errors='coerce')
 
-    return df_transactions, df_memberships, df_members
+    # Instagram data
+    try:
+        csv_content = uploader.download_from_s3(config.aws_bucket_name, config.s3_path_instagram_posts)
+        df_instagram_posts = uploader.convert_csv_to_df(csv_content)
+        df_instagram_posts['timestamp'] = pd.to_datetime(df_instagram_posts['timestamp'], errors='coerce')
+
+        csv_content = uploader.download_from_s3(config.aws_bucket_name, config.s3_path_instagram_comments)
+        df_instagram_comments = uploader.convert_csv_to_df(csv_content)
+        df_instagram_comments['timestamp'] = pd.to_datetime(df_instagram_comments['timestamp'], errors='coerce')
+    except Exception as e:
+        print(f"Warning: Could not load Instagram data: {e}")
+        df_instagram_posts = pd.DataFrame()
+        df_instagram_comments = pd.DataFrame()
+
+    return df_transactions, df_memberships, df_members, df_instagram_posts, df_instagram_comments
 
 
 # ============================================================================
@@ -721,14 +735,199 @@ def create_day_pass_breakdown_chart_tool(df_transactions: pd.DataFrame):
 
 
 # ============================================================================
+# INSTAGRAM TOOLS
+# ============================================================================
+
+class InstagramPostsInput(BaseModel):
+    start_date: str = Field(description="Start date in YYYY-MM-DD format")
+    end_date: str = Field(description="End date in YYYY-MM-DD format")
+    sort_by: Optional[Literal['likes', 'comments', 'reach', 'engagement_rate']] = Field(
+        'engagement_rate',
+        description="Sort posts by metric (default: engagement_rate)"
+    )
+    limit: Optional[int] = Field(10, description="Number of top posts to return (default: 10)")
+
+
+def create_get_top_instagram_posts_tool(df_posts: pd.DataFrame):
+    """Get top performing Instagram posts by engagement."""
+
+    def get_top_instagram_posts(
+        start_date: str,
+        end_date: str,
+        sort_by: Literal['likes', 'comments', 'reach', 'engagement_rate'] = 'engagement_rate',
+        limit: int = 10
+    ) -> str:
+        if df_posts.empty:
+            return "No Instagram data available. Please upload Instagram data first."
+
+        df = df_posts.copy()
+
+        # Filter by date
+        start = pd.to_datetime(start_date)
+        end = pd.to_datetime(end_date)
+        df = df[(df['timestamp'] >= start) & (df['timestamp'] <= end)]
+
+        if df.empty:
+            return f"No Instagram posts found between {start_date} and {end_date}"
+
+        # Sort by metric
+        df = df.sort_values(sort_by, ascending=False).head(limit)
+
+        result = f"Top {limit} Instagram posts by {sort_by} ({start_date} to {end_date}):\n\n"
+
+        for i, row in df.iterrows():
+            post_date = row['timestamp'].strftime('%Y-%m-%d')
+            caption_preview = row['caption'][:60] + '...' if len(str(row['caption'])) > 60 else row['caption']
+
+            result += f"{post_date} | Likes: {row['likes']} | Comments: {row['comments']} | Reach: {row['reach']}\n"
+            result += f"  Caption: {caption_preview}\n"
+            result += f"  Link: {row['permalink']}\n\n"
+
+        return result
+
+    return StructuredTool.from_function(
+        name="get_top_instagram_posts",
+        func=get_top_instagram_posts,
+        description="Get top performing Instagram posts sorted by likes, comments, reach, or engagement rate",
+        args_schema=InstagramPostsInput
+    )
+
+
+class InstagramEngagementInput(BaseModel):
+    start_date: str = Field(description="Start date in YYYY-MM-DD format")
+    end_date: str = Field(description="End date in YYYY-MM-DD format")
+
+
+def create_get_instagram_engagement_summary_tool(df_posts: pd.DataFrame, df_comments: pd.DataFrame):
+    """Get overall Instagram engagement summary."""
+
+    def get_instagram_engagement_summary(start_date: str, end_date: str) -> str:
+        if df_posts.empty:
+            return "No Instagram data available. Please upload Instagram data first."
+
+        df = df_posts.copy()
+
+        # Filter by date
+        start = pd.to_datetime(start_date)
+        end = pd.to_datetime(end_date)
+        df = df[(df['timestamp'] >= start) & (df['timestamp'] <= end)]
+
+        if df.empty:
+            return f"No Instagram posts found between {start_date} and {end_date}"
+
+        # Calculate metrics
+        total_posts = len(df)
+        total_likes = df['likes'].sum()
+        total_comments = df['comments'].sum()
+        total_reach = df['reach'].dropna().sum()
+        total_saved = df['saved'].dropna().sum()
+        avg_engagement_rate = df['engagement_rate'].dropna().mean()
+
+        # Comment metrics
+        df_comments_filtered = df_comments[
+            (df_comments['timestamp'] >= start) & (df_comments['timestamp'] <= end)
+        ]
+        total_comment_count = len(df_comments_filtered)
+        unique_commenters = df_comments_filtered['username'].nunique() if not df_comments_filtered.empty else 0
+
+        result = f"Instagram Engagement Summary ({start_date} to {end_date}):\n\n"
+        result += f"Posts: {total_posts}\n"
+        result += f"Total Likes: {int(total_likes):,}\n"
+        result += f"Total Comments: {int(total_comments):,}\n"
+        result += f"Total Reach: {int(total_reach):,}\n"
+        result += f"Total Saved: {int(total_saved):,}\n"
+        result += f"Avg Engagement Rate: {avg_engagement_rate:.2f}%\n\n"
+        result += f"Average per post:\n"
+        result += f"  - Likes: {total_likes/total_posts:.1f}\n"
+        result += f"  - Comments: {total_comments/total_posts:.1f}\n"
+        result += f"  - Reach: {total_reach/total_posts:.1f}\n\n"
+        result += f"Comment Analysis:\n"
+        result += f"  - Unique commenters: {unique_commenters}\n"
+
+        return result
+
+    return StructuredTool.from_function(
+        name="get_instagram_engagement_summary",
+        func=get_instagram_engagement_summary,
+        description="Get overall Instagram engagement metrics including likes, comments, reach, and saves",
+        args_schema=InstagramEngagementInput
+    )
+
+
+class InstagramContentAnalysisInput(BaseModel):
+    start_date: str = Field(description="Start date in YYYY-MM-DD format")
+    end_date: str = Field(description="End date in YYYY-MM-DD format")
+
+
+def create_get_instagram_content_themes_tool(df_posts: pd.DataFrame):
+    """Analyze Instagram content themes from AI descriptions."""
+
+    def get_instagram_content_themes(start_date: str, end_date: str) -> str:
+        if df_posts.empty:
+            return "No Instagram data available. Please upload Instagram data first."
+
+        df = df_posts.copy()
+
+        # Filter by date
+        start = pd.to_datetime(start_date)
+        end = pd.to_datetime(end_date)
+        df = df[(df['timestamp'] >= start) & (df['timestamp'] <= end)]
+
+        if df.empty:
+            return f"No Instagram posts found between {start_date} and {end_date}"
+
+        # Analyze AI themes
+        if 'ai_themes' not in df.columns or df['ai_themes'].isna().all():
+            return f"No AI theme analysis available for posts between {start_date} and {end_date}. Run fetch with enable_vision_analysis=True to analyze themes."
+
+        # Collect all themes
+        all_themes = []
+        for themes_str in df['ai_themes'].dropna():
+            themes = [t.strip() for t in str(themes_str).split(',')]
+            all_themes.extend(themes)
+
+        # Count theme frequency
+        from collections import Counter
+        theme_counts = Counter(all_themes)
+
+        # Analyze activity types
+        activity_counts = df['ai_activity_type'].value_counts()
+
+        result = f"Instagram Content Analysis ({start_date} to {end_date}):\n\n"
+        result += f"Total posts analyzed: {len(df)}\n\n"
+
+        result += "Top Content Themes:\n"
+        for theme, count in theme_counts.most_common(10):
+            pct = count / len(df) * 100
+            result += f"  - {theme}: {count} posts ({pct:.1f}%)\n"
+
+        result += "\nActivity Types:\n"
+        for activity, count in activity_counts.head(5).items():
+            pct = count / len(df) * 100
+            result += f"  - {activity}: {count} posts ({pct:.1f}%)\n"
+
+        return result
+
+    return StructuredTool.from_function(
+        name="get_instagram_content_themes",
+        func=get_instagram_content_themes,
+        description="Analyze Instagram content themes and activity types from AI-generated descriptions",
+        args_schema=InstagramContentAnalysisInput
+    )
+
+
+# ============================================================================
 # CREATE ALL TOOLS
 # ============================================================================
 
 def create_all_tools():
     """Create all analytical tools with loaded data."""
     print("Loading data from S3...")
-    df_transactions, df_memberships, df_members = load_data_frames()
+    df_transactions, df_memberships, df_members, df_instagram_posts, df_instagram_comments = load_data_frames()
     print(f"Loaded {len(df_transactions)} transactions, {len(df_memberships)} memberships, {len(df_members)} members")
+
+    if not df_instagram_posts.empty:
+        print(f"Loaded {len(df_instagram_posts)} Instagram posts, {len(df_instagram_comments)} comments")
 
     tools = [
         # Revenue tools
@@ -751,5 +950,13 @@ def create_all_tools():
         create_membership_trend_chart_tool(df_memberships),
         create_day_pass_breakdown_chart_tool(df_transactions),
     ]
+
+    # Add Instagram tools if data is available
+    if not df_instagram_posts.empty:
+        tools.extend([
+            create_get_top_instagram_posts_tool(df_instagram_posts),
+            create_get_instagram_engagement_summary_tool(df_instagram_posts, df_instagram_comments),
+            create_get_instagram_content_themes_tool(df_instagram_posts),
+        ])
 
     return tools
