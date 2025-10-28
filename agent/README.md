@@ -128,7 +128,7 @@ The agent has access to the following analytical tools:
 - `create_membership_trend_chart` - Line chart showing new memberships vs attrition
 - `create_day_pass_breakdown_chart` - Bar chart of day pass types
 
-Charts are saved as interactive HTML files in `agent/charts/` and can be opened in any web browser.
+Charts are saved as interactive HTML files in `outputs/charts/` with timestamps (e.g., `20251027_143052_revenue_timeseries_...html`) and can be opened in any web browser.
 
 ## Architecture
 

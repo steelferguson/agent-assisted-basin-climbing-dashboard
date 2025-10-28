@@ -180,8 +180,8 @@ cython_debug/
 # the txt files created by the doc_generator.py script
 **/plain_text_files/*.txt
 
-# Generated charts
-agent/charts/
+# Generated outputs (charts, reports, etc.)
+outputs/
 
 # Local test scripts with API keys
 run_agent.sh

@@ -18,6 +18,9 @@ from langchain_core.tools import StructuredTool
 import json
 import os
 
+# Chart output directory
+CHART_OUTPUT_DIR = "outputs/charts"
+
 
 # ============================================================================
 # DATA LOADING
@@ -489,9 +492,10 @@ def create_revenue_timeseries_chart_tool(df_transactions: pd.DataFrame):
             template='plotly_white'
         )
 
-        # Save chart
-        os.makedirs('agent/charts', exist_ok=True)
-        filename = f"agent/charts/revenue_timeseries_{grouping}_{start_date}_{end_date}.html"
+        # Save chart with timestamp
+        os.makedirs(CHART_OUTPUT_DIR, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"{CHART_OUTPUT_DIR}/{timestamp}_revenue_timeseries_{grouping}_{start_date}_{end_date}.html"
         fig.write_html(filename)
 
         total = df_grouped['Revenue'].sum()
@@ -557,9 +561,10 @@ def create_revenue_category_chart_tool(df_transactions: pd.DataFrame):
                 template='plotly_white'
             )
 
-        # Save chart
-        os.makedirs('agent/charts', exist_ok=True)
-        filename = f"agent/charts/revenue_category_{chart_type}_{start_date}_{end_date}.html"
+        # Save chart with timestamp
+        os.makedirs(CHART_OUTPUT_DIR, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"{CHART_OUTPUT_DIR}/{timestamp}_revenue_category_{chart_type}_{start_date}_{end_date}.html"
         fig.write_html(filename)
 
         total = category_revenue.sum()
@@ -635,9 +640,10 @@ def create_membership_trend_chart_tool(df_memberships: pd.DataFrame):
             legend=dict(x=0.01, y=0.99)
         )
 
-        # Save chart
-        os.makedirs('agent/charts', exist_ok=True)
-        filename = f"agent/charts/membership_trends_{months_back}mo.html"
+        # Save chart with timestamp
+        os.makedirs(CHART_OUTPUT_DIR, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"{CHART_OUTPUT_DIR}/{timestamp}_membership_trends_{months_back}mo.html"
         fig.write_html(filename)
 
         total_new = sum(new_counts)
@@ -694,9 +700,10 @@ def create_day_pass_breakdown_chart_tool(df_transactions: pd.DataFrame):
             template='plotly_white'
         )
 
-        # Save chart
-        os.makedirs('agent/charts', exist_ok=True)
-        filename = f"agent/charts/day_pass_breakdown_{start_date}_{end_date}.html"
+        # Save chart with timestamp
+        os.makedirs(CHART_OUTPUT_DIR, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"{CHART_OUTPUT_DIR}/{timestamp}_day_pass_breakdown_{start_date}_{end_date}.html"
         fig.write_html(filename)
 
         total = pass_counts.sum()
