@@ -233,6 +233,17 @@ class InsightAgent:
         print(self.email_summary)
         return self.email_summary
 
+    def answer_question(self, question: str) -> str:
+        """Simple chat interface - just answer the user's question directly."""
+        self.chat_history.append(HumanMessage(content=question))
+        result = self.agent_executor.invoke(
+            {"input": question, "chat_history": self.chat_history}
+        )
+        reply = result.get("output", "[No output returned]")
+        self.chat_history.append(AIMessage(content=reply))
+        self.memory.save_chat_history_to_file(self.chat_history, user_id="default")
+        return reply
+
     def run_weekly_cycle(self, query: str = config.default_query):
         self.gather_context(
             start_date="2025-05-01",

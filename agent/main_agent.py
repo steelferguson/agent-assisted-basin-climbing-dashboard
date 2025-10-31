@@ -73,8 +73,8 @@ def run_agent(query: str) -> str:
     """
     try:
         agent = initialize_agent()
-        response = agent.run_weekly_cycle(query)
-        return agent.email_summary
+        response = agent.answer_question(query)
+        return response
     except Exception as e:
         return f"Error running agent: {str(e)}"
 
