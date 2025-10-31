@@ -3,9 +3,9 @@ from langchain_core.messages import HumanMessage, AIMessage
 from agent.vectorstore_manager import VectorStoreManager
 from agent.memory_manager import MemoryManager
 from agent.investigate import summarize_date_range, detect_anomalies
-from langchain_openai import ChatOpenAI
+from langchain_anthropic import ChatAnthropic
 from agent.tools import generate_summary_document_with_df
-from langchain.agents import create_openai_functions_agent, AgentExecutor
+from langchain.agents import create_tool_calling_agent, AgentExecutor
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import SystemMessage
 from data_pipeline import config
@@ -22,13 +22,13 @@ class InsightAgent:
         self.memory = memory_manager
         self.raw_transactions_df = raw_transactions_df
         self.chat_history = []
-        self.llm = ChatOpenAI(temperature=0.3)
+        self.llm = ChatAnthropic(model="claude-3-haiku-20240307", temperature=0.3)
         self.name = "Insight Agent"
         self.email_summary = None
         self.tools = [generate_summary_document_with_df(raw_transactions_df)]
 
         self.agent_executor = AgentExecutor(
-            agent=create_openai_functions_agent(
+            agent=create_tool_calling_agent(
                 llm=self.llm,
                 tools=self.tools,
                 prompt=ChatPromptTemplate.from_messages(

@@ -1,8 +1,7 @@
 from typing import List, Dict, Optional
-from datetime import datetime, UTC
+from datetime import datetime, timedelta, timezone
 from langchain_core.messages import AIMessage, HumanMessage
 import json
-from datetime import datetime, timedelta
 import os
 
 
@@ -16,7 +15,7 @@ class MemoryManager:
     def store_feedback(self, user: str, comment: str):
         self.feedback_log.append(
             {
-                "timestamp": datetime.now(UTC).isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "user": user,
                 "comment": comment,
             }
@@ -35,7 +34,7 @@ class MemoryManager:
             print(f"Storing question: {question}")
             self.questions_log.append(
                 {
-                    "timestamp": datetime.now(UTC).isoformat(),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                     "question": question,
                     "source": source,
                     "asked_by": asked_by,
@@ -57,7 +56,7 @@ class MemoryManager:
                     {
                         "user": user,
                         "proposed_answer": proposed_answer,
-                        "timestamp": datetime.now(UTC).isoformat(),
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
                     }
                 )
                 q["answered"] = True
