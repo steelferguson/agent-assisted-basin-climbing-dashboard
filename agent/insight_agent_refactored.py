@@ -240,6 +240,16 @@ class InsightAgent:
             {"input": question, "chat_history": self.chat_history}
         )
         reply = result.get("output", "[No output returned]")
+
+        # Handle if reply is a list of content blocks (from Anthropic API)
+        if isinstance(reply, list) and len(reply) > 0:
+            if isinstance(reply[0], dict) and 'text' in reply[0]:
+                reply = reply[0]['text']
+
+        # Convert to string if needed
+        if not isinstance(reply, str):
+            reply = str(reply)
+
         self.chat_history.append(AIMessage(content=reply))
         self.memory.save_chat_history_to_file(self.chat_history, user_id="default")
         return reply
