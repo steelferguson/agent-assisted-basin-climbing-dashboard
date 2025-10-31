@@ -11,6 +11,10 @@ This guide walks you through connecting Instagram post data to your analytics sy
 2. Facebook Page connected to the Instagram account
 3. Facebook Developer account
 4. Admin access to both Instagram and Facebook accounts
+5. **Anthropic API key** (for AI vision analysis - already available!)
+   - Set as environment variable: `export ANTHROPIC_API_KEY=your_key_here`
+   - Used to generate descriptions of Instagram post images/videos
+   - Optional but recommended for content analysis
 
 ## Step-by-Step Setup Process
 

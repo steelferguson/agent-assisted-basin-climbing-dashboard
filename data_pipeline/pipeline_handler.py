@@ -210,6 +210,7 @@ def replace_date_range_in_transaction_df_in_s3(start_date, end_date):
 def replace_days_in_transaction_df_in_s3(days=2, end_date=datetime.datetime.now()):
     """
     Uploads a new transaction df to s3, replacing the existing one.
+    Also updates Capitan membership data and Instagram data.
     """
     print(f"pulling last {days} days of data from APIs from {end_date}")
     df_today = fetch_stripe_and_square_and_combine(days=days, end_date=end_date)
@@ -257,6 +258,27 @@ def replace_days_in_transaction_df_in_s3(days=2, end_date=datetime.datetime.now(
             config.aws_bucket_name,
             config.s3_path_combined_snapshot + f'_{today.strftime("%Y-%m-%d")}',
         )
+
+    # Update Capitan membership data
+    print("\n=== Updating Capitan Membership Data ===")
+    try:
+        upload_new_capitan_membership_data(save_local=False)
+        print("✅ Capitan data updated successfully")
+    except Exception as e:
+        print(f"❌ Error updating Capitan data: {e}")
+
+    # Update Instagram data (last 30 days with AI vision analysis)
+    # AI vision uses Claude 3 Haiku and only runs once per post (skips if already analyzed)
+    print("\n=== Updating Instagram Data ===")
+    try:
+        upload_new_instagram_data(
+            save_local=False,
+            enable_vision_analysis=True,  # ✅ Enabled! Uses Claude 3 Haiku
+            days_to_fetch=30
+        )
+        print("✅ Instagram data updated successfully")
+    except Exception as e:
+        print(f"❌ Error updating Instagram data: {e}")
 
 
 def upload_new_capitan_membership_data(save_local=False):
@@ -356,15 +378,30 @@ def upload_new_instagram_data(save_local=False, enable_vision_analysis=True, day
         anthropic_api_key=anthropic_api_key
     )
 
-    # Fetch new posts
-    since_date = datetime.datetime.now() - datetime.timedelta(days=days_to_fetch)
-    print(f"Fetching posts since {since_date.date()}...")
+    # Download existing posts FIRST to check which ones already have AI analysis
+    uploader = upload_data.DataUploader()
+    existing_posts_df = None
+    try:
+        csv_content_existing_posts = uploader.download_from_s3(
+            config.aws_bucket_name, config.s3_path_instagram_posts
+        )
+        existing_posts_df = uploader.convert_csv_to_df(csv_content_existing_posts)
+        print(f"Found {len(existing_posts_df)} existing posts in S3")
+    except Exception as e:
+        print(f"No existing posts data found (first upload?): {e}")
+
+    # Fetch posts
+    # For initial load or large backfills, fetch all posts without date filter
+    # The smart incremental update logic will only fetch metrics for recent posts
+    # AI vision analysis will only run on posts that don't already have it
+    print(f"Fetching up to {1000} posts...")
 
     new_posts_df, new_comments_df = fetcher.fetch_and_process_posts(
-        limit=1000,  # High limit to get all recent posts
-        since=since_date,
+        limit=1000,  # High limit to get all posts (or specify higher for backfill)
+        since=None,  # Fetch all posts, filtering happens in merge step
         enable_vision_analysis=enable_vision_analysis,
-        fetch_comments=True
+        fetch_comments=True,
+        existing_posts_df=existing_posts_df  # Pass existing data to skip AI if already done
     )
 
     if new_posts_df.empty:
@@ -373,25 +410,14 @@ def upload_new_instagram_data(save_local=False, enable_vision_analysis=True, day
 
     print(f"Fetched {len(new_posts_df)} posts and {len(new_comments_df)} comments")
 
-    # Upload to S3 and merge with existing data
-    uploader = upload_data.DataUploader()
-
-    # Handle POSTS
+    # Handle POSTS - merge with existing data (already downloaded above)
     print("\nMerging Instagram posts with existing data...")
-    try:
-        csv_content_existing_posts = uploader.download_from_s3(
-            config.aws_bucket_name, config.s3_path_instagram_posts
-        )
-        existing_posts_df = uploader.convert_csv_to_df(csv_content_existing_posts)
-        print(f"Found {len(existing_posts_df)} existing posts in S3")
-
+    if existing_posts_df is not None and not existing_posts_df.empty:
         # Combine and remove duplicates (keep newer data)
         combined_posts_df = pd.concat([existing_posts_df, new_posts_df], ignore_index=True)
         combined_posts_df = combined_posts_df.drop_duplicates(subset=['post_id'], keep='last')
         print(f"Combined dataset has {len(combined_posts_df)} unique posts")
-
-    except Exception as e:
-        print(f"No existing posts data found (first upload?): {e}")
+    else:
         combined_posts_df = new_posts_df
 
     # Handle COMMENTS

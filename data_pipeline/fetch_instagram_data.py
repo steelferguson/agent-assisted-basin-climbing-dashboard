@@ -12,6 +12,8 @@ from datetime import datetime, timedelta
 import os
 from typing import Dict, List, Optional
 from anthropic import Anthropic
+import base64
+import mimetypes
 
 
 class InstagramDataFetcher:
@@ -70,7 +72,7 @@ class InstagramDataFetcher:
 
         Args:
             limit: Maximum number of posts to fetch
-            since: Only fetch posts created after this date (optional)
+            since: Only fetch posts created after this date (optional, filters client-side)
 
         Returns:
             List of post dictionaries
@@ -82,8 +84,8 @@ class InstagramDataFetcher:
             'access_token': self.access_token
         }
 
-        if since:
-            params['since'] = int(since.timestamp())
+        # Note: Instagram API doesn't support 'since' parameter well
+        # We'll filter client-side after fetching
 
         all_posts = []
 
@@ -106,6 +108,22 @@ class InstagramDataFetcher:
             print(f"Fetched {len(all_posts)} posts so far...")
 
         print(f"Total posts fetched: {len(all_posts)}")
+
+        # Filter by date if 'since' is provided (client-side filtering)
+        if since and all_posts:
+            filtered_posts = []
+            for post in all_posts:
+                timestamp_str = post['timestamp']
+                if '+0000' in timestamp_str:
+                    timestamp_str = timestamp_str.replace('+0000', '+00:00')
+                post_date = datetime.fromisoformat(timestamp_str)
+
+                if post_date >= since:
+                    filtered_posts.append(post)
+
+            print(f"Filtered to {len(filtered_posts)} posts since {since.date()}")
+            return filtered_posts
+
         return all_posts
 
     def get_post_insights(self, post_id: str) -> Dict:
@@ -172,6 +190,8 @@ class InstagramDataFetcher:
         """
         Use Claude Vision API to analyze post image and extract insights.
 
+        Downloads the image first and sends as base64 to avoid Instagram CDN blocking.
+
         Args:
             image_url: URL of the image to analyze
             caption: Post caption for context
@@ -187,6 +207,20 @@ class InstagramDataFetcher:
             }
 
         try:
+            # Download the image first (Instagram blocks Claude from directly accessing URLs)
+            response = requests.get(image_url, timeout=10)
+            response.raise_for_status()
+            image_data = response.content
+
+            # Detect media type
+            content_type = response.headers.get('Content-Type', '')
+            if not content_type or 'image' not in content_type:
+                # Try to guess from URL
+                content_type = mimetypes.guess_type(image_url)[0] or 'image/jpeg'
+
+            # Encode as base64
+            image_base64 = base64.b64encode(image_data).decode('utf-8')
+
             prompt = f"""Analyze this climbing gym social media post image.
 
 Caption: "{caption}"
@@ -202,7 +236,7 @@ ACTIVITY: [activity type]
 THEMES: [comma-separated themes]"""
 
             message = self.anthropic_client.messages.create(
-                model="claude-3-5-sonnet-20241022",
+                model="claude-3-haiku-20240307",
                 max_tokens=300,
                 messages=[
                     {
@@ -211,8 +245,9 @@ THEMES: [comma-separated themes]"""
                             {
                                 "type": "image",
                                 "source": {
-                                    "type": "url",
-                                    "url": image_url,
+                                    "type": "base64",
+                                    "media_type": content_type,
+                                    "data": image_base64,
                                 },
                             },
                             {
@@ -303,9 +338,9 @@ THEMES: [comma-separated themes]"""
                 all_comments.append({
                     'post_id': post_id,
                     'comment_id': comment['id'],
-                    'username': comment['username'],
-                    'text': comment['text'],
-                    'timestamp': comment['timestamp'],
+                    'username': comment.get('username', ''),
+                    'text': comment.get('text', ''),  # Some comments may not have text (e.g., emoji-only)
+                    'timestamp': comment.get('timestamp', ''),
                     'comment_likes': comment.get('like_count', 0),
                     'fetched_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 })
@@ -326,7 +361,8 @@ THEMES: [comma-separated themes]"""
         limit: int = 100,
         since: Optional[datetime] = None,
         enable_vision_analysis: bool = True,
-        fetch_comments: bool = True
+        fetch_comments: bool = True,
+        existing_posts_df: Optional[pd.DataFrame] = None
     ) -> tuple[pd.DataFrame, pd.DataFrame]:
         """
         Fetch posts, insights, AI analysis, and comments.
@@ -336,6 +372,7 @@ THEMES: [comma-separated themes]"""
             since: Only fetch posts created after this date
             enable_vision_analysis: Whether to run AI vision analysis
             fetch_comments: Whether to fetch comments for posts
+            existing_posts_df: DataFrame of existing posts (to skip AI analysis if already done)
 
         Returns:
             Tuple of (posts_df, comments_df)
@@ -386,14 +423,26 @@ THEMES: [comma-separated themes]"""
                 post_data['saved'] = None
 
             # AI vision analysis
-            if enable_vision_analysis and post_data['media_url'] and self.anthropic_client:
+            # Check if post already has AI data in existing dataset
+            skip_ai = False
+            if enable_vision_analysis and existing_posts_df is not None and not existing_posts_df.empty:
+                existing_post = existing_posts_df[existing_posts_df['post_id'] == post['id']]
+                if not existing_post.empty and pd.notna(existing_post.iloc[0].get('ai_description')):
+                    # Post already has AI analysis, reuse it
+                    print("  Skipping AI analysis (already exists)")
+                    post_data['ai_description'] = existing_post.iloc[0].get('ai_description')
+                    post_data['ai_themes'] = existing_post.iloc[0].get('ai_themes')
+                    post_data['ai_activity_type'] = existing_post.iloc[0].get('ai_activity_type')
+                    skip_ai = True
+
+            if not skip_ai and enable_vision_analysis and post_data['media_url'] and self.anthropic_client:
                 print("  Running AI vision analysis...")
                 ai_analysis = self.analyze_image_with_ai(
                     post_data['media_url'],
                     post_data['caption']
                 )
                 post_data.update(ai_analysis)
-            else:
+            elif not skip_ai:
                 post_data['ai_description'] = None
                 post_data['ai_themes'] = None
                 post_data['ai_activity_type'] = None
