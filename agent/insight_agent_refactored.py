@@ -234,10 +234,22 @@ class InsightAgent:
         return self.email_summary
 
     def answer_question(self, question: str) -> str:
-        """Simple chat interface - just answer the user's question directly."""
-        self.chat_history.append(HumanMessage(content=question))
+        """Simple chat interface with RAG - search documents and answer the question."""
+        # Search vector store for relevant context (including Instagram data!)
+        context_docs = self.vectorstore.similarity_search(question, k=5)
+        context_text = "\n\n".join(doc.page_content for doc in context_docs)
+
+        # Build prompt with context
+        enriched_question = f"""Context from documents (including Instagram posts, revenue data, etc.):
+{context_text}
+
+User question: {question}
+
+Please answer based on the context provided above and use the available tools if needed."""
+
+        self.chat_history.append(HumanMessage(content=enriched_question))
         result = self.agent_executor.invoke(
-            {"input": question, "chat_history": self.chat_history}
+            {"input": enriched_question, "chat_history": self.chat_history}
         )
         reply = result.get("output", "[No output returned]")
 
