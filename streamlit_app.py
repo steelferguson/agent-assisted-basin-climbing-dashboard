@@ -185,8 +185,11 @@ if prompt := st.chat_input("Ask about Basin's analytics..."):
                 # Run the agent
                 response = run_agent(prompt)
 
+                # Escape dollar signs to prevent LaTeX rendering issues
+                response_display = response.replace('$', '\\$')
+
                 # Display response
-                st.markdown(response)
+                st.markdown(response_display)
 
                 # Check if a chart was generated
                 # The agent saves charts to agent/charts/ directory

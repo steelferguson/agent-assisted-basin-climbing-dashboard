@@ -171,6 +171,268 @@ def create_get_revenue_breakdown_tool(df_transactions: pd.DataFrame):
     )
 
 
+class RevenueByTimePeriodInput(BaseModel):
+    start_date: str = Field(description="Start date in YYYY-MM-DD format")
+    end_date: str = Field(description="End date in YYYY-MM-DD format")
+    period: Literal['day', 'week', 'month'] = Field(
+        'month',
+        description="Time period to group by: 'day', 'week', or 'month'"
+    )
+    category: Optional[str] = Field(None, description="Optional: filter by revenue category")
+
+
+def create_get_revenue_by_time_period_tool(df_transactions: pd.DataFrame):
+    """Get revenue grouped by time period (day/week/month)."""
+
+    def get_revenue_by_time_period(
+        start_date: str,
+        end_date: str,
+        period: Literal['day', 'week', 'month'] = 'month',
+        category: Optional[str] = None
+    ) -> str:
+        df = df_transactions.copy()
+
+        # Filter by date
+        start = pd.to_datetime(start_date)
+        end = pd.to_datetime(end_date)
+        df = df[(df['Date'] >= start) & (df['Date'] <= end)]
+
+        # Filter by category if provided
+        if category:
+            df = df[df['revenue_category'] == category]
+
+        # Group by time period
+        if period == 'day':
+            df['Period'] = df['Date'].dt.date
+        elif period == 'week':
+            df['Period'] = df['Date'].dt.to_period('W').dt.start_time
+        elif period == 'month':
+            df['Period'] = df['Date'].dt.to_period('M').astype(str)
+
+        breakdown = df.groupby('Period').agg({
+            'Total Amount': ['sum', 'count']
+        }).round(2)
+
+        breakdown.columns = ['Revenue', 'Transactions']
+        breakdown = breakdown.sort_index()
+
+        # Find highest revenue period
+        max_period = breakdown['Revenue'].idxmax()
+        max_revenue = breakdown['Revenue'].max()
+
+        filter_str = f" (category: {category})" if category else ""
+        result = f"Revenue by {period}{filter_str} from {start_date} to {end_date}:\n\n"
+        result += breakdown.to_string()
+        result += f"\n\nTotal Revenue: ${breakdown['Revenue'].sum():,.2f}"
+        result += f"\nTotal Transactions: {int(breakdown['Transactions'].sum()):,}"
+        result += f"\nHighest {period.capitalize()}: {max_period} (${max_revenue:,.2f})"
+
+        return result
+
+    return StructuredTool.from_function(
+        name="get_revenue_by_time_period",
+        func=get_revenue_by_time_period,
+        description="Get revenue grouped by time period (day/week/month). Perfect for finding which month/week/day had highest revenue.",
+        args_schema=RevenueByTimePeriodInput
+    )
+
+
+class RevenueChangesInput(BaseModel):
+    periods: int = Field(2, description="Number of periods to compare (e.g., 2 for last 2 months, 3 for last 3 months)")
+    period_type: Literal['month', 'week', 'day'] = Field('month', description="Type of period: 'month', 'week', or 'day'")
+    category: Optional[str] = Field(None, description="Optional: filter to a specific revenue category (e.g., 'Day Pass')")
+    end_date: Optional[str] = Field(None, description="Optional: end date for comparison in YYYY-MM-DD format (defaults to today)")
+
+
+def create_get_revenue_changes_tool(df_transactions: pd.DataFrame):
+    """Compare revenue changes across N periods to identify growth and declines."""
+
+    def get_revenue_changes(
+        periods: int = 2,
+        period_type: Literal['month', 'week', 'day'] = 'month',
+        category: Optional[str] = None,
+        end_date: Optional[str] = None
+    ) -> str:
+        df = df_transactions.copy()
+
+        # Determine end date
+        if end_date:
+            end = pd.to_datetime(end_date)
+        else:
+            end = pd.Timestamp.now()
+
+        # Calculate period ranges
+        period_ranges = []
+        for i in range(periods):
+            if period_type == 'month':
+                period_end = end - pd.DateOffset(months=i)
+                period_start = period_end - pd.DateOffset(months=1) + pd.Timedelta(days=1)
+                period_label = period_end.strftime('%Y-%m')
+            elif period_type == 'week':
+                period_end = end - pd.DateOffset(weeks=i)
+                period_start = period_end - pd.Timedelta(days=7)
+                period_label = f"Week of {period_start.strftime('%Y-%m-%d')}"
+            else:  # day
+                period_end = end - pd.Timedelta(days=i)
+                period_start = period_end
+                period_label = period_end.strftime('%Y-%m-%d')
+
+            period_ranges.append({
+                'label': period_label,
+                'start': period_start,
+                'end': period_end
+            })
+
+        # Reverse so we go from oldest to newest
+        period_ranges = list(reversed(period_ranges))
+
+        # Filter by category if provided
+        if category:
+            df = df[df['revenue_category'] == category]
+            if df.empty:
+                return f"No data found for category '{category}'"
+
+        # Calculate revenue by subcategory for each period
+        subcategory_data = {}
+        for period in period_ranges:
+            period_df = df[(df['Date'] >= period['start']) & (df['Date'] <= period['end'])]
+            revenue_by_sub = period_df.groupby('sub_category')['Total Amount'].sum()
+
+            for sub, rev in revenue_by_sub.items():
+                if sub not in subcategory_data:
+                    subcategory_data[sub] = []
+                subcategory_data[sub].append(rev)
+
+        # Build result
+        category_str = f" ({category})" if category else ""
+        result = f"Revenue Changes by Subcategory{category_str} (Last {periods} {period_type}s):\n\n"
+
+        # Calculate overall changes and sort by biggest absolute change
+        changes = []
+        for sub, revenues in subcategory_data.items():
+            # Pad with zeros if subcategory didn't exist in all periods
+            while len(revenues) < periods:
+                revenues.insert(0, 0)
+
+            first_rev = revenues[0]
+            last_rev = revenues[-1]
+            change_abs = last_rev - first_rev
+            change_pct = ((change_abs / first_rev) * 100) if first_rev > 0 else 0
+
+            changes.append({
+                'subcategory': sub,
+                'revenues': revenues,
+                'change_abs': change_abs,
+                'change_pct': change_pct
+            })
+
+        # Sort by absolute change (largest first, whether positive or negative)
+        changes.sort(key=lambda x: abs(x['change_abs']), reverse=True)
+
+        # Display each subcategory
+        for item in changes:
+            sub = item['subcategory']
+            revenues = item['revenues']
+
+            result += f"📊 {sub}:\n"
+            for i, (period, rev) in enumerate(zip(period_ranges, revenues)):
+                result += f"   {period['label']}: ${rev:,.2f}"
+
+                # Show change from previous period
+                if i > 0:
+                    prev_rev = revenues[i-1]
+                    change = rev - prev_rev
+                    pct = ((change / prev_rev) * 100) if prev_rev > 0 else 0
+                    symbol = "+" if change >= 0 else ""
+                    result += f" ({symbol}${change:,.2f}, {symbol}{pct:.1f}%)"
+
+                result += "\n"
+
+            # Overall change
+            symbol = "+" if item['change_abs'] >= 0 else ""
+            result += f"   Overall: {symbol}${item['change_abs']:,.2f} ({symbol}{item['change_pct']:.1f}%)\n\n"
+
+        # Top 3 growers
+        growers = sorted([c for c in changes if c['change_abs'] > 0],
+                        key=lambda x: x['change_abs'], reverse=True)[:3]
+        if growers:
+            result += "🚀 Top Growers:\n"
+            for i, item in enumerate(growers, 1):
+                result += f"{i}. {item['subcategory']}: +${item['change_abs']:,.2f} (+{item['change_pct']:.1f}%)\n"
+            result += "\n"
+
+        # Top 3 decliners
+        decliners = sorted([c for c in changes if c['change_abs'] < 0],
+                          key=lambda x: x['change_abs'])[:3]
+        if decliners:
+            result += "📉 Top Decliners:\n"
+            for i, item in enumerate(decliners, 1):
+                result += f"{i}. {item['subcategory']}: ${item['change_abs']:,.2f} ({item['change_pct']:.1f}%)\n"
+
+        return result.strip()
+
+    return StructuredTool.from_function(
+        name="get_revenue_changes",
+        func=get_revenue_changes,
+        description="Compare revenue changes across multiple periods (months/weeks/days) to identify which subcategories are growing or declining. Perfect for 'which subcategories grew the most' questions.",
+        args_schema=RevenueChangesInput
+    )
+
+
+class AvailableCategoriesInput(BaseModel):
+    category: Optional[str] = Field(None, description="Optional: filter to show subcategories for a specific category only")
+
+
+def create_get_available_categories_tool(df_transactions: pd.DataFrame):
+    """List all available revenue categories and subcategories."""
+
+    def get_available_categories(category: Optional[str] = None) -> str:
+        df = df_transactions.copy()
+
+        if category:
+            # Show subcategories for a specific category
+            category_df = df[df['revenue_category'] == category]
+            if category_df.empty:
+                available = df['revenue_category'].unique().tolist()
+                return f"Category '{category}' not found. Available categories: {', '.join(available)}"
+
+            subcategories = category_df['sub_category'].dropna().unique().tolist()
+            result = f"Subcategories for '{category}':\n"
+            for sub in sorted(subcategories):
+                count = len(category_df[category_df['sub_category'] == sub])
+                revenue = category_df[category_df['sub_category'] == sub]['Total Amount'].sum()
+                result += f"  - {sub}: {count} transactions (${revenue:,.2f})\n"
+            return result.strip()
+        else:
+            # Show all categories with their subcategories
+            result = "Available Revenue Categories and Subcategories:\n\n"
+
+            categories = df['revenue_category'].dropna().unique()
+            for cat in sorted(categories):
+                cat_df = df[df['revenue_category'] == cat]
+                total_revenue = cat_df['Total Amount'].sum()
+                result += f"📊 {cat} (${total_revenue:,.2f} total)\n"
+
+                subcategories = cat_df['sub_category'].dropna().unique()
+                if len(subcategories) > 0:
+                    for sub in sorted(subcategories):
+                        sub_df = cat_df[cat_df['sub_category'] == sub]
+                        sub_revenue = sub_df['Total Amount'].sum()
+                        result += f"   └─ {sub}: ${sub_revenue:,.2f}\n"
+                else:
+                    result += "   └─ (no subcategories)\n"
+                result += "\n"
+
+            return result.strip()
+
+    return StructuredTool.from_function(
+        name="get_available_categories",
+        func=get_available_categories,
+        description="Discover all available revenue categories and subcategories in the data. Use this to know what categories/subcategories exist before filtering.",
+        args_schema=AvailableCategoriesInput
+    )
+
+
 # ============================================================================
 # MEMBERSHIP TOOLS
 # ============================================================================
@@ -762,9 +1024,9 @@ def create_get_top_instagram_posts_tool(df_posts: pd.DataFrame):
 
         df = df_posts.copy()
 
-        # Filter by date
-        start = pd.to_datetime(start_date)
-        end = pd.to_datetime(end_date)
+        # Filter by date (make timezone-aware for comparison)
+        start = pd.to_datetime(start_date).tz_localize('UTC')
+        end = pd.to_datetime(end_date).tz_localize('UTC')
         df = df[(df['timestamp'] >= start) & (df['timestamp'] <= end)]
 
         if df.empty:
@@ -807,9 +1069,9 @@ def create_get_instagram_engagement_summary_tool(df_posts: pd.DataFrame, df_comm
 
         df = df_posts.copy()
 
-        # Filter by date
-        start = pd.to_datetime(start_date)
-        end = pd.to_datetime(end_date)
+        # Filter by date (make timezone-aware for comparison)
+        start = pd.to_datetime(start_date).tz_localize('UTC')
+        end = pd.to_datetime(end_date).tz_localize('UTC')
         df = df[(df['timestamp'] >= start) & (df['timestamp'] <= end)]
 
         if df.empty:
@@ -868,9 +1130,9 @@ def create_get_instagram_content_themes_tool(df_posts: pd.DataFrame):
 
         df = df_posts.copy()
 
-        # Filter by date
-        start = pd.to_datetime(start_date)
-        end = pd.to_datetime(end_date)
+        # Filter by date (make timezone-aware for comparison)
+        start = pd.to_datetime(start_date).tz_localize('UTC')
+        end = pd.to_datetime(end_date).tz_localize('UTC')
         df = df[(df['timestamp'] >= start) & (df['timestamp'] <= end)]
 
         if df.empty:
@@ -920,6 +1182,116 @@ def create_get_instagram_content_themes_tool(df_posts: pd.DataFrame):
 # CREATE ALL TOOLS
 # ============================================================================
 
+class InstagramRevenueCorrelationInput(BaseModel):
+    start_date: str = Field(description="Start date in YYYY-MM-DD format")
+    end_date: str = Field(description="End date in YYYY-MM-DD format")
+    revenue_category: Optional[str] = Field(None, description="Optional: filter to a specific revenue category (e.g., 'Day Pass')")
+    top_n: int = Field(5, description="Number of top revenue days to show")
+
+
+def create_get_instagram_revenue_correlation_tool(df_posts: pd.DataFrame, df_transactions: pd.DataFrame):
+    """Correlate Instagram posts with revenue to see which posts were on high revenue days."""
+
+    def get_instagram_revenue_correlation(
+        start_date: str,
+        end_date: str,
+        revenue_category: Optional[str] = None,
+        top_n: int = 5
+    ) -> str:
+        if df_posts.empty:
+            return "No Instagram data available. Please upload Instagram data first."
+
+        # Filter Instagram posts by date
+        posts_df = df_posts.copy()
+        start = pd.to_datetime(start_date).tz_localize('UTC')
+        end = pd.to_datetime(end_date).tz_localize('UTC')
+        posts_df = posts_df[(posts_df['timestamp'] >= start) & (posts_df['timestamp'] <= end)]
+
+        if posts_df.empty:
+            return f"No Instagram posts found between {start_date} and {end_date}"
+
+        # Get revenue by day
+        revenue_df = df_transactions.copy()
+        start_local = pd.to_datetime(start_date)
+        end_local = pd.to_datetime(end_date)
+        revenue_df = revenue_df[(revenue_df['Date'] >= start_local) & (revenue_df['Date'] <= end_local)]
+
+        if revenue_category:
+            revenue_df = revenue_df[revenue_df['revenue_category'] == revenue_category]
+
+        # Group revenue by day
+        daily_revenue = revenue_df.groupby(revenue_df['Date'].dt.date)['Total Amount'].sum().sort_values(ascending=False)
+
+        if daily_revenue.empty:
+            filter_str = f" ({revenue_category})" if revenue_category else ""
+            return f"No revenue data found{filter_str} between {start_date} and {end_date}"
+
+        # Get top N revenue days
+        top_days = daily_revenue.head(top_n)
+
+        # Build result
+        category_str = f" ({revenue_category})" if revenue_category else ""
+        result = f"Instagram Posts on High Revenue Days{category_str}:\n"
+        result += f"Period: {start_date} to {end_date}\n\n"
+
+        for day, revenue in top_days.items():
+            result += f"{'='*70}\n"
+            result += f"📅 {day} - Revenue: ${revenue:,.2f}\n"
+            result += f"{'='*70}\n"
+
+            # Find posts on this day
+            day_start = pd.Timestamp(day).tz_localize('UTC')
+            day_end = day_start + pd.Timedelta(days=1)
+            day_posts = posts_df[(posts_df['timestamp'] >= day_start) & (posts_df['timestamp'] < day_end)]
+
+            if len(day_posts) > 0:
+                result += f"📸 {len(day_posts)} Instagram post(s) on this day:\n\n"
+                for _, post in day_posts.iterrows():
+                    result += f"  • Post ID: {post['post_id']}\n"
+                    result += f"    Time: {post['timestamp'].strftime('%I:%M %p')}\n"
+                    if pd.notna(post.get('caption')):
+                        caption_preview = str(post['caption'])[:100] + "..." if len(str(post['caption'])) > 100 else str(post['caption'])
+                        result += f"    Caption: {caption_preview}\n"
+
+                    # Handle NaN values in metrics
+                    likes = int(post['likes']) if pd.notna(post.get('likes')) else 0
+                    comments = int(post['comments']) if pd.notna(post.get('comments')) else 0
+                    reach = int(post['reach']) if pd.notna(post.get('reach')) else 0
+                    engagement_rate = post['engagement_rate'] if pd.notna(post.get('engagement_rate')) else 0.0
+
+                    result += f"    Likes: {likes:,} | Comments: {comments:,} | Reach: {reach:,}\n"
+                    result += f"    Engagement Rate: {engagement_rate:.2f}%\n"
+                    if pd.notna(post.get('ai_description')):
+                        result += f"    AI Summary: {post['ai_description']}\n"
+                    result += "\n"
+            else:
+                result += "  ⚠️ No Instagram posts on this day\n\n"
+
+        # Summary stats
+        days_with_posts = 0
+        days_without_posts = 0
+        for day in top_days.index:
+            day_start = pd.Timestamp(day).tz_localize('UTC')
+            day_end = day_start + pd.Timedelta(days=1)
+            day_posts = posts_df[(posts_df['timestamp'] >= day_start) & (posts_df['timestamp'] < day_end)]
+            if len(day_posts) > 0:
+                days_with_posts += 1
+            else:
+                days_without_posts += 1
+
+        result += f"\n📊 Summary:\n"
+        result += f"Top {top_n} revenue days: {days_with_posts} had Instagram posts, {days_without_posts} did not\n"
+
+        return result.strip()
+
+    return StructuredTool.from_function(
+        name="get_instagram_revenue_correlation",
+        func=get_instagram_revenue_correlation,
+        description="Find Instagram posts that were posted on high revenue days. Perfect for questions like 'which Instagram posts were on days with high day pass sales'.",
+        args_schema=InstagramRevenueCorrelationInput
+    )
+
+
 def create_all_tools():
     """Create all analytical tools with loaded data."""
     print("Loading data from S3...")
@@ -933,6 +1305,9 @@ def create_all_tools():
         # Revenue tools
         create_get_total_revenue_tool(df_transactions),
         create_get_revenue_breakdown_tool(df_transactions),
+        create_get_revenue_by_time_period_tool(df_transactions),
+        create_get_revenue_changes_tool(df_transactions),
+        create_get_available_categories_tool(df_transactions),
 
         # Membership tools
         create_get_member_count_tool(df_memberships, df_members),
@@ -957,6 +1332,7 @@ def create_all_tools():
             create_get_top_instagram_posts_tool(df_instagram_posts),
             create_get_instagram_engagement_summary_tool(df_instagram_posts, df_instagram_comments),
             create_get_instagram_content_themes_tool(df_instagram_posts),
+            create_get_instagram_revenue_correlation_tool(df_instagram_posts, df_transactions),
         ])
 
     return tools

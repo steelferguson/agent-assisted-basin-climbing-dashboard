@@ -192,3 +192,4 @@ INSTAGRAM_CREDENTIALS.md
 *_CREDENTIALS.md
 
 **/.DS_Store
+.streamlit/secrets.toml
