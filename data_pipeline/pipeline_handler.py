@@ -2,6 +2,7 @@ from data_pipeline import fetch_stripe_data
 from data_pipeline import fetch_square_data
 from data_pipeline import fetch_capitan_membership_data
 from data_pipeline import fetch_instagram_data
+from data_pipeline import fetch_facebook_ads_data
 from data_pipeline import upload_data as upload_data
 import datetime
 import os
@@ -489,3 +490,70 @@ if __name__ == "__main__":
     # df.to_csv("data/outputs/stripe_and_square_combined_data_20250527.csv", index=False)
     # replace_transaction_df_in_s3()
     # replace_days_in_transaction_df_in_s3(days=31)
+
+
+def upload_new_facebook_ads_data(save_local=False, days_back=90):
+    """
+    Fetches Facebook/Instagram Ads data for the last N days and uploads to S3.
+    
+    Args:
+        save_local: Whether to save CSV files locally  
+        days_back: Number of days of ads data to fetch (default: 90)
+    """
+    print(f"\n=== Fetching Facebook Ads Data (last {days_back} days) ===")
+    
+    # Initialize fetcher
+    access_token = config.instagram_access_token  # Same token as Instagram
+    ad_account_id = config.facebook_ad_account_id
+    
+    if not access_token:
+        print("Error: INSTAGRAM_ACCESS_TOKEN not found in environment")
+        return
+    
+    if not ad_account_id:
+        print("Error: FACEBOOK_AD_ACCOUNT_ID not found in environment")
+        return
+    
+    fetcher = fetch_facebook_ads_data.FacebookAdsDataFetcher(
+        access_token=access_token,
+        ad_account_id=ad_account_id
+    )
+    
+    # Fetch ads data
+    new_ads_df = fetcher.fetch_and_prepare_data(days_back=days_back)
+    
+    if new_ads_df.empty:
+        print("No Facebook Ads data found")
+        return
+    
+    print(f"Fetched {len(new_ads_df)} ad records")
+    
+    # Upload to S3
+    uploader = upload_data.DataUploader()
+
+    try:
+        # Upload to S3
+        uploader.upload_to_s3(
+            new_ads_df,
+            config.aws_bucket_name,
+            config.s3_path_facebook_ads
+        )
+        print(f"✓ Uploaded to S3: {config.s3_path_facebook_ads}")
+        
+        # Save locally if requested
+        if save_local:
+            local_path = "data/outputs/facebook_ads_data.csv"
+            os.makedirs(os.path.dirname(local_path), exist_ok=True)
+            new_ads_df.to_csv(local_path, index=False)
+            print(f"✓ Saved locally: {local_path}")
+        
+        print("✓ Facebook Ads data upload complete!")
+        
+    except Exception as e:
+        print(f"Error uploading ads data: {e}")
+        raise
+
+
+if __name__ == "__main__":
+    # Example: Upload 90 days of ads data
+    upload_new_facebook_ads_data(save_local=True, days_back=90)

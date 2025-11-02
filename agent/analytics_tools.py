@@ -63,7 +63,16 @@ def load_data_frames():
         df_instagram_posts = pd.DataFrame()
         df_instagram_comments = pd.DataFrame()
 
-    return df_transactions, df_memberships, df_members, df_instagram_posts, df_instagram_comments
+    # Facebook Ads data
+    try:
+        csv_content = uploader.download_from_s3(config.aws_bucket_name, config.s3_path_facebook_ads)
+        df_facebook_ads = uploader.convert_csv_to_df(csv_content)
+        df_facebook_ads['date'] = pd.to_datetime(df_facebook_ads['date'], errors='coerce')
+    except Exception as e:
+        print(f"Warning: Could not load Facebook Ads data: {e}")
+        df_facebook_ads = pd.DataFrame()
+
+    return df_transactions, df_memberships, df_members, df_instagram_posts, df_instagram_comments, df_facebook_ads
 
 
 # ============================================================================
@@ -1292,14 +1301,243 @@ def create_get_instagram_revenue_correlation_tool(df_posts: pd.DataFrame, df_tra
     )
 
 
+# ============================================================================
+# FACEBOOK ADS TOOLS
+# ============================================================================
+
+class AdsPerformanceInput(BaseModel):
+    start_date: str = Field(description="Start date in YYYY-MM-DD format")
+    end_date: str = Field(description="End date in YYYY-MM-DD format")
+
+
+def create_get_ads_performance_summary_tool(df_ads: pd.DataFrame):
+    """Get overall Facebook/Instagram Ads performance summary."""
+
+    def get_ads_performance_summary(start_date: str, end_date: str) -> str:
+        if df_ads.empty:
+            return "No Facebook Ads data available. Please upload ads data first."
+
+        df = df_ads.copy()
+
+        # Filter by date
+        start = pd.to_datetime(start_date)
+        end = pd.to_datetime(end_date)
+        df = df[(df['date'] >= start) & (df['date'] <= end)]
+
+        if df.empty:
+            return f"No ads data found between {start_date} and {end_date}"
+
+        # Calculate metrics
+        total_spend = df['spend'].sum()
+        total_impressions = df['impressions'].sum()
+        total_clicks = df['clicks'].sum()
+        total_reach = df['reach'].sum()
+        avg_ctr = df['ctr'].mean()
+        avg_cpm = df['cpm'].mean()
+        avg_cpc = df['cpc'].mean()
+
+        # Conversion metrics (if available)
+        link_clicks = df['link_clicks'].sum() if 'link_clicks' in df.columns else 0
+        post_engagements = df['post_engagements'].sum() if 'post_engagements' in df.columns else 0
+
+        result = f"Facebook/Instagram Ads Performance ({start_date} to {end_date}):\n\n"
+        result += f"💰 Spend: ${total_spend:,.2f}\n"
+        result += f"👁️  Impressions: {int(total_impressions):,}\n"
+        result += f"🖱️  Clicks: {int(total_clicks):,}\n"
+        result += f"📊 Reach: {int(total_reach):,}\n\n"
+
+        result += f"Performance Metrics:\n"
+        result += f"  - CTR (Click-Through Rate): {avg_ctr:.2f}%\n"
+        result += f"  - CPM (Cost Per 1000 Impressions): ${avg_cpm:.2f}\n"
+        result += f"  - CPC (Cost Per Click): ${avg_cpc:.2f}\n\n"
+
+        if link_clicks > 0 or post_engagements > 0:
+            result += f"Conversions:\n"
+            if link_clicks > 0:
+                result += f"  - Link Clicks: {int(link_clicks):,}\n"
+            if post_engagements > 0:
+                result += f"  - Post Engagements: {int(post_engagements):,}\n"
+
+        return result
+
+    return StructuredTool.from_function(
+        name="get_ads_performance_summary",
+        func=get_ads_performance_summary,
+        description="Get overall Facebook/Instagram Ads performance including spend, impressions, clicks, CTR, CPM, and conversions",
+        args_schema=AdsPerformanceInput
+    )
+
+
+class AdsCampaignInput(BaseModel):
+    start_date: str = Field(description="Start date in YYYY-MM-DD format")
+    end_date: str = Field(description="End date in YYYY-MM-DD format")
+    group_by: Literal['campaign', 'adset', 'ad'] = Field('campaign', description="Group by: 'campaign', 'adset', or 'ad'")
+
+
+def create_get_ads_by_campaign_tool(df_ads: pd.DataFrame):
+    """Get ads performance grouped by campaign, adset, or individual ad."""
+
+    def get_ads_by_campaign(
+        start_date: str,
+        end_date: str,
+        group_by: Literal['campaign', 'adset', 'ad'] = 'campaign'
+    ) -> str:
+        if df_ads.empty:
+            return "No Facebook Ads data available. Please upload ads data first."
+
+        df = df_ads.copy()
+
+        # Filter by date
+        start = pd.to_datetime(start_date)
+        end = pd.to_datetime(end_date)
+        df = df[(df['date'] >= start) & (df['date'] <= end)]
+
+        if df.empty:
+            return f"No ads data found between {start_date} and {end_date}"
+
+        # Group by the specified level
+        column_map = {
+            'campaign': 'campaign_name',
+            'adset': 'adset_name',
+            'ad': 'ad_name'
+        }
+        group_col = column_map[group_by]
+
+        # Aggregate metrics
+        grouped = df.groupby(group_col).agg({
+            'spend': 'sum',
+            'impressions': 'sum',
+            'clicks': 'sum',
+            'reach': 'sum',
+        }).round(2)
+
+        # Calculate derived metrics
+        grouped['ctr'] = (grouped['clicks'] / grouped['impressions'] * 100).round(2)
+        grouped['cpm'] = (grouped['spend'] / grouped['impressions'] * 1000).round(2)
+        grouped['cpc'] = (grouped['spend'] / grouped['clicks']).round(2)
+
+        # Sort by spend (highest first)
+        grouped = grouped.sort_values('spend', ascending=False)
+
+        result = f"Ads Performance by {group_by.capitalize()} ({start_date} to {end_date}):\n\n"
+
+        for name, row in grouped.iterrows():
+            result += f"📢 {name}:\n"
+            result += f"   Spend: ${row['spend']:,.2f} | Impressions: {int(row['impressions']):,} | Clicks: {int(row['clicks']):,}\n"
+            result += f"   CTR: {row['ctr']:.2f}% | CPM: ${row['cpm']:.2f} | CPC: ${row['cpc']:.2f}\n\n"
+
+        result += f"Total Spend: ${grouped['spend'].sum():,.2f}\n"
+        result += f"Total Impressions: {int(grouped['impressions'].sum()):,}\n"
+        result += f"Total Clicks: {int(grouped['clicks'].sum()):,}"
+
+        return result
+
+    return StructuredTool.from_function(
+        name="get_ads_by_campaign",
+        func=get_ads_by_campaign,
+        description="Get ads performance grouped by campaign, adset, or individual ad. Shows spend, impressions, clicks, CTR, CPM, and CPC for each.",
+        args_schema=AdsCampaignInput
+    )
+
+
+class AdsROASInput(BaseModel):
+    start_date: str = Field(description="Start date in YYYY-MM-DD format")
+    end_date: str = Field(description="End date in YYYY-MM-DD format")
+    revenue_category: Optional[str] = Field(None, description="Optional: filter revenue to a specific category (e.g., 'Day Pass', 'New Membership')")
+
+
+def create_get_ads_roas_tool(df_ads: pd.DataFrame, df_transactions: pd.DataFrame):
+    """Calculate Return on Ad Spend (ROAS) by comparing ad spend with revenue."""
+
+    def get_ads_roas(
+        start_date: str,
+        end_date: str,
+        revenue_category: Optional[str] = None
+    ) -> str:
+        if df_ads.empty:
+            return "No Facebook Ads data available. Please upload ads data first."
+
+        # Filter ads by date
+        ads_df = df_ads.copy()
+        start = pd.to_datetime(start_date)
+        end = pd.to_datetime(end_date)
+        ads_df = ads_df[(ads_df['date'] >= start) & (ads_df['date'] <= end)]
+
+        if ads_df.empty:
+            return f"No ads data found between {start_date} and {end_date}"
+
+        # Get revenue for same period
+        revenue_df = df_transactions.copy()
+        revenue_df = revenue_df[(revenue_df['Date'] >= start) & (revenue_df['Date'] <= end)]
+
+        if revenue_category:
+            revenue_df = revenue_df[revenue_df['revenue_category'] == revenue_category]
+
+        # Calculate totals
+        total_ad_spend = ads_df['spend'].sum()
+        total_revenue = revenue_df['Total Amount'].sum()
+
+        # Calculate ROAS
+        roas = (total_revenue / total_ad_spend) if total_ad_spend > 0 else 0
+
+        # Daily breakdown
+        daily_ad_spend = ads_df.groupby('date')['spend'].sum()
+        daily_revenue = revenue_df.groupby(revenue_df['Date'].dt.date)['Total Amount'].sum()
+
+        # Merge and calculate daily ROAS
+        daily_comparison = pd.DataFrame({
+            'ad_spend': daily_ad_spend,
+            'revenue': daily_revenue
+        }).fillna(0)
+        daily_comparison['roas'] = (daily_comparison['revenue'] / daily_comparison['ad_spend']).replace([float('inf'), -float('inf')], 0)
+
+        # Sort by ROAS to find best days
+        daily_comparison = daily_comparison.sort_values('roas', ascending=False)
+
+        category_str = f" ({revenue_category})" if revenue_category else ""
+        result = f"Return on Ad Spend (ROAS) Analysis{category_str}:\n"
+        result += f"Period: {start_date} to {end_date}\n\n"
+
+        result += f"Overall Metrics:\n"
+        result += f"  Total Ad Spend: ${total_ad_spend:,.2f}\n"
+        result += f"  Total Revenue{category_str}: ${total_revenue:,.2f}\n"
+        result += f"  ROAS: {roas:.2f}x (${roas:.2f} revenue per $1 spent)\n\n"
+
+        if roas >= 3:
+            result += f"✅ Excellent ROAS! Your ads are highly profitable.\n\n"
+        elif roas >= 2:
+            result += f"✅ Good ROAS. Your ads are profitable.\n\n"
+        elif roas >= 1:
+            result += f"⚠️  Marginal ROAS. Revenue barely exceeds ad spend.\n\n"
+        else:
+            result += f"⚠️  Poor ROAS. Ad spend exceeds revenue.\n\n"
+
+        result += f"Top 5 Days by ROAS:\n"
+        for date, row in daily_comparison.head(5).iterrows():
+            if row['ad_spend'] > 0:
+                result += f"  {date}: {row['roas']:.2f}x (Spend: ${row['ad_spend']:.2f}, Revenue: ${row['revenue']:.2f})\n"
+
+        return result
+
+    return StructuredTool.from_function(
+        name="get_ads_roas",
+        func=get_ads_roas,
+        description="Calculate Return on Ad Spend (ROAS) by comparing ad spend with revenue. Shows if ads are profitable and which days had best ROAS.",
+        args_schema=AdsROASInput
+    )
+
+
 def create_all_tools():
     """Create all analytical tools with loaded data."""
     print("Loading data from S3...")
-    df_transactions, df_memberships, df_members, df_instagram_posts, df_instagram_comments = load_data_frames()
+    df_transactions, df_memberships, df_members, df_instagram_posts, df_instagram_comments, df_facebook_ads = load_data_frames()
     print(f"Loaded {len(df_transactions)} transactions, {len(df_memberships)} memberships, {len(df_members)} members")
 
     if not df_instagram_posts.empty:
         print(f"Loaded {len(df_instagram_posts)} Instagram posts, {len(df_instagram_comments)} comments")
+
+    if not df_facebook_ads.empty:
+        print(f"Loaded {len(df_facebook_ads)} Facebook Ads records")
 
     tools = [
         # Revenue tools
@@ -1333,6 +1571,14 @@ def create_all_tools():
             create_get_instagram_engagement_summary_tool(df_instagram_posts, df_instagram_comments),
             create_get_instagram_content_themes_tool(df_instagram_posts),
             create_get_instagram_revenue_correlation_tool(df_instagram_posts, df_transactions),
+        ])
+
+    # Add Facebook Ads tools if data is available
+    if not df_facebook_ads.empty:
+        tools.extend([
+            create_get_ads_performance_summary_tool(df_facebook_ads),
+            create_get_ads_by_campaign_tool(df_facebook_ads),
+            create_get_ads_roas_tool(df_facebook_ads, df_transactions),
         ])
 
     return tools

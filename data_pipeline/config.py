@@ -6,6 +6,7 @@ square_token = os.getenv("SQUARE_PRODUCTION_API_TOKEN")
 capitan_token = os.getenv("CAPITAN_API_TOKEN")
 instagram_access_token = os.getenv("INSTAGRAM_ACCESS_TOKEN")
 instagram_business_account_id = os.getenv("INSTAGRAM_BUSINESS_ACCOUNT_ID", "17841455043408233")
+facebook_ad_account_id = os.getenv("FACEBOOK_AD_ACCOUNT_ID", "272120788771569")
 aws_access_key_id = os.getenv("AWS_ACCESS_KEY_ID")
 aws_secret_access_key = os.getenv("AWS_SECRET_ACCESS_KEY")
 openai_api_key = os.getenv("OPENAI_API_KEY")
@@ -30,6 +31,8 @@ s3_path_instagram_posts = "instagram/posts_data.csv"
 s3_path_instagram_comments = "instagram/comments_data.csv"
 s3_path_instagram_posts_snapshot = "instagram/snapshots/posts_data.csv"
 s3_path_instagram_comments_snapshot = "instagram/snapshots/comments_data.csv"
+s3_path_facebook_ads = "facebook_ads/ads_data.csv"
+s3_path_facebook_ads_snapshot = "facebook_ads/snapshots/ads_data.csv"
 snapshot_day_of_month = 1
 s3_path_text_and_metadata = "agent/text_and_metadata"
 
