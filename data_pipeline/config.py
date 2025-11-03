@@ -33,6 +33,10 @@ s3_path_instagram_posts_snapshot = "instagram/snapshots/posts_data.csv"
 s3_path_instagram_comments_snapshot = "instagram/snapshots/comments_data.csv"
 s3_path_facebook_ads = "facebook_ads/ads_data.csv"
 s3_path_facebook_ads_snapshot = "facebook_ads/snapshots/ads_data.csv"
+s3_path_capitan_checkins = "capitan/checkins.csv"
+s3_path_capitan_checkins_snapshot = "capitan/snapshots/checkins.csv"
+s3_path_at_risk_members = "capitan/at_risk_members.csv"
+s3_path_at_risk_members_snapshot = "capitan/snapshots/at_risk_members.csv"
 snapshot_day_of_month = 1
 s3_path_text_and_metadata = "agent/text_and_metadata"
 

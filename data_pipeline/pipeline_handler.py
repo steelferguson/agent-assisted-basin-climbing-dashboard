@@ -3,6 +3,8 @@ from data_pipeline import fetch_square_data
 from data_pipeline import fetch_capitan_membership_data
 from data_pipeline import fetch_instagram_data
 from data_pipeline import fetch_facebook_ads_data
+from data_pipeline import fetch_capitan_checkin_data
+from data_pipeline import identify_at_risk_members
 from data_pipeline import upload_data as upload_data
 import datetime
 import os
@@ -551,6 +553,152 @@ def upload_new_facebook_ads_data(save_local=False, days_back=90):
         
     except Exception as e:
         print(f"Error uploading ads data: {e}")
+        raise
+
+
+def upload_new_capitan_checkins(save_local=False, days_back=90):
+    """
+    Fetches Capitan check-in data for the last N days and uploads to S3.
+
+    Args:
+        save_local: Whether to save CSV files locally
+        days_back: Number of days of check-in data to fetch (default: 90)
+    """
+    print(f"\n=== Fetching Capitan Check-in Data (last {days_back} days) ===")
+
+    # Initialize fetcher
+    capitan_token = config.capitan_token
+
+    if not capitan_token:
+        print("Error: CAPITAN_API_TOKEN not found in environment")
+        return
+
+    fetcher = fetch_capitan_checkin_data.CapitanCheckinFetcher(
+        capitan_token=capitan_token
+    )
+
+    # Fetch check-in data
+    new_checkins_df = fetcher.fetch_and_prepare_data(days_back=days_back)
+
+    if new_checkins_df.empty:
+        print("No Capitan check-in data found")
+        return
+
+    print(f"Fetched {len(new_checkins_df)} check-in records")
+
+    # Upload to S3
+    uploader = upload_data.DataUploader()
+
+    try:
+        # Upload to S3
+        uploader.upload_to_s3(
+            new_checkins_df,
+            config.aws_bucket_name,
+            config.s3_path_capitan_checkins
+        )
+        print(f"✓ Uploaded to S3: {config.s3_path_capitan_checkins}")
+
+        # Save locally if requested
+        if save_local:
+            local_path = "data/outputs/capitan_checkins.csv"
+            os.makedirs(os.path.dirname(local_path), exist_ok=True)
+            new_checkins_df.to_csv(local_path, index=False)
+            print(f"✓ Saved locally: {local_path}")
+
+        # Monthly snapshots
+        today = datetime.datetime.now()
+        if today.day == config.snapshot_day_of_month:
+            print("\nCreating monthly check-in snapshot (1st of month)...")
+            uploader.upload_to_s3(
+                new_checkins_df,
+                config.aws_bucket_name,
+                config.s3_path_capitan_checkins_snapshot + f'_{today.strftime("%Y-%m-%d")}'
+            )
+            print("✓ Monthly snapshot saved")
+
+        print("✓ Capitan check-in data upload complete!")
+
+    except Exception as e:
+        print(f"Error uploading check-in data: {e}")
+        raise
+
+
+def upload_at_risk_members(save_local=False):
+    """
+    Identifies at-risk members across different categories and uploads to S3.
+
+    Categories:
+    - Sudden Drop-off: Previously active (2+ visits/week) but stopped coming (3+ weeks absent)
+    - Declining Engagement: Check-in frequency decreased by 50%+ over last 2 months
+    - Never Got Started: New members (joined in last 60 days) with ≤2 total check-ins
+    - Barely Active: Active membership for 3+ months but averaging <1 visit per week
+
+    Args:
+        save_local: Whether to save CSV file locally
+    """
+    print("\n=== Identifying At-Risk Members ===")
+
+    # Load data from S3
+    try:
+        data = identify_at_risk_members.load_data_from_s3(
+            aws_access_key_id=config.aws_access_key_id,
+            aws_secret_access_key=config.aws_secret_access_key,
+            bucket_name=config.aws_bucket_name
+        )
+    except Exception as e:
+        print(f"Error loading data from S3: {e}")
+        return
+
+    # Initialize identifier
+    identifier = identify_at_risk_members.AtRiskMemberIdentifier(
+        df_checkins=data['checkins'],
+        df_members=data['members'],
+        df_memberships=data['memberships']
+    )
+
+    # Identify all at-risk members
+    at_risk_df = identifier.identify_all_at_risk()
+
+    if at_risk_df.empty:
+        print("No at-risk members identified")
+        return
+
+    print(f"Identified {len(at_risk_df)} at-risk members")
+
+    # Upload to S3
+    uploader = upload_data.DataUploader()
+
+    try:
+        # Upload to S3
+        uploader.upload_to_s3(
+            at_risk_df,
+            config.aws_bucket_name,
+            config.s3_path_at_risk_members
+        )
+        print(f"✓ Uploaded to S3: {config.s3_path_at_risk_members}")
+
+        # Save locally if requested
+        if save_local:
+            local_path = "data/outputs/at_risk_members.csv"
+            os.makedirs(os.path.dirname(local_path), exist_ok=True)
+            at_risk_df.to_csv(local_path, index=False)
+            print(f"✓ Saved locally: {local_path}")
+
+        # Monthly snapshots
+        today = datetime.datetime.now()
+        if today.day == config.snapshot_day_of_month:
+            print("\nCreating monthly at-risk members snapshot (1st of month)...")
+            uploader.upload_to_s3(
+                at_risk_df,
+                config.aws_bucket_name,
+                config.s3_path_at_risk_members_snapshot + f'_{today.strftime("%Y-%m-%d")}'
+            )
+            print("✓ Monthly snapshot saved")
+
+        print("✓ At-risk members upload complete!")
+
+    except Exception as e:
+        print(f"Error uploading at-risk members data: {e}")
         raise
 
 

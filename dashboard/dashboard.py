@@ -31,13 +31,35 @@ def load_data():
     df_projection = load_df_from_s3(
         config.aws_bucket_name, config.s3_path_capitan_membership_revenue_projection
     )
+    df_at_risk = load_df_from_s3(config.aws_bucket_name, config.s3_path_at_risk_members)
 
-    return df_memberships, df_members, df_transactions, df_projection
+    return df_memberships, df_members, df_transactions, df_projection, df_at_risk
 
 
 def create_dashboard(app):
 
-    df_memberships, df_members, df_combined, df_projection = load_data()
+    df_memberships, df_members, df_combined, df_projection, df_at_risk = load_data()
+
+    # Prepare at-risk members data for display
+    if not df_at_risk.empty:
+        # Create full name column
+        df_at_risk['full_name'] = df_at_risk['first_name'] + ' ' + df_at_risk['last_name']
+        # Format customer_id as markdown link
+        df_at_risk['customer_id_link'] = df_at_risk.apply(
+            lambda row: f"[{row['customer_id']}]({row['capitan_link']})" if 'capitan_link' in row and pd.notna(row['capitan_link']) else str(row['customer_id']),
+            axis=1
+        )
+        # Format last_checkin_date
+        df_at_risk['last_checkin_formatted'] = pd.to_datetime(df_at_risk['last_checkin_date'], errors='coerce').dt.strftime('%Y-%m-%d')
+        df_at_risk['last_checkin_formatted'] = df_at_risk['last_checkin_formatted'].fillna('Never')
+        # Format age
+        df_at_risk['age_formatted'] = df_at_risk['age'].apply(lambda x: str(int(x)) if pd.notna(x) else 'N/A')
+        # Format membership_type
+        df_at_risk['membership_type'] = df_at_risk['membership_type'].fillna('Unknown')
+        # Get timestamp for display
+        at_risk_timestamp = df_at_risk['generated_at'].iloc[0] if 'generated_at' in df_at_risk.columns else 'N/A'
+    else:
+        at_risk_timestamp = 'N/A'
 
     app.layout = html.Div(
         [
@@ -318,6 +340,91 @@ def create_dashboard(app):
                     "borderRadius": "10px",
                     "marginBottom": "40px",
                 },
+            ),
+            # At-Risk Members section
+            html.H1(
+                children="At-Risk Members",
+                style={"color": "#213B3F", "marginTop": "60px"},
+            ),
+            html.H3(
+                children=f"As of {at_risk_timestamp}",
+                style={"color": "#26241C", "marginBottom": "30px"},
+            ),
+            # Declining Activity category
+            html.Div(
+                [
+                    html.H2(
+                        children=f"Declining Activity ({len(df_at_risk[df_at_risk['risk_category'] == 'Declining Activity'])} members)" if not df_at_risk.empty else "Declining Activity (0 members)",
+                        style={"color": "#213B3F", "marginBottom": "10px"},
+                    ),
+                    dash_table.DataTable(
+                        data=df_at_risk[df_at_risk['risk_category'] == 'Declining Activity'][['customer_id_link', 'full_name', 'age_formatted', 'membership_type', 'last_checkin_formatted', 'risk_description']].to_dict('records') if not df_at_risk.empty and len(df_at_risk[df_at_risk['risk_category'] == 'Declining Activity']) > 0 else [],
+                        columns=[
+                            {"name": "Customer ID", "id": "customer_id_link", "presentation": "markdown"},
+                            {"name": "Name", "id": "full_name"},
+                            {"name": "Age", "id": "age_formatted"},
+                            {"name": "Membership Type", "id": "membership_type"},
+                            {"name": "Last Check-in", "id": "last_checkin_formatted"},
+                            {"name": "Description", "id": "risk_description"},
+                        ],
+                        style_table={'overflowX': 'auto'},
+                        style_cell={
+                            'textAlign': 'left',
+                            'padding': '10px',
+                            'whiteSpace': 'normal',
+                            'height': 'auto',
+                        },
+                        style_header={
+                            'backgroundColor': '#213B3F',
+                            'color': 'white',
+                            'fontWeight': 'bold',
+                        },
+                        style_data={
+                            'backgroundColor': '#FFFFFF',
+                            'color': '#26241C',
+                        },
+                        markdown_options={"link_target": "_blank"},
+                    ) if not df_at_risk.empty and len(df_at_risk[df_at_risk['risk_category'] == 'Declining Activity']) > 0 else html.P("No members in this category", style={"fontStyle": "italic", "color": "#808080"}),
+                ],
+                style={"marginBottom": "40px"},
+            ),
+            # Completely Inactive category
+            html.Div(
+                [
+                    html.H2(
+                        children=f"Completely Inactive ({len(df_at_risk[df_at_risk['risk_category'] == 'Completely Inactive'])} members)" if not df_at_risk.empty else "Completely Inactive (0 members)",
+                        style={"color": "#213B3F", "marginBottom": "10px"},
+                    ),
+                    dash_table.DataTable(
+                        data=df_at_risk[df_at_risk['risk_category'] == 'Completely Inactive'][['customer_id_link', 'full_name', 'age_formatted', 'membership_type', 'last_checkin_formatted', 'risk_description']].to_dict('records') if not df_at_risk.empty and len(df_at_risk[df_at_risk['risk_category'] == 'Completely Inactive']) > 0 else [],
+                        columns=[
+                            {"name": "Customer ID", "id": "customer_id_link", "presentation": "markdown"},
+                            {"name": "Name", "id": "full_name"},
+                            {"name": "Age", "id": "age_formatted"},
+                            {"name": "Membership Type", "id": "membership_type"},
+                            {"name": "Last Check-in", "id": "last_checkin_formatted"},
+                            {"name": "Description", "id": "risk_description"},
+                        ],
+                        style_table={'overflowX': 'auto'},
+                        style_cell={
+                            'textAlign': 'left',
+                            'padding': '10px',
+                            'whiteSpace': 'normal',
+                            'height': 'auto',
+                        },
+                        style_header={
+                            'backgroundColor': '#213B3F',
+                            'color': 'white',
+                            'fontWeight': 'bold',
+                        },
+                        style_data={
+                            'backgroundColor': '#FFFFFF',
+                            'color': '#26241C',
+                        },
+                        markdown_options={"link_target": "_blank"},
+                    ) if not df_at_risk.empty and len(df_at_risk[df_at_risk['risk_category'] == 'Completely Inactive']) > 0 else html.P("No members in this category", style={"fontStyle": "italic", "color": "#808080"}),
+                ],
+                style={"marginBottom": "40px"},
             ),
         ],
         style={
