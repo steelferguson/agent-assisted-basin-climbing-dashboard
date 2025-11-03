@@ -17,9 +17,14 @@ from pydantic import BaseModel, Field
 from langchain_core.tools import StructuredTool
 import json
 import os
+import uuid
 
 # Chart output directory
 CHART_OUTPUT_DIR = "outputs/charts"
+
+# Global data registry for storing custom query results
+# Format: {data_id: {'dataframe': pd.DataFrame, 'description': str, 'timestamp': datetime}}
+_DATA_REGISTRY = {}
 
 
 # ============================================================================
@@ -72,7 +77,17 @@ def load_data_frames():
         print(f"Warning: Could not load Facebook Ads data: {e}")
         df_facebook_ads = pd.DataFrame()
 
-    return df_transactions, df_memberships, df_members, df_instagram_posts, df_instagram_comments, df_facebook_ads
+    # Capitan Check-in data
+    try:
+        csv_content = uploader.download_from_s3(config.aws_bucket_name, config.s3_path_capitan_checkins)
+        df_checkins = uploader.convert_csv_to_df(csv_content)
+        df_checkins['checkin_datetime'] = pd.to_datetime(df_checkins['checkin_datetime'], errors='coerce')
+        df_checkins['customer_birthday'] = pd.to_datetime(df_checkins['customer_birthday'], errors='coerce')
+    except Exception as e:
+        print(f"Warning: Could not load check-in data: {e}")
+        df_checkins = pd.DataFrame()
+
+    return df_transactions, df_memberships, df_members, df_instagram_posts, df_instagram_comments, df_facebook_ads, df_checkins
 
 
 # ============================================================================
@@ -1527,10 +1542,608 @@ def create_get_ads_roas_tool(df_ads: pd.DataFrame, df_transactions: pd.DataFrame
     )
 
 
+# ============================================================================
+# CHECK-IN TOOLS
+# ============================================================================
+
+class CheckinInput(BaseModel):
+    start_date: str = Field(description="Start date in YYYY-MM-DD format")
+    end_date: str = Field(description="End date in YYYY-MM-DD format")
+    entry_type: Optional[str] = Field(None, description="Filter by entry type: 'member' (MEM), 'day_pass' (ENT), 'guest' (GUE), or leave blank for all")
+
+
+def create_get_checkin_summary_tool(df_checkins: pd.DataFrame):
+    """Get check-in summary with ability to distinguish members vs day passes."""
+
+    def get_checkin_summary(
+        start_date: str,
+        end_date: str,
+        entry_type: Optional[str] = None
+    ) -> str:
+        if df_checkins.empty:
+            return "No check-in data available. Please upload check-in data first."
+
+        df = df_checkins.copy()
+
+        # Filter by date
+        start = pd.to_datetime(start_date)
+        end = pd.to_datetime(end_date)
+        df = df[(df['checkin_datetime'] >= start) & (df['checkin_datetime'] <= end)]
+
+        if df.empty:
+            return f"No check-ins found between {start_date} and {end_date}"
+
+        # Filter by entry type if specified
+        if entry_type:
+            type_map = {
+                'member': 'MEM',
+                'day_pass': 'ENT',
+                'guest': 'GUE'
+            }
+            entry_code = type_map.get(entry_type.lower(), entry_type.upper())
+            df = df[df['entry_method'] == entry_code]
+
+        # Calculate statistics
+        total_checkins = len(df)
+        unique_customers = df['customer_id'].nunique()
+        free_entries = df['is_free_entry'].sum()
+
+        # Breakdown by entry method (MEM, ENT, GUE)
+        entry_method_breakdown = df['entry_method'].value_counts()
+
+        # Top entry method descriptions
+        top_entry_descriptions = df['entry_method_description'].value_counts().head(10)
+
+        # Daily average
+        date_range_days = (end - start).days + 1
+        daily_avg = total_checkins / date_range_days if date_range_days > 0 else 0
+
+        entry_type_str = f" ({entry_type})" if entry_type else ""
+        result = f"Check-in Summary{entry_type_str}:\n"
+        result += f"Period: {start_date} to {end_date}\n\n"
+
+        result += f"Overall Metrics:\n"
+        result += f"  Total Check-ins: {total_checkins:,}\n"
+        result += f"  Unique Customers: {unique_customers:,}\n"
+        result += f"  Free Entries: {free_entries:,} ({free_entries/total_checkins*100:.1f}%)\n"
+        result += f"  Daily Average: {daily_avg:.1f} check-ins/day\n\n"
+
+        result += f"By Entry Type:\n"
+        for method, count in entry_method_breakdown.items():
+            method_name = {'MEM': 'Members', 'ENT': 'Day Passes/Entries', 'GUE': 'Guest Passes'}.get(method, method)
+            result += f"  {method_name}: {count:,} ({count/total_checkins*100:.1f}%)\n"
+
+        result += f"\nTop 10 Entry Methods:\n"
+        for desc, count in top_entry_descriptions.items():
+            result += f"  {desc}: {count:,}\n"
+
+        return result
+
+    return StructuredTool.from_function(
+        name="get_checkin_summary",
+        func=get_checkin_summary,
+        description="""Get check-in summary with breakdowns by entry type (members vs day passes vs guests).
+
+IMPORTANT - How to calculate percentages:
+1. Call WITHOUT entry_type → gets TOTAL check-ins (denominator)
+2. Call WITH entry_type → gets SPECIFIC type check-ins (numerator)
+3. Calculate: (specific / total) * 100 = percentage
+
+Examples:
+- "What % of check-ins are from day passes?"
+  → Call #1: get_checkin_summary(dates) → total=100
+  → Call #2: get_checkin_summary(dates, entry_type='day_pass') → day_pass=30
+  → Answer: (30/100)*100 = 30% are day passes
+
+- "What % are from members week over week?"
+  → Week 1: Call without filter (total=200), call with entry_type='member' (members=150) → 75%
+  → Week 2: Call without filter (total=180), call with entry_type='member' (members=130) → 72%
+  → Answer: "75% week 1, 72% week 2"
+
+Entry types: 'member' (memberships), 'day_pass' (purchased day passes), 'guest' (guest passes)""",
+        args_schema=CheckinInput
+    )
+
+
+class CheckinChartInput(BaseModel):
+    start_date: str = Field(description="Start date in YYYY-MM-DD format")
+    end_date: str = Field(description="End date in YYYY-MM-DD format")
+    grouping: str = Field(default="month", description="Time grouping: 'day', 'week', or 'month' (default: month)")
+
+
+def create_checkin_timeseries_chart_tool(df_checkins: pd.DataFrame):
+    """Create a time-series chart showing check-ins over time with member vs non-member breakdown."""
+
+    def create_checkin_timeseries_chart(
+        start_date: str,
+        end_date: str,
+        grouping: str = "month"
+    ) -> str:
+        if df_checkins.empty:
+            return "No check-in data available."
+
+        df = df_checkins.copy()
+
+        # Filter by date
+        start = pd.to_datetime(start_date)
+        end = pd.to_datetime(end_date)
+        df = df[(df['checkin_datetime'] >= start) & (df['checkin_datetime'] <= end)]
+
+        if df.empty:
+            return f"No check-ins found between {start_date} and {end_date}"
+
+        # Add entry type categories
+        df['entry_category'] = df['entry_method'].map({
+            'MEM': 'Members',
+            'ENT': 'Day Passes',
+            'GUE': 'Guest Passes',
+            'FRE': 'Free Entry',
+            'EVE': 'Events'
+        }).fillna('Other')
+
+        # Group by time period
+        if grouping == 'day':
+            df['period'] = df['checkin_datetime'].dt.date
+            period_format = '%Y-%m-%d'
+        elif grouping == 'week':
+            df['period'] = df['checkin_datetime'].dt.to_period('W').apply(lambda r: r.start_time)
+            period_format = 'Week of %Y-%m-%d'
+        else:  # month
+            df['period'] = df['checkin_datetime'].dt.to_period('M').apply(lambda r: r.start_time)
+            period_format = '%Y-%m'
+
+        # Calculate counts by period and entry category
+        period_counts = df.groupby(['period', 'entry_category']).size().reset_index(name='count')
+
+        # Calculate total per period for percentage
+        total_per_period = df.groupby('period').size().reset_index(name='total')
+
+        # Merge to get percentages
+        period_counts = period_counts.merge(total_per_period, on='period')
+        period_counts['percentage'] = (period_counts['count'] / period_counts['total'] * 100).round(1)
+
+        # Create figure
+        fig = go.Figure()
+
+        # Add a line for each entry category
+        categories = period_counts['entry_category'].unique()
+        colors = {
+            'Members': '#2E86AB',
+            'Day Passes': '#A23B72',
+            'Guest Passes': '#F18F01',
+            'Free Entry': '#C73E1D',
+            'Events': '#6A994E',
+            'Other': '#BC4B51'
+        }
+
+        for category in sorted(categories):
+            cat_data = period_counts[period_counts['entry_category'] == category].sort_values('period')
+
+            fig.add_trace(go.Scatter(
+                x=cat_data['period'],
+                y=cat_data['count'],
+                name=category,
+                mode='lines+markers',
+                line=dict(color=colors.get(category, '#666666'), width=2),
+                marker=dict(size=6),
+                hovertemplate=f'<b>{category}</b><br>' +
+                             'Date: %{x}<br>' +
+                             'Check-ins: %{y}<br>' +
+                             '<extra></extra>'
+            ))
+
+        fig.update_layout(
+            title=f'Check-ins by Entry Type Over Time ({grouping.capitalize()})',
+            xaxis_title='Date',
+            yaxis_title='Number of Check-ins',
+            hovermode='x unified',
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1
+            ),
+            template='plotly_white'
+        )
+
+        # Save chart
+        os.makedirs(CHART_OUTPUT_DIR, exist_ok=True)
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        filename = f'{timestamp}_checkin_timeseries_{grouping}_{start_date}_{end_date}.html'
+        filepath = os.path.join(CHART_OUTPUT_DIR, filename)
+        fig.write_html(filepath)
+
+        # Calculate summary statistics
+        total_checkins = len(df)
+        member_checkins = len(df[df['entry_category'] == 'Members'])
+        non_member_checkins = total_checkins - member_checkins
+        member_pct = (member_checkins / total_checkins * 100) if total_checkins > 0 else 0
+
+        summary = f"Check-in timeseries chart created and saved to {filepath}\n\n"
+        summary += f"Summary:\n"
+        summary += f"- Total check-ins: {total_checkins:,}\n"
+        summary += f"- Member check-ins: {member_checkins:,} ({member_pct:.1f}%)\n"
+        summary += f"- Non-member check-ins: {non_member_checkins:,} ({100-member_pct:.1f}%)\n"
+        summary += f"- Time periods: {len(period_counts['period'].unique())}"
+
+        return summary
+
+    return StructuredTool.from_function(
+        name="create_checkin_timeseries_chart",
+        func=create_checkin_timeseries_chart,
+        description="""Create a time-series line chart showing check-ins over CALENDAR time (dates), broken down by entry type (members, day passes, guests).
+
+X-axis is DATES (by day/week/month). Perfect for showing month-over-month trends in member vs non-member check-ins.
+
+NOTE: This does NOT create hourly patterns or day-of-week analysis. For hourly breakdowns or day-of-week patterns, use execute_custom_query + create_generic_chart instead.""",
+        args_schema=CheckinChartInput
+    )
+
+
+class InactiveMembersInput(BaseModel):
+    start_date: str = Field(description="Start date for check-in window in YYYY-MM-DD format")
+    end_date: str = Field(description="End date for check-in window in YYYY-MM-DD format")
+    max_checkins: int = Field(default=1, description="Maximum number of check-ins to be considered 'inactive' (default: 1)")
+
+
+def create_get_inactive_members_tool(df_checkins: pd.DataFrame, df_memberships: pd.DataFrame):
+    """Find members with active memberships but few/no recent check-ins."""
+
+    def get_inactive_members(
+        start_date: str,
+        end_date: str,
+        max_checkins: int = 1
+    ) -> str:
+        if df_checkins.empty:
+            return "No check-in data available."
+
+        if df_memberships.empty:
+            return "No membership data available."
+
+        # Get active memberships
+        today = pd.Timestamp.now()
+        active_memberships = df_memberships[df_memberships['end_date'] >= today].copy()
+
+        if active_memberships.empty:
+            return "No active memberships found."
+
+        # Count check-ins per customer in the time window
+        df_checkins_filtered = df_checkins.copy()
+        start = pd.to_datetime(start_date)
+        end = pd.to_datetime(end_date)
+        df_checkins_filtered = df_checkins_filtered[
+            (df_checkins_filtered['checkin_datetime'] >= start) &
+            (df_checkins_filtered['checkin_datetime'] <= end)
+        ]
+
+        # Count check-ins per customer
+        checkin_counts = df_checkins_filtered.groupby('customer_id').size().reset_index(name='checkin_count')
+
+        # Merge with active memberships
+        members_with_counts = active_memberships.merge(
+            checkin_counts,
+            on='customer_id',
+            how='left'
+        )
+
+        # Fill NaN (members with zero check-ins) with 0
+        members_with_counts['checkin_count'] = members_with_counts['checkin_count'].fillna(0).astype(int)
+
+        # Filter to inactive members (max_checkins or fewer)
+        inactive_members = members_with_counts[members_with_counts['checkin_count'] <= max_checkins].copy()
+
+        if inactive_members.empty:
+            return f"No members found with {max_checkins} or fewer check-ins between {start_date} and {end_date}"
+
+        # Sort by checkin count (lowest first)
+        inactive_members = inactive_members.sort_values('checkin_count')
+
+        # Group by membership type
+        by_membership_type = inactive_members.groupby('membership_size').size().sort_values(ascending=False)
+
+        result = f"Inactive Members Report:\n"
+        result += f"Period: {start_date} to {end_date}\n"
+        result += f"Criteria: {max_checkins} or fewer check-ins\n\n"
+
+        result += f"Summary:\n"
+        result += f"  Total Inactive Members: {len(inactive_members):,}\n"
+        result += f"  Total Active Memberships: {len(active_memberships):,}\n"
+        result += f"  Inactive Rate: {len(inactive_members)/len(active_memberships)*100:.1f}%\n\n"
+
+        result += f"By Membership Type:\n"
+        for membership_type, count in by_membership_type.items():
+            result += f"  {membership_type}: {count:,}\n"
+
+        result += f"\nBreakdown by Check-in Count:\n"
+        checkin_breakdown = inactive_members['checkin_count'].value_counts().sort_index()
+        for count, num_members in checkin_breakdown.items():
+            result += f"  {int(count)} check-ins: {num_members:,} members\n"
+
+        result += f"\nSample of Inactive Members (first 10):\n"
+        for idx, row in inactive_members.head(10).iterrows():
+            result += f"  Customer {row['customer_id']}: {row['membership_size']}, {int(row['checkin_count'])} check-ins\n"
+
+        return result
+
+    return StructuredTool.from_function(
+        name="get_inactive_members",
+        func=get_inactive_members,
+        description="Find members with active memberships but few/no recent check-ins. Useful for identifying at-risk members who may need engagement.",
+        args_schema=InactiveMembersInput
+    )
+
+
+# ============================================================================
+# GENERIC DATA QUERY AND CHARTING TOOLS
+# ============================================================================
+
+
+class CustomQueryInput(BaseModel):
+    query_description: str = Field(description="Brief description of what this query does")
+    pandas_code: str = Field(description="Pandas code to execute. Available DataFrames: df_transactions, df_memberships, df_members, df_instagram_posts, df_instagram_comments, df_facebook_ads, df_checkins. Code should create a variable named 'result' containing the final DataFrame.")
+
+
+def create_execute_custom_query_tool(df_transactions, df_memberships, df_members, df_instagram_posts, df_instagram_comments, df_facebook_ads, df_checkins):
+    """
+    Execute custom pandas queries on any combination of data sources.
+    Returns a data_id that can be used with create_generic_chart.
+    """
+
+    # Build schema documentation
+    schema_doc = "\n\nAVAILABLE DATAFRAMES AND SCHEMAS:\n"
+    schema_doc += "\n1. df_checkins - Check-in records\n"
+    schema_doc += f"   Columns: {', '.join(df_checkins.columns.tolist())}\n"
+    schema_doc += "\n2. df_memberships - Membership records\n"
+    schema_doc += f"   Columns: {', '.join(df_memberships.columns.tolist())}\n"
+    schema_doc += "\n3. df_members - Individual member records\n"
+    schema_doc += f"   Columns: {', '.join(df_members.columns.tolist())}\n"
+    schema_doc += "\n4. df_transactions - Transaction records\n"
+    schema_doc += f"   Columns: {', '.join(df_transactions.columns.tolist())}\n"
+    if not df_instagram_posts.empty:
+        schema_doc += "\n5. df_instagram_posts - Instagram post data\n"
+        schema_doc += f"   Columns: {', '.join(df_instagram_posts.columns.tolist())}\n"
+    if not df_instagram_comments.empty:
+        schema_doc += "\n6. df_instagram_comments - Instagram comment data\n"
+        schema_doc += f"   Columns: {', '.join(df_instagram_comments.columns.tolist())}\n"
+    if not df_facebook_ads.empty:
+        schema_doc += "\n7. df_facebook_ads - Facebook ads performance data\n"
+        schema_doc += f"   Columns: {', '.join(df_facebook_ads.columns.tolist())}\n"
+
+    def execute_custom_query(query_description: str, pandas_code: str) -> str:
+        """Execute pandas code and store result in registry."""
+        import traceback
+        from difflib import get_close_matches
+
+        # Prepare the execution environment with all available DataFrames
+        exec_globals = {
+            'pd': pd,
+            'df_transactions': df_transactions.copy(),
+            'df_memberships': df_memberships.copy(),
+            'df_members': df_members.copy(),
+            'df_instagram_posts': df_instagram_posts.copy() if not df_instagram_posts.empty else pd.DataFrame(),
+            'df_instagram_comments': df_instagram_comments.copy() if not df_instagram_comments.empty else pd.DataFrame(),
+            'df_facebook_ads': df_facebook_ads.copy() if not df_facebook_ads.empty else pd.DataFrame(),
+            'df_checkins': df_checkins.copy() if not df_checkins.empty else pd.DataFrame(),
+            'datetime': datetime,
+            'timedelta': timedelta,
+        }
+
+        try:
+            # Execute the pandas code
+            exec(pandas_code, exec_globals)
+
+            # Check if 'result' variable was created
+            if 'result' not in exec_globals:
+                return "Error: Code must create a variable named 'result' containing the DataFrame"
+
+            result_df = exec_globals['result']
+
+            # Validate it's a DataFrame
+            if not isinstance(result_df, pd.DataFrame):
+                return f"Error: 'result' must be a DataFrame, got {type(result_df)}"
+
+            if result_df.empty:
+                return "Query executed successfully but returned an empty DataFrame"
+
+            # Generate unique ID and store in registry
+            data_id = f"query_{uuid.uuid4().hex[:8]}"
+            _DATA_REGISTRY[data_id] = {
+                'dataframe': result_df,
+                'description': query_description,
+                'timestamp': datetime.now()
+            }
+
+            # Return summary
+            summary = f"Query executed successfully!\n"
+            summary += f"Data ID: {data_id}\n"
+            summary += f"Description: {query_description}\n\n"
+            summary += f"Result shape: {result_df.shape[0]} rows × {result_df.shape[1]} columns\n"
+            summary += f"Columns: {', '.join(result_df.columns.tolist())}\n\n"
+            summary += f"First few rows:\n{result_df.head(5).to_string()}\n\n"
+            summary += f"Use this data_id with create_generic_chart to visualize the results."
+
+            return summary
+
+        except KeyError as e:
+            # Provide helpful suggestions for KeyError (likely wrong column name)
+            error_column = str(e).strip("'\"")
+
+            # Find which DataFrame was being accessed (simple heuristic)
+            all_columns = {}
+            all_columns['df_checkins'] = df_checkins.columns.tolist()
+            all_columns['df_memberships'] = df_memberships.columns.tolist()
+            all_columns['df_members'] = df_members.columns.tolist()
+            all_columns['df_transactions'] = df_transactions.columns.tolist()
+            if not df_instagram_posts.empty:
+                all_columns['df_instagram_posts'] = df_instagram_posts.columns.tolist()
+            if not df_instagram_comments.empty:
+                all_columns['df_instagram_comments'] = df_instagram_comments.columns.tolist()
+            if not df_facebook_ads.empty:
+                all_columns['df_facebook_ads'] = df_facebook_ads.columns.tolist()
+
+            # Find similar column names across all DataFrames
+            suggestions = {}
+            for df_name, columns in all_columns.items():
+                matches = get_close_matches(error_column, columns, n=3, cutoff=0.6)
+                if matches:
+                    suggestions[df_name] = matches
+
+            error_msg = f"Error: Column '{error_column}' not found.\n\n"
+            if suggestions:
+                error_msg += "Did you mean one of these?\n"
+                for df_name, matches in suggestions.items():
+                    error_msg += f"  {df_name}: {', '.join(matches)}\n"
+
+            error_msg += f"\n{schema_doc}"
+            return error_msg
+
+        except Exception as e:
+            error_msg = f"Error executing query:\n{str(e)}\n\nTraceback:\n{traceback.format_exc()}"
+            return error_msg
+
+    description = (
+        "Execute custom pandas queries on any combination of data sources. "
+        "Supports joins, aggregations, filters, and any pandas operations. "
+        "Code must create a 'result' variable containing the final DataFrame. "
+        "Returns a data_id that can be used with create_generic_chart.\n\n"
+        "USE THIS TOOL FOR:\n"
+        "- Custom aggregations not covered by specialized tools\n"
+        "- Hourly patterns or day-of-week analysis\n"
+        "- Complex groupings (e.g., 'hour of day by day of week')\n"
+        "- Joining multiple data sources\n"
+        "- Any analysis requiring custom pandas code"
+        + schema_doc
+    )
+
+    return StructuredTool.from_function(
+        name="execute_custom_query",
+        func=execute_custom_query,
+        description=description,
+        args_schema=CustomQueryInput
+    )
+
+
+class GenericChartInput(BaseModel):
+    data_id: str = Field(description="The data_id returned from execute_custom_query")
+    chart_type: Literal["line", "bar", "scatter", "area"] = Field(description="Type of chart to create")
+    x_column: str = Field(description="Column name for x-axis")
+    y_column: str = Field(description="Column name for y-axis")
+    title: Optional[str] = Field(default=None, description="Chart title (optional)")
+    group_by_column: Optional[str] = Field(default=None, description="Column to group by for multiple lines/bars (optional)")
+
+
+def create_generic_chart_tool():
+    """Create a generic chart from any data stored in the registry."""
+
+    def create_generic_chart(
+        data_id: str,
+        chart_type: str,
+        x_column: str,
+        y_column: str,
+        title: Optional[str] = None,
+        group_by_column: Optional[str] = None
+    ) -> str:
+        """Create a Plotly chart from data in the registry."""
+
+        # Check if data_id exists
+        if data_id not in _DATA_REGISTRY:
+            available_ids = list(_DATA_REGISTRY.keys())
+            return f"Error: data_id '{data_id}' not found in registry. Available IDs: {available_ids}"
+
+        # Get the data
+        registry_entry = _DATA_REGISTRY[data_id]
+        df = registry_entry['dataframe']
+        description = registry_entry['description']
+
+        # Validate columns exist
+        if x_column not in df.columns:
+            return f"Error: Column '{x_column}' not found. Available columns: {', '.join(df.columns)}"
+        if y_column not in df.columns:
+            return f"Error: Column '{y_column}' not found. Available columns: {', '.join(df.columns)}"
+        if group_by_column and group_by_column not in df.columns:
+            return f"Error: Column '{group_by_column}' not found. Available columns: {', '.join(df.columns)}"
+
+        # Create the chart
+        fig = go.Figure()
+
+        if title is None:
+            title = f"{description} - {y_column} by {x_column}"
+
+        if group_by_column:
+            # Multiple traces grouped by column
+            groups = df[group_by_column].unique()
+            for group in groups:
+                group_data = df[df[group_by_column] == group].sort_values(x_column)
+
+                if chart_type == "line":
+                    fig.add_trace(go.Scatter(x=group_data[x_column], y=group_data[y_column],
+                                            mode='lines+markers', name=str(group)))
+                elif chart_type == "bar":
+                    fig.add_trace(go.Bar(x=group_data[x_column], y=group_data[y_column],
+                                        name=str(group)))
+                elif chart_type == "scatter":
+                    fig.add_trace(go.Scatter(x=group_data[x_column], y=group_data[y_column],
+                                            mode='markers', name=str(group)))
+                elif chart_type == "area":
+                    fig.add_trace(go.Scatter(x=group_data[x_column], y=group_data[y_column],
+                                            fill='tonexty', name=str(group)))
+        else:
+            # Single trace
+            sorted_data = df.sort_values(x_column)
+
+            if chart_type == "line":
+                fig.add_trace(go.Scatter(x=sorted_data[x_column], y=sorted_data[y_column],
+                                        mode='lines+markers', name=y_column))
+            elif chart_type == "bar":
+                fig.add_trace(go.Bar(x=sorted_data[x_column], y=sorted_data[y_column],
+                                    name=y_column))
+            elif chart_type == "scatter":
+                fig.add_trace(go.Scatter(x=sorted_data[x_column], y=sorted_data[y_column],
+                                        mode='markers', name=y_column))
+            elif chart_type == "area":
+                fig.add_trace(go.Scatter(x=sorted_data[x_column], y=sorted_data[y_column],
+                                        fill='tozeroy', name=y_column))
+
+        # Update layout
+        fig.update_layout(
+            title=title,
+            xaxis_title=x_column,
+            yaxis_title=y_column,
+            hovermode='x unified',
+            template='plotly_white'
+        )
+
+        # Save the chart
+        os.makedirs(CHART_OUTPUT_DIR, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"{timestamp}_custom_{chart_type}_{data_id}.html"
+        filepath = os.path.join(CHART_OUTPUT_DIR, filename)
+        fig.write_html(filepath)
+
+        summary = f"Chart created successfully!\n"
+        summary += f"Saved to: {filepath}\n"
+        summary += f"Chart type: {chart_type}\n"
+        summary += f"Data: {description}\n"
+        summary += f"X-axis: {x_column}\n"
+        summary += f"Y-axis: {y_column}\n"
+        if group_by_column:
+            summary += f"Grouped by: {group_by_column} ({len(df[group_by_column].unique())} groups)\n"
+
+        return summary
+
+    return StructuredTool.from_function(
+        name="create_generic_chart",
+        func=create_generic_chart,
+        description="Create a chart from data stored in the registry (from execute_custom_query). Supports line, bar, scatter, and area charts. Can group data by a column to create multiple series.",
+        args_schema=GenericChartInput
+    )
+
+
 def create_all_tools():
     """Create all analytical tools with loaded data."""
     print("Loading data from S3...")
-    df_transactions, df_memberships, df_members, df_instagram_posts, df_instagram_comments, df_facebook_ads = load_data_frames()
+    df_transactions, df_memberships, df_members, df_instagram_posts, df_instagram_comments, df_facebook_ads, df_checkins = load_data_frames()
     print(f"Loaded {len(df_transactions)} transactions, {len(df_memberships)} memberships, {len(df_members)} members")
 
     if not df_instagram_posts.empty:
@@ -1538,6 +2151,9 @@ def create_all_tools():
 
     if not df_facebook_ads.empty:
         print(f"Loaded {len(df_facebook_ads)} Facebook Ads records")
+
+    if not df_checkins.empty:
+        print(f"Loaded {len(df_checkins)} check-in records from {df_checkins['customer_id'].nunique()} unique customers")
 
     tools = [
         # Revenue tools
@@ -1580,5 +2196,23 @@ def create_all_tools():
             create_get_ads_by_campaign_tool(df_facebook_ads),
             create_get_ads_roas_tool(df_facebook_ads, df_transactions),
         ])
+
+    # Add Check-in tools if data is available
+    if not df_checkins.empty:
+        tools.extend([
+            create_get_checkin_summary_tool(df_checkins),
+            create_get_inactive_members_tool(df_checkins, df_memberships),
+            create_checkin_timeseries_chart_tool(df_checkins),
+        ])
+
+    # Add Generic Query and Charting tools (always available)
+    tools.extend([
+        create_execute_custom_query_tool(
+            df_transactions, df_memberships, df_members,
+            df_instagram_posts, df_instagram_comments,
+            df_facebook_ads, df_checkins
+        ),
+        create_generic_chart_tool(),
+    ])
 
     return tools
