@@ -676,7 +676,7 @@ def create_get_day_pass_count_tool(df_transactions: pd.DataFrame):
     return StructuredTool.from_function(
         name="get_day_pass_count",
         func=get_day_pass_count,
-        description="Get count of day passes sold in a time period, optionally filtered by pass type",
+        description="Get count of day pass TRANSACTIONS (not unique people) in a time period. NOTE: This counts transaction records, not unique customers. One person can have multiple transactions. To count unique people, you need check-in data with customer_id.",
         args_schema=DayPassInput
     )
 
@@ -717,8 +717,76 @@ def create_get_day_pass_revenue_tool(df_transactions: pd.DataFrame):
     return StructuredTool.from_function(
         name="get_day_pass_revenue",
         func=get_day_pass_revenue,
-        description="Get day pass revenue for a time period, optionally filtered by pass type",
+        description="Get day pass revenue from TRANSACTION records (not unique people). NOTE: This analyzes payment transactions, not unique customers. One person can have multiple transactions. To analyze unique people, you need check-in data with customer_id.",
         args_schema=DayPassInput
+    )
+
+
+class UniqueDayPassCustomersInput(BaseModel):
+    start_date: str = Field(description="Start date in YYYY-MM-DD format")
+    end_date: str = Field(description="End date in YYYY-MM-DD format")
+    pass_count: Optional[int] = Field(None, description="Filter to customers who bought exactly this many passes (e.g., 1 for 'only one pass'). Leave empty to see all counts.")
+
+
+def create_get_unique_day_pass_customers_tool(df_checkins: pd.DataFrame):
+    """Get unique customers who purchased day passes, grouped by how many passes they bought."""
+
+    def get_unique_day_pass_customers(
+        start_date: str,
+        end_date: str,
+        pass_count: Optional[int] = None
+    ) -> str:
+        """
+        Analyze UNIQUE CUSTOMERS (not transactions) who bought day passes.
+        Groups customers by how many day passes they purchased.
+        """
+        df = df_checkins.copy()
+
+        # Filter by date
+        start = pd.to_datetime(start_date)
+        end = pd.to_datetime(end_date)
+        df['checkin_datetime'] = pd.to_datetime(df['checkin_datetime'])
+        df = df[(df['checkin_datetime'] >= start) & (df['checkin_datetime'] <= end)]
+
+        # Filter to day pass check-ins (not membership check-ins)
+        day_pass_keywords = ['Day Pass', 'Punch Pass', 'Pass with Gear']
+        mask = df['entry_method_description'].str.contains(
+            '|'.join(day_pass_keywords),
+            case=False,
+            na=False,
+            regex=True
+        )
+        df_day_passes = df[mask].copy()
+
+        # Count how many day passes each unique customer bought
+        customer_pass_counts = df_day_passes.groupby('customer_id').size()
+
+        # If user wants specific count, filter to that
+        if pass_count is not None:
+            customers_with_count = customer_pass_counts[customer_pass_counts == pass_count]
+            result = f"Unique customers who bought exactly {pass_count} day pass(es) from {start_date} to {end_date}: {len(customers_with_count)}\n\n"
+            result += f"Total day pass check-ins: {len(df_day_passes)}\n"
+            result += f"Total unique customers with day passes: {len(customer_pass_counts)}\n"
+            return result
+
+        # Otherwise, show breakdown by count
+        count_distribution = customer_pass_counts.value_counts().sort_index()
+
+        result = f"Unique day pass customers from {start_date} to {end_date}:\n\n"
+        result += f"Total unique customers: {len(customer_pass_counts)}\n"
+        result += f"Total day pass check-ins: {len(df_day_passes)}\n\n"
+        result += "Distribution by number of passes purchased per customer:\n"
+
+        for count, num_customers in count_distribution.items():
+            result += f"  {count} pass(es): {num_customers} customers\n"
+
+        return result
+
+    return StructuredTool.from_function(
+        name="get_unique_day_pass_customers",
+        func=get_unique_day_pass_customers,
+        description="Analyze UNIQUE CUSTOMERS (people) who bought day passes, NOT transactions. Use this to answer questions like 'how many PEOPLE bought exactly 1 day pass'. Groups customers by how many passes they purchased. Uses check-in data with customer_id to count unique people.",
+        args_schema=UniqueDayPassCustomersInput
     )
 
 
@@ -2172,6 +2240,7 @@ def create_all_tools():
         # Day pass tools
         create_get_day_pass_count_tool(df_transactions),
         create_get_day_pass_revenue_tool(df_transactions),
+        create_get_unique_day_pass_customers_tool(df_checkins),
 
         # Visualization tools
         create_revenue_timeseries_chart_tool(df_transactions),
