@@ -138,7 +138,27 @@ def create_get_total_revenue_tool(df_transactions: pd.DataFrame):
     return StructuredTool.from_function(
         name="get_total_revenue",
         func=get_total_revenue,
-        description="Get total revenue for a time period, optionally filtered by category or sub-category",
+        description="""Get total revenue for a time period, optionally filtered by category or sub-category.
+
+When to use:
+- User asks "how much total revenue" or "what's the total"
+- User wants a single revenue number, not a breakdown
+- User asks about revenue from a specific category (e.g., "how much from day passes")
+
+Returns:
+- Single total revenue amount formatted as currency
+- Transaction count
+- Example output: "Total revenue from 2025-10-01 to 2025-10-31: $12,345.67 (156 transactions)"
+
+Example use cases:
+- "How much revenue did we make last month?"
+- "What was day pass revenue in October?"
+- "Total membership renewal revenue for Q3"
+
+Related tools:
+- Use get_revenue_breakdown instead if user wants to see revenue split by categories
+- Use get_revenue_by_time_period instead if user wants to see trends over time (monthly/weekly)
+- Use get_revenue_changes instead if comparing growth across multiple periods""",
         args_schema=RevenueInput
     )
 
@@ -190,7 +210,34 @@ def create_get_revenue_breakdown_tool(df_transactions: pd.DataFrame):
     return StructuredTool.from_function(
         name="get_revenue_breakdown",
         func=get_revenue_breakdown,
-        description="Get revenue breakdown grouped by category, sub-category, or payment source (Square/Stripe)",
+        description="""Get revenue breakdown grouped by category, sub-category, or payment source (Square/Stripe).
+
+When to use:
+- User asks for "breakdown", "split", "distribution", or "by category"
+- User wants to see revenue from multiple categories at once
+- User asks "which categories made the most revenue"
+- User wants to compare performance across categories or payment sources
+
+Returns:
+- Formatted table showing each group's revenue and percentage of total
+- Grand total at the bottom
+- Example output:
+  Category              Total Revenue    % of Total
+  Membership Renewal    $10,000.00       50.0%
+  Day Pass              $5,000.00        25.0%
+  Retail                $5,000.00        25.0%
+
+  Grand Total: $20,000.00
+
+Example use cases:
+- "Show me revenue breakdown by category for October"
+- "What's the split between Square and Stripe payments?"
+- "Break down membership revenue by sub-category"
+
+Related tools:
+- Use get_total_revenue instead if user wants just one total number
+- Use get_revenue_by_time_period instead if user wants to see how breakdown changes over time
+- Use get_revenue_changes instead if comparing category growth across periods""",
         args_schema=RevenueBreakdownInput
     )
 
@@ -256,7 +303,35 @@ def create_get_revenue_by_time_period_tool(df_transactions: pd.DataFrame):
     return StructuredTool.from_function(
         name="get_revenue_by_time_period",
         func=get_revenue_by_time_period,
-        description="Get revenue grouped by time period (day/week/month). Perfect for finding which month/week/day had highest revenue.",
+        description="""Get revenue grouped by time period (day/week/month). Perfect for finding which month/week/day had highest revenue.
+
+When to use:
+- User asks about "trends", "over time", "each month/week/day"
+- User wants to see how revenue changes across time periods
+- User asks "which month had the highest revenue"
+- User wants monthly/weekly/daily breakdown to identify patterns
+
+Returns:
+- Table showing revenue and transaction count for each time period
+- Total revenue and transactions
+- Highest revenue period automatically identified
+- Example output:
+  Period         Revenue      Transactions
+  2025-10        $12,345.67   156
+  2025-11        $15,678.90   189
+
+  Total Revenue: $28,024.57
+  Highest Month: 2025-11 ($15,678.90)
+
+Example use cases:
+- "Show me monthly revenue for the last 6 months"
+- "What's the daily revenue trend for October?"
+- "Which week in Q3 had the highest revenue?"
+
+Related tools:
+- Use get_total_revenue instead if user wants just one total number (no time breakdown)
+- Use get_revenue_breakdown instead if user wants breakdown by category, not time
+- Use get_revenue_changes instead if comparing growth rates across categories""",
         args_schema=RevenueByTimePeriodInput
     )
 
@@ -676,7 +751,35 @@ def create_get_day_pass_count_tool(df_transactions: pd.DataFrame):
     return StructuredTool.from_function(
         name="get_day_pass_count",
         func=get_day_pass_count,
-        description="Get count of day pass TRANSACTIONS (not unique people) in a time period. NOTE: This counts transaction records, not unique customers. One person can have multiple transactions. To count unique people, you need check-in data with customer_id.",
+        description="""Get count of day pass TRANSACTIONS (not unique people) in a time period.
+
+When to use:
+- User asks "how many SALES", "how many TRANSACTIONS", or "how many PURCHASES"
+- User wants to know total number of day pass items sold
+- CRITICAL: Use this for counting sales/transactions, NOT for counting people/customers
+- Questions about total volume of passes sold
+
+Returns:
+- Total count of day pass transactions
+- Breakdown by pass type (Single Day Pass, 10-Pass Punch Card, etc.)
+- Example output:
+  Day passes from 2025-10-01 to 2025-10-31: 58
+
+  Breakdown by type:
+  Single Day Pass       45
+  10-Pass Punch Card     8
+  Pass with Gear         5
+
+Example use cases:
+- "How many day pass transactions in October?"
+- "How many Single Day Passes were sold last month?"
+- "What's the count of day pass sales for Q3?"
+
+Related tools:
+- Use get_unique_day_pass_customers instead if user asks about PEOPLE or CUSTOMERS (not transactions)
+- Use get_day_pass_revenue instead if user asks about revenue/money from day passes
+
+CRITICAL DISTINCTION: This counts TRANSACTIONS, not PEOPLE. A customer who bought 3 passes = 3 transactions, not 1.""",
         args_schema=DayPassInput
     )
 
@@ -785,7 +888,39 @@ def create_get_unique_day_pass_customers_tool(df_checkins: pd.DataFrame):
     return StructuredTool.from_function(
         name="get_unique_day_pass_customers",
         func=get_unique_day_pass_customers,
-        description="Analyze UNIQUE CUSTOMERS (people) who bought day passes, NOT transactions. Use this to answer questions like 'how many PEOPLE bought exactly 1 day pass'. Groups customers by how many passes they purchased. Uses check-in data with customer_id to count unique people.",
+        description="""Analyze UNIQUE CUSTOMERS (people) who bought day passes, NOT transactions.
+
+When to use:
+- User asks "how many PEOPLE", "how many CUSTOMERS", or "how many unique"
+- User wants to know customer behavior patterns (e.g., "how many bought 2 passes")
+- CRITICAL: Use this for counting people, NOT for counting sales/transactions
+- Questions about customer frequency (1-time visitors vs repeat visitors)
+
+Returns:
+- Count of unique customers grouped by number of passes purchased
+- Total unique customers
+- Total check-ins
+- Example output:
+  Unique day pass customers from 2025-10-01 to 2025-10-31:
+
+  Total unique customers: 42
+  Total day pass check-ins: 58
+
+  Distribution by number of passes purchased per customer:
+    1 pass(es): 30 customers
+    2 pass(es): 10 customers
+    3 pass(es): 2 customers
+
+Example use cases:
+- "How many people bought day passes in October?"
+- "How many customers purchased exactly 2 day passes last month?"
+- "Show me unique day pass customers for Q3"
+
+Related tools:
+- Use get_day_pass_count instead if user asks about TRANSACTIONS or SALES (not people)
+- Use get_day_pass_revenue instead if user asks about revenue/money from day passes
+
+CRITICAL DISTINCTION: This counts PEOPLE, not TRANSACTIONS. A customer who bought 3 passes = 1 person, not 3.""",
         args_schema=UniqueDayPassCustomersInput
     )
 
