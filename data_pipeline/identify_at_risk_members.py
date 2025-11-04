@@ -69,10 +69,14 @@ class AtRiskMemberIdentifier:
         two_weeks_ago = self.today - timedelta(weeks=2)
         two_months_ago = self.today - timedelta(days=60)
 
-        # Get active members
+        # Get active members who have had membership for at least 2 weeks
         active_members = self.df_members[
             self.df_members['status'].isin(['ACT', 'active', 'trialing'])
         ].copy()
+
+        # Filter to members whose start_date is at least 2 weeks ago
+        active_members['start_date'] = pd.to_datetime(active_members['start_date'], errors='coerce')
+        active_members = active_members[active_members['start_date'] <= two_weeks_ago]
 
         at_risk = []
 
@@ -137,12 +141,17 @@ class AtRiskMemberIdentifier:
         """
         print(f"Identifying completely inactive members...")
 
+        two_weeks_ago = self.today - timedelta(weeks=2)
         two_months_ago = self.today - timedelta(days=60)
 
-        # Get active members
+        # Get active members who have had membership for at least 2 weeks
         active_members = self.df_members[
             self.df_members['status'].isin(['ACT', 'active', 'trialing'])
         ].copy()
+
+        # Filter to members whose start_date is at least 2 weeks ago
+        active_members['start_date'] = pd.to_datetime(active_members['start_date'], errors='coerce')
+        active_members = active_members[active_members['start_date'] <= two_weeks_ago]
 
         at_risk = []
 
