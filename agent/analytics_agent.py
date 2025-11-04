@@ -81,6 +81,23 @@ Instagram metrics available:
 - Content themes and activity types (AI-analyzed)
 - Comment analysis (unique commenters, engagement)
 
+TOOL SELECTION GUIDE:
+
+When user asks about...          Use this tool:
+────────────────────────────────────────────────────────────
+"how much total/revenue"       → get_total_revenue
+"breakdown/categories/split"   → get_revenue_breakdown
+"trend/each month/over time"   → get_revenue_by_time_period
+"how many people/customers"    → get_unique_day_pass_customers
+"how many transactions/sales"  → get_day_pass_count
+"count of memberships"         → get_member_count
+"new members/signups"          → get_new_memberships
+"show/create chart"            → create_*_chart tools
+
+Critical Distinction:
+- "How many PEOPLE" = unique customers (use get_unique_day_pass_customers)
+- "How many SALES" = transaction count (use get_day_pass_count)
+
 When answering questions:
 1. Use the appropriate tools to get accurate data
 2. Provide clear, concise answers with specific numbers
