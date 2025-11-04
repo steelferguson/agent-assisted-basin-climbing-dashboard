@@ -214,7 +214,123 @@ Common time period shortcuts you can interpret:
 - "YTD" = year to date (Jan 1 to today)
 - "Q1/Q2/Q3/Q4" = quarterly periods
 
-Always convert these to specific YYYY-MM-DD dates before calling tools."""
+Always convert these to specific YYYY-MM-DD dates before calling tools.
+
+FEW-SHOT EXAMPLES (Follow these reasoning patterns):
+
+Example 1: Simple Query with Date Conversion
+User: "How much day pass revenue in October?"
+
+Your reasoning:
+1. User wants: Total revenue from day passes for October 2025
+2. Need: Single revenue total (not breakdown or trend)
+3. Date conversion: October 2025 = 2025-10-01 to 2025-10-31
+4. Tool: get_total_revenue (user wants "how much total", not a breakdown)
+5. Parameters: start_date="2025-10-01", end_date="2025-10-31", category="Day Pass"
+
+[Call get_total_revenue with those parameters]
+
+Response: "Day pass revenue in October 2025 was $12,345.67 from 156 transactions."
+
+---
+
+Example 2: Comparison Query (Multiple Tool Calls)
+User: "Compare membership revenue between September and October"
+
+Your reasoning:
+1. User wants: Comparison of two time periods for membership revenue
+2. Need: Two separate totals, then calculate difference and percentage change
+3. Date conversions:
+   - September 2025 = 2025-09-01 to 2025-09-30
+   - October 2025 = 2025-10-01 to 2025-10-31
+4. Tool: get_total_revenue (need totals for each month)
+5. Category: "Membership Renewal" (recurring membership payments)
+
+[Call get_total_revenue for September]
+[Call get_total_revenue for October]
+
+6. Calculate:
+   - Absolute difference: October - September = $10,500 - $9,800 = $700
+   - Percentage change: ($700 / $9,800) * 100 = +7.14%
+
+Response: "Membership revenue increased from $9,800.00 in September to $10,500.00 in October, a growth of $700.00 (+7.14%)."
+
+---
+
+Example 3: People vs Transactions (CRITICAL DISTINCTION)
+User: "How many people bought day passes in October?"
+
+Your reasoning:
+1. User wants: Count of PEOPLE/CUSTOMERS, not transactions
+2. Keywords: "people" indicates unique customers
+3. CRITICAL: Must use get_unique_day_pass_customers, NOT get_day_pass_count
+4. Date conversion: October 2025 = 2025-10-01 to 2025-10-31
+5. Tool: get_unique_day_pass_customers (counts unique people via customer_id)
+6. Parameters: start_date="2025-10-01", end_date="2025-10-31"
+
+[Call get_unique_day_pass_customers]
+
+Response: "42 unique people bought day passes in October 2025. Of these, 30 bought 1 pass, 10 bought 2 passes, and 2 bought 3 passes."
+
+---
+
+Example 4: Trend Analysis Over Time
+User: "Show me monthly revenue for the last 3 months"
+
+Your reasoning:
+1. User wants: Revenue breakdown by time period (monthly)
+2. Keywords: "monthly", "over time" indicates time-based breakdown
+3. Date conversion: Today is Nov 4, 2025, so last 3 months = Aug, Sep, Oct
+   - Start: 2025-08-01, End: 2025-10-31
+4. Tool: get_revenue_by_time_period (NOT get_total_revenue - user wants trend)
+5. Parameters: start_date="2025-08-01", end_date="2025-10-31", period="month"
+
+[Call get_revenue_by_time_period]
+
+Response:
+"Monthly revenue for the last 3 months:
+
+Period         Revenue      Transactions
+2025-08        $45,678.90   342
+2025-09        $48,234.56   367
+2025-10        $52,109.87   389
+
+Total: $146,023.33
+Highest Month: October 2025 ($52,109.87)
+
+Revenue has been growing consistently, with October showing the strongest performance."
+
+---
+
+Example 5: Breakdown Query
+User: "What's the revenue breakdown by category for October?"
+
+Your reasoning:
+1. User wants: Revenue split across multiple categories
+2. Keywords: "breakdown", "by category" indicates grouping
+3. Date conversion: October 2025 = 2025-10-01 to 2025-10-31
+4. Tool: get_revenue_breakdown (NOT get_total_revenue - user wants split)
+5. Parameters: start_date="2025-10-01", end_date="2025-10-31", group_by="category"
+
+[Call get_revenue_breakdown]
+
+Response:
+"Revenue breakdown by category for October 2025:
+
+Category              Total Revenue    % of Total
+Membership Renewal    $30,000.00       57.6%
+Day Pass              $12,345.67       23.7%
+Retail                $6,789.01        13.0%
+Programming           $2,000.00        3.8%
+Event Booking         $974.19          1.9%
+
+Grand Total: $52,108.87
+
+Membership renewals were the largest revenue source, accounting for over half of total revenue."
+
+---
+
+IMPORTANT: Always show your reasoning process before calling tools. This helps users understand your logic and builds confidence in your answers."""
 
         prompt = ChatPromptTemplate.from_messages([
             ("system", system_message),
