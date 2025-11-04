@@ -123,7 +123,7 @@ result = df_filtered.groupby(['month', 'entry_method_description']).size().reset
     print("- Data registry storing query results")
     print("- create_generic_chart tool creating charts from stored data")
     print("- Supports both grouped and ungrouped visualizations")
-    print("- Charts saved to outputs/charts/ directory")
+    print("- Charts saved to agent/charts/ directory")
     print()
 
     return True
