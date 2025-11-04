@@ -15,6 +15,7 @@ sys.path.insert(0, str(project_root))
 from agent.main_agent import run_agent
 from utils.feedback_storage import FeedbackStorage
 from utils.session_learnings import SessionLearningsStorage
+from utils.conversation_logger import ConversationLogger
 import uuid
 
 # Page config
@@ -54,6 +55,7 @@ if "messages" not in st.session_state:
 # Initialize storage
 feedback_storage = FeedbackStorage()
 learnings_storage = SessionLearningsStorage()
+conversation_logger = ConversationLogger()
 
 # Sidebar
 with st.sidebar:
@@ -106,21 +108,38 @@ with st.sidebar:
     # End Session button (saves learnings)
     if st.button("End Session & Save Learnings", type="primary"):
         if len(st.session_state.messages) > 0:
-            with st.spinner("Extracting session learnings..."):
-                success = learnings_storage.save_session_learnings(
+            with st.spinner("Saving session data..."):
+                # Save session learnings (summary)
+                learnings_success = learnings_storage.save_session_learnings(
                     session_id=st.session_state.session_id,
                     messages=st.session_state.messages,
                     user="anonymous"  # TODO: Add user authentication
                 )
 
-                if success:
-                    st.success("Session learnings saved!")
+                # Save full conversation log
+                conversation_success = conversation_logger.log_full_session(
+                    session_id=st.session_state.session_id,
+                    conversation_history=st.session_state.messages,
+                    metadata={
+                        "turn_count": len([m for m in st.session_state.messages if m["role"] == "user"]),
+                        "ended_by_user": True
+                    },
+                    user="streamlit_user"  # TODO: Add user authentication
+                )
+
+                if learnings_success and conversation_success:
+                    st.success("Session saved successfully!")
                     # Clear and start new session
                     st.session_state.messages = []
                     st.session_state.session_id = str(uuid.uuid4())[:8]
                     st.rerun()
+                elif learnings_success:
+                    st.warning("Session summary saved, but full conversation logging failed. Clearing session anyway.")
+                    st.session_state.messages = []
+                    st.session_state.session_id = str(uuid.uuid4())[:8]
+                    st.rerun()
                 else:
-                    st.error("Error saving learnings. Clearing session anyway.")
+                    st.error("Error saving session. Clearing anyway.")
                     st.session_state.messages = []
                     st.session_state.session_id = str(uuid.uuid4())[:8]
                     st.rerun()
@@ -222,6 +241,24 @@ if prompt := st.chat_input("Ask about Basin's analytics..."):
                     "content": response,
                     "chart_path": chart_path
                 })
+
+                # Log the conversation turn to S3
+                try:
+                    metadata = {
+                        "chart_generated": chart_path is not None,
+                        "chart_path": str(chart_path) if chart_path else None,
+                        "response_length": len(response)
+                    }
+                    conversation_logger.log_conversation_turn(
+                        session_id=st.session_state.session_id,
+                        user_question=prompt,
+                        agent_response=response,
+                        metadata=metadata,
+                        user="streamlit_user"  # TODO: Add real user auth
+                    )
+                except Exception as log_error:
+                    # Don't fail the whole interaction if logging fails
+                    print(f"Warning: Failed to log conversation: {log_error}")
 
             except Exception as e:
                 error_msg = f"Sorry, I encountered an error: {str(e)}"
