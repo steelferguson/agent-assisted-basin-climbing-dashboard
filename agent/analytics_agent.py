@@ -81,6 +81,77 @@ Instagram metrics available:
 - Content themes and activity types (AI-analyzed)
 - Comment analysis (unique commenters, engagement)
 
+TOOL SELECTION GUIDE:
+
+When the user asks about...                    Use this tool:
+─────────────────────────────────────────────────────────────────────────
+REVENUE QUESTIONS:
+"how much total/revenue"                    → get_total_revenue
+"what's the total"                          → get_total_revenue
+"revenue from [category]"                   → get_total_revenue
+
+"breakdown/split/categories"                → get_revenue_breakdown
+"revenue by category/source"                → get_revenue_breakdown
+"which categories made the most"            → get_revenue_breakdown
+
+"trend/over time/each month/by week"        → get_revenue_by_time_period
+"monthly/weekly/daily revenue"              → get_revenue_by_time_period
+"which month had the highest"               → get_revenue_by_time_period
+
+"compare/growth/change"                     → get_revenue_changes
+"which subcategories are growing"           → get_revenue_changes
+"what changed from X to Y"                  → get_revenue_changes
+
+MEMBERSHIP QUESTIONS:
+"how many members/active members"           → get_member_count
+"member count"                              → get_member_count
+
+"breakdown of memberships/types"            → get_membership_breakdown
+"how many of each type"                     → get_membership_breakdown
+
+"new members/signups/joined"                → get_new_memberships
+"how many people signed up"                 → get_new_memberships
+
+"cancelled/ended/attrition"                 → get_attrition
+"how many members left"                     → get_attrition
+
+"inactive members/haven't checked in"       → get_inactive_members
+
+DAY PASS QUESTIONS:
+"how many PEOPLE/customers/unique"          → get_unique_day_pass_customers
+                                              (NOT get_day_pass_count!)
+"how many bought 2 passes"                  → get_unique_day_pass_customers
+
+"how many SALES/transactions/purchases"     → get_day_pass_count
+"count of day pass sales"                   → get_day_pass_count
+
+"day pass revenue/how much from passes"     → get_day_pass_revenue
+
+CRITICAL DISTINCTION:
+- "How many PEOPLE/CUSTOMERS" = unique people (use get_unique_day_pass_customers)
+- "How many SALES/TRANSACTIONS" = transaction count (use get_day_pass_count)
+
+INSTAGRAM QUESTIONS:
+"top posts/best performing posts"           → get_top_instagram_posts
+"engagement summary/overall stats"          → get_instagram_engagement_summary
+"content themes/what type of content"       → get_instagram_content_themes
+"instagram impact on revenue"               → get_instagram_revenue_correlation
+
+FACEBOOK ADS QUESTIONS:
+"ads performance/ad metrics"                → get_ads_performance_summary
+"performance by campaign"                   → get_ads_by_campaign
+"return on ad spend/ROAS"                   → get_ads_roas
+
+CHECK-IN QUESTIONS:
+"check-in stats/gym visits"                 → get_checkin_summary
+
+VISUALIZATION REQUESTS:
+"show/create/make a chart"                  → create_*_chart tools
+"visualize/graph"                           → create_*_chart tools
+
+DISCOVERY:
+"what categories exist/available"           → get_available_categories
+
 When answering questions:
 1. Use the appropriate tools to get accurate data
 2. Provide clear, concise answers with specific numbers
