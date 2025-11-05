@@ -5,6 +5,7 @@ from data_pipeline import fetch_instagram_data
 from data_pipeline import fetch_facebook_ads_data
 from data_pipeline import fetch_capitan_checkin_data
 from data_pipeline import fetch_mailchimp_data
+from data_pipeline import fetch_capitan_associations_events
 from data_pipeline import identify_at_risk_members
 from data_pipeline import upload_data as upload_data
 import datetime
@@ -911,6 +912,120 @@ def upload_new_mailchimp_data(save_local=False, enable_content_analysis=True, da
 
     print(f"\n=== Mailchimp Data Upload Complete ===")
     print(f"Campaigns: {len(combined_campaigns_df)} | Automations: {len(automations_df)} | Landing Pages: {len(landing_pages_df)}")
+
+
+def upload_new_capitan_associations_events(save_local=False, events_days_back=None, fetch_activity_log=False):
+    """
+    Fetches Capitan associations, association-members, and events data and uploads to S3.
+
+    Args:
+        save_local: Whether to save CSV files locally
+        events_days_back: Number of days of events to fetch (None = all events, recommended)
+        fetch_activity_log: Whether to fetch activity log (can be large, default: False)
+    """
+    print(f"\n=== Fetching Capitan Associations & Events Data ===")
+
+    # Initialize fetcher
+    capitan_token = config.capitan_token
+
+    if not capitan_token:
+        print("Error: CAPITAN_API_TOKEN not found in environment")
+        return
+
+    fetcher = fetch_capitan_associations_events.CapitanAssociationsEventsFetcher(
+        capitan_token=capitan_token
+    )
+
+    # Fetch all data
+    data = fetcher.fetch_all_data(
+        fetch_associations=True,
+        fetch_association_members=True,
+        fetch_events=True,
+        fetch_activity_log=fetch_activity_log,
+        events_days_back=events_days_back
+    )
+
+    uploader = upload_data.DataUploader()
+
+    # Upload each dataset
+    if 'associations' in data and not data['associations'].empty:
+        uploader.upload_to_s3(
+            data['associations'],
+            config.aws_bucket_name,
+            config.s3_path_capitan_associations
+        )
+        print(f"✓ Uploaded associations to S3")
+
+        if save_local:
+            os.makedirs("data/outputs", exist_ok=True)
+            data['associations'].to_csv("data/outputs/capitan_associations.csv", index=False)
+
+    if 'association_members' in data and not data['association_members'].empty:
+        uploader.upload_to_s3(
+            data['association_members'],
+            config.aws_bucket_name,
+            config.s3_path_capitan_association_members
+        )
+        print(f"✓ Uploaded association-members to S3")
+
+        if save_local:
+            data['association_members'].to_csv("data/outputs/capitan_association_members.csv", index=False)
+
+    if 'events' in data and not data['events'].empty:
+        uploader.upload_to_s3(
+            data['events'],
+            config.aws_bucket_name,
+            config.s3_path_capitan_events
+        )
+        print(f"✓ Uploaded events to S3")
+
+        if save_local:
+            data['events'].to_csv("data/outputs/capitan_events.csv", index=False)
+
+    if 'activity_log' in data and not data['activity_log'].empty:
+        uploader.upload_to_s3(
+            data['activity_log'],
+            config.aws_bucket_name,
+            config.s3_path_capitan_activity_log
+        )
+        print(f"✓ Uploaded activity log to S3")
+
+        if save_local:
+            data['activity_log'].to_csv("data/outputs/capitan_activity_log.csv", index=False)
+
+    # Monthly snapshots
+    today = datetime.datetime.now()
+    if today.day == config.snapshot_day_of_month:
+        print("\nCreating monthly Capitan associations/events snapshots (1st of month)...")
+
+        if 'associations' in data and not data['associations'].empty:
+            uploader.upload_to_s3(
+                data['associations'],
+                config.aws_bucket_name,
+                config.s3_path_capitan_associations_snapshot.replace('.csv', f'_{today.strftime("%Y-%m-%d")}.csv')
+            )
+
+        if 'association_members' in data and not data['association_members'].empty:
+            uploader.upload_to_s3(
+                data['association_members'],
+                config.aws_bucket_name,
+                config.s3_path_capitan_association_members_snapshot.replace('.csv', f'_{today.strftime("%Y-%m-%d")}.csv')
+            )
+
+        if 'events' in data and not data['events'].empty:
+            uploader.upload_to_s3(
+                data['events'],
+                config.aws_bucket_name,
+                config.s3_path_capitan_events_snapshot.replace('.csv', f'_{today.strftime("%Y-%m-%d")}.csv')
+            )
+
+        print("✓ Monthly snapshots saved")
+
+    print(f"\n=== Capitan Associations & Events Upload Complete ===")
+    associations_count = len(data.get('associations', pd.DataFrame()))
+    members_count = len(data.get('association_members', pd.DataFrame()))
+    events_count = len(data.get('events', pd.DataFrame()))
+    print(f"Associations: {associations_count} | Members: {members_count} | Events: {events_count}")
 
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@ Runs all daily data fetching tasks:
 - Capitan memberships
 - Instagram posts (last 30 days with AI vision analysis)
 - Mailchimp campaigns (last 90 days with AI content analysis)
+- Capitan associations & events (1 year of events)
 
 Usage:
     python run_daily_pipeline.py
@@ -18,7 +19,8 @@ from data_pipeline.pipeline_handler import (
     replace_days_in_transaction_df_in_s3,
     upload_new_capitan_membership_data,
     upload_new_instagram_data,
-    upload_new_mailchimp_data
+    upload_new_mailchimp_data,
+    upload_new_capitan_associations_events
 )
 import datetime
 
@@ -67,6 +69,18 @@ def run_daily_pipeline():
         print("✅ Mailchimp data updated successfully\n")
     except Exception as e:
         print(f"❌ Error updating Mailchimp data: {e}\n")
+
+    # 5. Update Capitan associations & events (all events)
+    print("5. Fetching Capitan associations, members, and events...")
+    try:
+        upload_new_capitan_associations_events(
+            save_local=False,
+            events_days_back=None,  # Fetch all events (they don't create new ones frequently)
+            fetch_activity_log=False  # Skip activity log for daily runs (can be large)
+        )
+        print("✅ Capitan associations & events updated successfully\n")
+    except Exception as e:
+        print(f"❌ Error updating Capitan associations & events: {e}\n")
 
     print(f"{'='*80}")
     print(f"PIPELINE COMPLETE - {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
