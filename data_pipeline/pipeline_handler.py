@@ -4,6 +4,7 @@ from data_pipeline import fetch_capitan_membership_data
 from data_pipeline import fetch_instagram_data
 from data_pipeline import fetch_facebook_ads_data
 from data_pipeline import fetch_capitan_checkin_data
+from data_pipeline import fetch_mailchimp_data
 from data_pipeline import identify_at_risk_members
 from data_pipeline import upload_data as upload_data
 import datetime
@@ -700,6 +701,216 @@ def upload_at_risk_members(save_local=False):
     except Exception as e:
         print(f"Error uploading at-risk members data: {e}")
         raise
+
+
+def upload_new_mailchimp_data(save_local=False, enable_content_analysis=True, days_to_fetch=90):
+    """
+    Fetches Mailchimp campaign, automation, landing page, and audience data,
+    merges with existing data, and uploads to S3.
+
+    Args:
+        save_local: Whether to save CSV files locally
+        enable_content_analysis: Whether to run AI analysis on email content
+        days_to_fetch: Number of days of campaigns to fetch (default: 90)
+    """
+    print(f"\n=== Fetching Mailchimp Data (last {days_to_fetch} days) ===")
+
+    # Initialize fetcher
+    mailchimp_api_key = config.mailchimp_api_key
+    mailchimp_server_prefix = config.mailchimp_server_prefix
+    mailchimp_audience_id = config.mailchimp_audience_id
+    anthropic_api_key = config.anthropic_api_key
+
+    if not mailchimp_api_key:
+        print("Error: MAILCHIMP_API_KEY not found in environment")
+        return
+
+    fetcher = fetch_mailchimp_data.MailchimpDataFetcher(
+        api_key=mailchimp_api_key,
+        server_prefix=mailchimp_server_prefix,
+        anthropic_api_key=anthropic_api_key
+    )
+
+    uploader = upload_data.DataUploader()
+
+    # ========================================
+    # 1. CAMPAIGNS
+    # ========================================
+    print("\n--- Processing Campaigns ---")
+
+    # Download existing campaigns for smart caching
+    existing_campaigns_df = None
+    try:
+        csv_content = uploader.download_from_s3(
+            config.aws_bucket_name, config.s3_path_mailchimp_campaigns
+        )
+        existing_campaigns_df = uploader.convert_csv_to_df(csv_content)
+        print(f"Found {len(existing_campaigns_df)} existing campaigns in S3")
+    except Exception as e:
+        print(f"No existing campaigns data found (first upload?): {e}")
+
+    # Fetch campaigns
+    since_date = datetime.datetime.now() - datetime.timedelta(days=days_to_fetch)
+    new_campaigns_df, new_links_df = fetcher.fetch_all_campaign_data(
+        since=since_date,
+        enable_content_analysis=enable_content_analysis,
+        existing_campaigns_df=existing_campaigns_df
+    )
+
+    if not new_campaigns_df.empty:
+        # Merge with existing campaigns
+        if existing_campaigns_df is not None and not existing_campaigns_df.empty:
+            combined_campaigns_df = pd.concat([existing_campaigns_df, new_campaigns_df], ignore_index=True)
+            combined_campaigns_df = combined_campaigns_df.drop_duplicates(subset=['campaign_id'], keep='last')
+            print(f"Combined campaigns dataset has {len(combined_campaigns_df)} unique campaigns")
+        else:
+            combined_campaigns_df = new_campaigns_df
+
+        # Upload campaigns
+        uploader.upload_to_s3(
+            combined_campaigns_df,
+            config.aws_bucket_name,
+            config.s3_path_mailchimp_campaigns
+        )
+        print(f"✓ Uploaded campaigns to S3")
+
+        # Handle campaign links (these change less often, just replace)
+        if not new_links_df.empty:
+            # Try to merge with existing links
+            try:
+                csv_content = uploader.download_from_s3(
+                    config.aws_bucket_name, config.s3_path_mailchimp_campaign_links
+                )
+                existing_links_df = uploader.convert_csv_to_df(csv_content)
+
+                combined_links_df = pd.concat([existing_links_df, new_links_df], ignore_index=True)
+                combined_links_df = combined_links_df.drop_duplicates(
+                    subset=['campaign_id', 'url'], keep='last'
+                )
+            except Exception:
+                combined_links_df = new_links_df
+
+            uploader.upload_to_s3(
+                combined_links_df,
+                config.aws_bucket_name,
+                config.s3_path_mailchimp_campaign_links
+            )
+            print(f"✓ Uploaded campaign links to S3")
+
+        if save_local:
+            os.makedirs("data/outputs", exist_ok=True)
+            combined_campaigns_df.to_csv("data/outputs/mailchimp_campaigns.csv", index=False)
+            if not new_links_df.empty:
+                combined_links_df.to_csv("data/outputs/mailchimp_campaign_links.csv", index=False)
+    else:
+        print("No campaigns found")
+        combined_campaigns_df = pd.DataFrame()
+
+    # ========================================
+    # 2. AUTOMATIONS
+    # ========================================
+    print("\n--- Processing Automations ---")
+
+    automations_df, automation_emails_df = fetcher.fetch_all_automation_data()
+
+    if not automations_df.empty:
+        uploader.upload_to_s3(
+            automations_df,
+            config.aws_bucket_name,
+            config.s3_path_mailchimp_automations
+        )
+        print(f"✓ Uploaded automations to S3")
+
+        if not automation_emails_df.empty:
+            uploader.upload_to_s3(
+                automation_emails_df,
+                config.aws_bucket_name,
+                config.s3_path_mailchimp_automation_emails
+            )
+            print(f"✓ Uploaded automation emails to S3")
+
+        if save_local:
+            automations_df.to_csv("data/outputs/mailchimp_automations.csv", index=False)
+            if not automation_emails_df.empty:
+                automation_emails_df.to_csv("data/outputs/mailchimp_automation_emails.csv", index=False)
+    else:
+        print("No automations found")
+
+    # ========================================
+    # 3. LANDING PAGES
+    # ========================================
+    print("\n--- Processing Landing Pages ---")
+
+    landing_pages_df = fetcher.fetch_all_landing_page_data()
+
+    if not landing_pages_df.empty:
+        uploader.upload_to_s3(
+            landing_pages_df,
+            config.aws_bucket_name,
+            config.s3_path_mailchimp_landing_pages
+        )
+        print(f"✓ Uploaded landing pages to S3")
+
+        if save_local:
+            landing_pages_df.to_csv("data/outputs/mailchimp_landing_pages.csv", index=False)
+    else:
+        print("No landing pages found")
+
+    # ========================================
+    # 4. AUDIENCE GROWTH
+    # ========================================
+    print("\n--- Processing Audience Growth ---")
+
+    if mailchimp_audience_id:
+        audience_growth_df = fetcher.fetch_audience_growth_data(mailchimp_audience_id)
+
+        if not audience_growth_df.empty:
+            uploader.upload_to_s3(
+                audience_growth_df,
+                config.aws_bucket_name,
+                config.s3_path_mailchimp_audience_growth
+            )
+            print(f"✓ Uploaded audience growth to S3")
+
+            if save_local:
+                audience_growth_df.to_csv("data/outputs/mailchimp_audience_growth.csv", index=False)
+        else:
+            print("No audience growth data found")
+    else:
+        print("No audience ID configured, skipping audience growth")
+
+    # ========================================
+    # MONTHLY SNAPSHOTS
+    # ========================================
+    today = datetime.datetime.now()
+    if today.day == config.snapshot_day_of_month:
+        print("\nCreating monthly Mailchimp snapshots (1st of month)...")
+
+        if not combined_campaigns_df.empty:
+            uploader.upload_to_s3(
+                combined_campaigns_df,
+                config.aws_bucket_name,
+                config.s3_path_mailchimp_campaigns_snapshot.replace('.csv', f'_{today.strftime("%Y-%m-%d")}.csv')
+            )
+
+        if not automations_df.empty:
+            uploader.upload_to_s3(
+                automations_df,
+                config.aws_bucket_name,
+                config.s3_path_mailchimp_automations_snapshot.replace('.csv', f'_{today.strftime("%Y-%m-%d")}.csv')
+            )
+
+        if not landing_pages_df.empty:
+            uploader.upload_to_s3(
+                landing_pages_df,
+                config.aws_bucket_name,
+                config.s3_path_mailchimp_landing_pages_snapshot.replace('.csv', f'_{today.strftime("%Y-%m-%d")}.csv')
+            )
+
+        print("✓ Monthly snapshots saved")
+
+    print(f"\n=== Mailchimp Data Upload Complete ===")
+    print(f"Campaigns: {len(combined_campaigns_df)} | Automations: {len(automations_df)} | Landing Pages: {len(landing_pages_df)}")
 
 
 if __name__ == "__main__":

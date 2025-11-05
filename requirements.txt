@@ -87,3 +87,5 @@ yarl==1.20.0
 zipp==3.21.0
 zstandard==0.23.0
 streamlit==1.41.1
+mailchimp-marketing==3.0.80
+beautifulsoup4==4.12.3

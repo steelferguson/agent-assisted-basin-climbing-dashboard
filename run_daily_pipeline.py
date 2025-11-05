@@ -5,6 +5,7 @@ Runs all daily data fetching tasks:
 - Stripe & Square transactions (last 2 days)
 - Capitan memberships
 - Instagram posts (last 30 days with AI vision analysis)
+- Mailchimp campaigns (last 90 days with AI content analysis)
 
 Usage:
     python run_daily_pipeline.py
@@ -16,7 +17,8 @@ Or set up as cron job:
 from data_pipeline.pipeline_handler import (
     replace_days_in_transaction_df_in_s3,
     upload_new_capitan_membership_data,
-    upload_new_instagram_data
+    upload_new_instagram_data,
+    upload_new_mailchimp_data
 )
 import datetime
 
@@ -53,6 +55,18 @@ def run_daily_pipeline():
         print("✅ Instagram data updated successfully\n")
     except Exception as e:
         print(f"❌ Error updating Instagram data: {e}\n")
+
+    # 4. Update Mailchimp data (last 90 days with AI content analysis)
+    print("4. Fetching Mailchimp campaigns (last 90 days with AI content analysis)...")
+    try:
+        upload_new_mailchimp_data(
+            save_local=False,
+            enable_content_analysis=True,  # Enable AI content analysis for new campaigns
+            days_to_fetch=90
+        )
+        print("✅ Mailchimp data updated successfully\n")
+    except Exception as e:
+        print(f"❌ Error updating Mailchimp data: {e}\n")
 
     print(f"{'='*80}")
     print(f"PIPELINE COMPLETE - {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
