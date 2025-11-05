@@ -4,9 +4,10 @@ Daily Data Pipeline Runner
 Runs all daily data fetching tasks:
 - Stripe & Square transactions (last 2 days)
 - Capitan memberships
+- Capitan check-ins (last 7 days)
 - Instagram posts (last 30 days with AI vision analysis)
 - Mailchimp campaigns (last 90 days with AI content analysis)
-- Capitan associations & events (1 year of events)
+- Capitan associations & events (all events)
 
 Usage:
     python run_daily_pipeline.py
@@ -18,6 +19,7 @@ Or set up as cron job:
 from data_pipeline.pipeline_handler import (
     replace_days_in_transaction_df_in_s3,
     upload_new_capitan_membership_data,
+    upload_new_capitan_checkins,
     upload_new_instagram_data,
     upload_new_mailchimp_data,
     upload_new_capitan_associations_events
@@ -46,8 +48,16 @@ def run_daily_pipeline():
     except Exception as e:
         print(f"❌ Error updating Capitan data: {e}\n")
 
-    # 3. Update Instagram data (last 30 days with AI vision)
-    print("3. Fetching Instagram posts (last 30 days with AI vision)...")
+    # 3. Update Capitan check-ins (last 7 days)
+    print("3. Fetching Capitan check-ins (last 7 days)...")
+    try:
+        upload_new_capitan_checkins(save_local=False, days_back=7)
+        print("✅ Check-ins updated successfully\n")
+    except Exception as e:
+        print(f"❌ Error updating check-ins: {e}\n")
+
+    # 4. Update Instagram data (last 30 days with AI vision)
+    print("4. Fetching Instagram posts (last 30 days with AI vision)...")
     try:
         upload_new_instagram_data(
             save_local=False,
@@ -58,8 +68,8 @@ def run_daily_pipeline():
     except Exception as e:
         print(f"❌ Error updating Instagram data: {e}\n")
 
-    # 4. Update Mailchimp data (last 90 days with AI content analysis)
-    print("4. Fetching Mailchimp campaigns (last 90 days with AI content analysis)...")
+    # 5. Update Mailchimp data (last 90 days with AI content analysis)
+    print("5. Fetching Mailchimp campaigns (last 90 days with AI content analysis)...")
     try:
         upload_new_mailchimp_data(
             save_local=False,
@@ -70,8 +80,8 @@ def run_daily_pipeline():
     except Exception as e:
         print(f"❌ Error updating Mailchimp data: {e}\n")
 
-    # 5. Update Capitan associations & events (all events)
-    print("5. Fetching Capitan associations, members, and events...")
+    # 6. Update Capitan associations & events (all events)
+    print("6. Fetching Capitan associations, members, and events...")
     try:
         upload_new_capitan_associations_events(
             save_local=False,
