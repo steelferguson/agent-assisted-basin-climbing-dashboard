@@ -21,7 +21,7 @@ def load_memberships() -> pd.DataFrame:
     df = pd.read_csv(io.StringIO(csv_content.decode("utf-8")))
 
     # Parse dates (handle timezone-aware datetimes)
-    date_cols = ['membership_start', 'membership_end', 'created_at', 'updated_at']
+    date_cols = ['start_date', 'end_date', 'created_at', 'updated_at']
     for col in date_cols:
         if col in df.columns:
             df[col] = pd.to_datetime(df[col], errors='coerce', utc=True)

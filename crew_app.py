@@ -110,7 +110,7 @@ try:
     upcoming_events = events_df[
         (events_df['event_date'] >= today) &
         (events_df['event_date'] <= next_week) &
-        (events_df['status'] == 'active')
+        (events_df['is_cancelled'] == False)  # Filter out cancelled events
     ]
     upcoming_event_count = len(upcoming_events)
 
@@ -286,8 +286,8 @@ try:
         # Memberships expiring soon (next 30 days)
         thirty_days_from_now = today + timedelta(days=30)
         expiring_soon = active_memberships[
-            (pd.to_datetime(active_memberships['membership_end']).dt.date >= today) &
-            (pd.to_datetime(active_memberships['membership_end']).dt.date <= thirty_days_from_now)
+            (pd.to_datetime(active_memberships['end_date']).dt.date >= today) &
+            (pd.to_datetime(active_memberships['end_date']).dt.date <= thirty_days_from_now)
         ]
         st.metric(
             label="📅 Expiring Soon (30 days)",
@@ -313,9 +313,9 @@ try:
     # Show expiring memberships detail
     if len(expiring_soon) > 0:
         st.subheader("📋 Memberships Expiring Soon")
-        expiring_display = expiring_soon[['name', 'interval', 'size', 'membership_end']].copy()
-        expiring_display['membership_end'] = pd.to_datetime(expiring_display['membership_end']).dt.strftime('%Y-%m-%d')
-        expiring_display['days_remaining'] = (pd.to_datetime(expiring_display['membership_end']).dt.date - today).dt.days
+        expiring_display = expiring_soon[['name', 'interval', 'size', 'end_date']].copy()
+        expiring_display['end_date'] = pd.to_datetime(expiring_display['end_date']).dt.strftime('%Y-%m-%d')
+        expiring_display['days_remaining'] = (pd.to_datetime(expiring_display['end_date']).dt.date - today).dt.days
 
         expiring_display = expiring_display.sort_values('days_remaining')
         st.dataframe(
@@ -326,7 +326,7 @@ try:
                 "name": "Membership Name",
                 "interval": "Type",
                 "size": "Size",
-                "membership_end": "End Date",
+                "end_date": "End Date",
                 "days_remaining": st.column_config.NumberColumn(
                     "Days Left",
                     format="%d days"
@@ -406,7 +406,7 @@ try:
 
     if len(upcoming_events) > 0:
         # Display upcoming events
-        events_display = upcoming_events[['name', 'start_datetime', 'capacity', 'status']].copy()
+        events_display = upcoming_events[['event_type_name', 'start_datetime', 'capacity']].copy()
         events_display['start_datetime'] = pd.to_datetime(events_display['start_datetime']).dt.strftime('%b %d, %I:%M %p')
 
         st.dataframe(
@@ -414,13 +414,12 @@ try:
             hide_index=True,
             use_container_width=True,
             column_config={
-                "name": "Event Name",
+                "event_type_name": "Event Name",
                 "start_datetime": "Date & Time",
                 "capacity": st.column_config.NumberColumn(
                     "Capacity",
                     format="%d people"
-                ),
-                "status": "Status"
+                )
             }
         )
     else:
