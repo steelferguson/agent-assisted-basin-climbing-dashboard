@@ -20,11 +20,11 @@ def load_memberships() -> pd.DataFrame:
     )
     df = pd.read_csv(io.StringIO(csv_content.decode("utf-8")))
 
-    # Parse dates
+    # Parse dates (handle timezone-aware datetimes)
     date_cols = ['membership_start', 'membership_end', 'created_at', 'updated_at']
     for col in date_cols:
         if col in df.columns:
-            df[col] = pd.to_datetime(df[col], errors='coerce')
+            df[col] = pd.to_datetime(df[col], errors='coerce', utc=True)
 
     return df
 
@@ -39,9 +39,9 @@ def load_members() -> pd.DataFrame:
     )
     df = pd.read_csv(io.StringIO(csv_content.decode("utf-8")))
 
-    # Parse dates
+    # Parse dates (handle timezone-aware datetimes)
     if 'birthday' in df.columns:
-        df['birthday'] = pd.to_datetime(df['birthday'], errors='coerce')
+        df['birthday'] = pd.to_datetime(df['birthday'], errors='coerce', utc=True)
 
     return df
 
@@ -56,11 +56,11 @@ def load_checkins() -> pd.DataFrame:
     )
     df = pd.read_csv(io.StringIO(csv_content.decode("utf-8")))
 
-    # Parse dates
+    # Parse dates (handle timezone-aware datetimes)
     if 'checkin_datetime' in df.columns:
-        df['checkin_datetime'] = pd.to_datetime(df['checkin_datetime'], errors='coerce')
+        df['checkin_datetime'] = pd.to_datetime(df['checkin_datetime'], errors='coerce', utc=True)
     if 'created_at' in df.columns:
-        df['created_at'] = pd.to_datetime(df['created_at'], errors='coerce')
+        df['created_at'] = pd.to_datetime(df['created_at'], errors='coerce', utc=True)
 
     return df
 
@@ -75,11 +75,11 @@ def load_associations() -> pd.DataFrame:
     )
     df = pd.read_csv(io.StringIO(csv_content.decode("utf-8")))
 
-    # Parse dates
+    # Parse dates (handle timezone-aware datetimes)
     date_cols = ['created_at', 'updated_at']
     for col in date_cols:
         if col in df.columns:
-            df[col] = pd.to_datetime(df[col], errors='coerce')
+            df[col] = pd.to_datetime(df[col], errors='coerce', utc=True)
 
     return df
 
@@ -94,11 +94,11 @@ def load_association_members() -> pd.DataFrame:
     )
     df = pd.read_csv(io.StringIO(csv_content.decode("utf-8")))
 
-    # Parse dates
+    # Parse dates (handle timezone-aware datetimes)
     date_cols = ['created_at', 'approved_at', 'last_reverified_at', 'next_automatic_removal_datetime']
     for col in date_cols:
         if col in df.columns:
-            df[col] = pd.to_datetime(df[col], errors='coerce')
+            df[col] = pd.to_datetime(df[col], errors='coerce', utc=True)
 
     return df
 
@@ -113,11 +113,11 @@ def load_events() -> pd.DataFrame:
     )
     df = pd.read_csv(io.StringIO(csv_content.decode("utf-8")))
 
-    # Parse dates
+    # Parse dates (handle timezone-aware datetimes)
     date_cols = ['start_datetime', 'end_datetime', 'created_at', 'updated_at']
     for col in date_cols:
         if col in df.columns:
-            df[col] = pd.to_datetime(df[col], errors='coerce')
+            df[col] = pd.to_datetime(df[col], errors='coerce', utc=True)
 
     return df
 
@@ -136,9 +136,9 @@ def load_transactions() -> pd.DataFrame:
     )
     df = pd.read_csv(io.StringIO(csv_content.decode("utf-8")))
 
-    # Parse dates
+    # Parse dates (handle timezone-aware datetimes)
     if 'date' in df.columns:
-        df['date'] = pd.to_datetime(df['date'], errors='coerce')
+        df['date'] = pd.to_datetime(df['date'], errors='coerce', utc=True)
 
     return df
 
