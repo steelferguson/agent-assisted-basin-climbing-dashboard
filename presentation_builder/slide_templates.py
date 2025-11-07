@@ -13,18 +13,23 @@ from PIL import Image as PILImage
 import pandas as pd
 
 
-# Basin Climbing Brand Colors
+# Basin Climbing Visual Brand Colors
+# From brand guidelines - use dark_grey and off_white most
 COLORS = {
-    'primary_blue': RGBColor(31, 119, 180),    # #1f77b4
-    'teal': RGBColor(44, 127, 184),            # #2c7fb8
-    'orange': RGBColor(255, 127, 80),          # #ff7f50
-    'green': RGBColor(44, 160, 44),            # #2ca02c
-    'yellow': RGBColor(255, 193, 7),           # #ffc107
-    'gray': RGBColor(127, 127, 127),           # #7f7f7f
-    'dark_gray': RGBColor(44, 62, 80),         # #2c3e50
-    'white': RGBColor(255, 255, 255),
-    'black': RGBColor(0, 0, 0),
+    'terracotta': RGBColor(175, 84, 54),       # #AF5436
+    'gold': RGBColor(233, 200, 103),           # #E9C867
+    'sage': RGBColor(188, 205, 163),           # #BCCDA3
+    'teal': RGBColor(33, 59, 63),              # #213B3F
+    'dark_grey': RGBColor(38, 36, 28),         # #26241C (primary - use most)
+    'off_white': RGBColor(255, 253, 245),      # #FFFDF5 (primary - use most)
+    # Aliases for backward compatibility
+    'primary': RGBColor(38, 36, 28),           # dark_grey
+    'background': RGBColor(255, 253, 245),     # off_white
+    'accent': RGBColor(175, 84, 54),           # terracotta
 }
+
+# Basin brand font
+BRAND_FONT = 'Libre Franklin'
 
 
 class SlideTemplate:
@@ -49,7 +54,7 @@ class SlideTemplate:
         return self.prs.slides.add_slide(blank_layout)
 
     def _add_title(self, slide, title: str, top: Inches = Inches(0.5),
-                   font_size: int = 32, color=COLORS['primary_blue']):
+                   font_size: int = 32, color=COLORS['primary']):
         """Add a title text box to a slide."""
         left = Inches(0.5)
         width = self.slide_width - Inches(1)
@@ -63,7 +68,7 @@ class SlideTemplate:
         paragraph.font.size = Pt(font_size)
         paragraph.font.bold = True
         paragraph.font.color.rgb = color
-        paragraph.font.name = 'Calibri'
+        paragraph.font.name = BRAND_FONT
 
         return title_box
 
@@ -81,11 +86,11 @@ class SlideTemplate:
         paragraph = text_frame.paragraphs[0]
         paragraph.font.size = Pt(10)
         paragraph.font.color.rgb = COLORS['gray']
-        paragraph.font.name = 'Calibri'
+        paragraph.font.name = BRAND_FONT
 
     def _add_text_box(self, slide, text: str, left: Inches, top: Inches,
                       width: Inches, height: Inches, font_size: int = 18,
-                      bold: bool = False, color=COLORS['black'], align=PP_ALIGN.LEFT):
+                      bold: bool = False, color=COLORS['primary'], align=PP_ALIGN.LEFT):
         """Add a text box with specified styling."""
         text_box = slide.shapes.add_textbox(left, top, width, height)
         text_frame = text_box.text_frame
@@ -96,7 +101,7 @@ class SlideTemplate:
         paragraph.font.size = Pt(font_size)
         paragraph.font.bold = bold
         paragraph.font.color.rgb = color
-        paragraph.font.name = 'Calibri'
+        paragraph.font.name = BRAND_FONT
         paragraph.alignment = align
 
         return text_box
@@ -125,8 +130,8 @@ class SlideTemplate:
         paragraph = text_frame.paragraphs[0]
         paragraph.font.size = Pt(44)
         paragraph.font.bold = True
-        paragraph.font.color.rgb = COLORS['primary_blue']
-        paragraph.font.name = 'Calibri'
+        paragraph.font.color.rgb = COLORS['teal']
+        paragraph.font.name = BRAND_FONT
         paragraph.alignment = PP_ALIGN.CENTER
 
         # Subtitle
@@ -134,7 +139,7 @@ class SlideTemplate:
         self._add_text_box(
             slide, subtitle,
             title_left, subtitle_top, title_width, Inches(0.8),
-            font_size=24, color=COLORS['dark_gray'], align=PP_ALIGN.CENTER
+            font_size=24, color=COLORS['dark_grey'], align=PP_ALIGN.CENTER
         )
 
         # Date
@@ -168,8 +173,8 @@ class SlideTemplate:
         paragraph = text_frame.paragraphs[0]
         paragraph.font.size = Pt(40)
         paragraph.font.bold = True
-        paragraph.font.color.rgb = COLORS['primary_blue']
-        paragraph.font.name = 'Calibri'
+        paragraph.font.color.rgb = COLORS['teal']
+        paragraph.font.name = BRAND_FONT
         paragraph.alignment = PP_ALIGN.CENTER
 
         self._add_footer(slide)
@@ -230,9 +235,9 @@ class SlideTemplate:
             # Handle color as string or RGBColor
             color_value = metric.get('color', 'primary_blue')
             if isinstance(color_value, str):
-                color_value = COLORS.get(color_value, COLORS['primary_blue'])
+                color_value = COLORS.get(color_value, COLORS['teal'])
             value_para.font.color.rgb = color_value
-            value_para.font.name = 'Calibri'
+            value_para.font.name = BRAND_FONT
             value_para.alignment = PP_ALIGN.CENTER
 
             # Label
@@ -242,8 +247,8 @@ class SlideTemplate:
             label_frame.text = metric['label']
             label_para = label_frame.paragraphs[0]
             label_para.font.size = Pt(14)
-            label_para.font.color.rgb = COLORS['dark_gray']
-            label_para.font.name = 'Calibri'
+            label_para.font.color.rgb = COLORS['dark_grey']
+            label_para.font.name = BRAND_FONT
             label_para.alignment = PP_ALIGN.CENTER
 
             # Delta (optional)
@@ -255,7 +260,7 @@ class SlideTemplate:
                 delta_para = delta_frame.paragraphs[0]
                 delta_para.font.size = Pt(12)
                 delta_para.font.color.rgb = COLORS['gray']
-                delta_para.font.name = 'Calibri'
+                delta_para.font.name = BRAND_FONT
                 delta_para.alignment = PP_ALIGN.CENTER
 
     def chart_slide(self, title: str, image_path: str) -> None:
@@ -319,12 +324,12 @@ class SlideTemplate:
             cell = table.cell(0, col_idx)
             cell.text = str(col_name)
             cell.fill.solid()
-            cell.fill.fore_color.rgb = COLORS['primary_blue']
+            cell.fill.fore_color.rgb = COLORS['teal']
             paragraph = cell.text_frame.paragraphs[0]
             paragraph.font.size = Pt(12)
             paragraph.font.bold = True
-            paragraph.font.color.rgb = COLORS['white']
-            paragraph.font.name = 'Calibri'
+            paragraph.font.color.rgb = COLORS['off_white']
+            paragraph.font.name = BRAND_FONT
 
         # Data rows
         for row_idx, (_, row_data) in enumerate(df_display.iterrows(), start=1):
@@ -333,7 +338,7 @@ class SlideTemplate:
                 cell.text = str(value)
                 paragraph = cell.text_frame.paragraphs[0]
                 paragraph.font.size = Pt(11)
-                paragraph.font.name = 'Calibri'
+                paragraph.font.name = BRAND_FONT
 
                 # Alternate row colors
                 if row_idx % 2 == 0:
@@ -359,7 +364,7 @@ class SlideTemplate:
             self._add_text_box(
                 slide, subtitle,
                 Inches(0.5), Inches(1.5), self.slide_width - Inches(1), Inches(0.5),
-                font_size=18, bold=True, color=COLORS['dark_gray']
+                font_size=18, bold=True, color=COLORS['dark_grey']
             )
             content_top = Inches(2.1)
 
@@ -379,7 +384,7 @@ class SlideTemplate:
             paragraph = text_frame.paragraphs[idx]
             paragraph.text = point
             paragraph.font.size = Pt(18)
-            paragraph.font.name = 'Calibri'
+            paragraph.font.name = BRAND_FONT
             paragraph.level = 0
             paragraph.space_before = Pt(12)
 
@@ -427,7 +432,7 @@ class SlideTemplate:
                 paragraph = text_frame.paragraphs[idx]
                 paragraph.text = point
                 paragraph.font.size = Pt(16)
-                paragraph.font.name = 'Calibri'
+                paragraph.font.name = BRAND_FONT
                 paragraph.level = 0
         elif content_type == 'image':
             slide.shapes.add_picture(content, left, top, width=width)

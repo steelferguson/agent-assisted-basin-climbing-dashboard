@@ -12,24 +12,34 @@ import tempfile
 import os
 
 
-# Basin Climbing Brand Colors
+# Basin Climbing Visual Brand Colors
+# From brand guidelines - use dark_grey and off_white most
 COLORS = {
-    'primary_blue': '#1f77b4',
-    'teal': '#2c7fb8',
-    'orange': '#ff7f50',
-    'green': '#2ca02c',
-    'yellow': '#ffc107',
-    'gray': '#7f7f7f',
-    'dark_gray': '#2c3e50',
+    'terracotta': '#AF5436',
+    'gold': '#E9C867',
+    'sage': '#BCCDA3',
+    'teal': '#213B3F',
+    'dark_grey': '#26241C',      # Primary - use most
+    'off_white': '#FFFDF5',      # Primary - use most
+    # Aliases for backward compatibility
+    'primary': '#26241C',
+    'accent': '#AF5436',
 }
+
+# Basin brand font
+BRAND_FONT = 'Libre Franklin'
 
 # Matplotlib style settings
 plt.style.use('seaborn-v0_8-darkgrid')
-plt.rcParams['figure.facecolor'] = 'white'
-plt.rcParams['axes.facecolor'] = 'white'
+plt.rcParams['figure.facecolor'] = COLORS['off_white']
+plt.rcParams['axes.facecolor'] = COLORS['off_white']
 plt.rcParams['font.family'] = 'sans-serif'
-plt.rcParams['font.sans-serif'] = ['Calibri', 'Arial', 'DejaVu Sans']
+plt.rcParams['font.sans-serif'] = [BRAND_FONT, 'Arial', 'DejaVu Sans']
 plt.rcParams['font.size'] = 12
+plt.rcParams['text.color'] = COLORS['dark_grey']
+plt.rcParams['axes.labelcolor'] = COLORS['dark_grey']
+plt.rcParams['xtick.color'] = COLORS['dark_grey']
+plt.rcParams['ytick.color'] = COLORS['dark_grey']
 
 
 class ChartGenerator:
@@ -69,7 +79,7 @@ class ChartGenerator:
         return output_path
 
     def create_line_chart(self, df: pd.DataFrame, x_col: str, y_col: str, title: str,
-                          x_label: str = "", y_label: str = "", color: str = COLORS['primary_blue']) -> str:
+                          x_label: str = "", y_label: str = "", color: str = COLORS['teal']) -> str:
         """
         Create a line chart.
 
@@ -106,7 +116,7 @@ class ChartGenerator:
         return self._save_matplotlib_figure(fig)
 
     def create_bar_chart(self, df: pd.DataFrame, x_col: str, y_col: str, title: str,
-                         x_label: str = "", y_label: str = "", color: str = COLORS['teal'],
+                         x_label: str = "", y_label: str = "", color: str = COLORS['terracotta'],
                          horizontal: bool = False) -> str:
         """
         Create a bar chart.
@@ -166,7 +176,7 @@ class ChartGenerator:
 
         # Pivot data for grouped bars
         pivot_df = df.pivot(index=x_col, columns=group_col, values=y_col)
-        pivot_df.plot(kind='bar', ax=ax, color=[COLORS['primary_blue'], COLORS['teal'], COLORS['orange']])
+        pivot_df.plot(kind='bar', ax=ax, color=[COLORS['teal'], COLORS['terracotta'], COLORS['sage'], COLORS['gold']])
 
         ax.set_title(title, fontsize=20, fontweight='bold', pad=20)
         ax.set_xlabel(x_label or x_col, fontsize=14, fontweight='bold')
@@ -195,8 +205,8 @@ class ChartGenerator:
         """
         fig, ax = plt.subplots(figsize=(self.width, self.height))
 
-        colors = [COLORS['primary_blue'], COLORS['teal'], COLORS['orange'],
-                  COLORS['green'], COLORS['yellow'], COLORS['gray']]
+        colors = [COLORS['teal'], COLORS['terracotta'], COLORS['sage'],
+                  COLORS['gold'], COLORS['dark_grey']]
 
         wedges, texts, autotexts = ax.pie(
             df[values_col],
@@ -219,7 +229,7 @@ class ChartGenerator:
         return self._save_matplotlib_figure(fig)
 
     def create_area_chart(self, df: pd.DataFrame, x_col: str, y_col: str, title: str,
-                          x_label: str = "", y_label: str = "", color: str = COLORS['orange']) -> str:
+                          x_label: str = "", y_label: str = "", color: str = COLORS['sage']) -> str:
         """
         Create an area chart.
 
@@ -276,7 +286,7 @@ class ChartGenerator:
         """
         fig, ax = plt.subplots(figsize=(self.width, self.height))
 
-        colors = [COLORS['primary_blue'], COLORS['teal'], COLORS['orange'], COLORS['green']]
+        colors = [COLORS['teal'], COLORS['terracotta'], COLORS['sage'], COLORS['gold']]
 
         for idx, y_col in enumerate(y_cols):
             label = labels[idx] if labels and idx < len(labels) else y_col
@@ -321,8 +331,8 @@ class ChartGenerator:
         x = range(len(categories))
         width = 0.35
 
-        ax.bar([i - width/2 for i in x], values1, width, label=label1, color=COLORS['primary_blue'])
-        ax.bar([i + width/2 for i in x], values2, width, label=label2, color=COLORS['gray'])
+        ax.bar([i - width/2 for i in x], values1, width, label=label1, color=COLORS['teal'])
+        ax.bar([i + width/2 for i in x], values2, width, label=label2, color=COLORS['sage'])
 
         ax.set_title(title, fontsize=20, fontweight='bold', pad=20)
         ax.set_xticks(x)
