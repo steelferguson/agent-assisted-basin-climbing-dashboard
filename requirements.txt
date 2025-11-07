@@ -89,3 +89,5 @@ zstandard==0.23.0
 streamlit==1.41.1
 mailchimp-marketing==3.0.80
 beautifulsoup4==4.12.3
+python-pptx==0.6.23
+kaleido==0.2.1  # For plotly static image export
