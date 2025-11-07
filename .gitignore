@@ -177,6 +177,9 @@ cython_debug/
 *.csv
 *.json
 
+# Generated presentations (contain sensitive business data)
+*.pptx
+
 # the txt files created by the doc_generator.py script
 **/plain_text_files/*.txt
 

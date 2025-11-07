@@ -32,8 +32,10 @@ s3_path_capitan_membership_revenue_projection_snapshot = (
 )
 s3_path_instagram_posts = "instagram/posts_data.csv"
 s3_path_instagram_comments = "instagram/comments_data.csv"
+s3_path_instagram_events = "instagram/events_calendar.csv"
 s3_path_instagram_posts_snapshot = "instagram/snapshots/posts_data.csv"
 s3_path_instagram_comments_snapshot = "instagram/snapshots/comments_data.csv"
+s3_path_instagram_events_snapshot = "instagram/snapshots/events_calendar.csv"
 s3_path_facebook_ads = "facebook_ads/ads_data.csv"
 s3_path_facebook_ads_snapshot = "facebook_ads/snapshots/ads_data.csv"
 s3_path_mailchimp_campaigns = "mailchimp/campaigns.csv"

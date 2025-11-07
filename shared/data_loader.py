@@ -123,6 +123,23 @@ def load_events() -> pd.DataFrame:
 
 
 @st.cache_data(ttl=300)
+def load_instagram_events() -> pd.DataFrame:
+    """Load Basin events calendar extracted from Instagram posts."""
+    uploader = DataUploader()
+    csv_content = uploader.download_from_s3(
+        config.aws_bucket_name,
+        config.s3_path_instagram_events
+    )
+    df = pd.read_csv(io.StringIO(csv_content.decode("utf-8")))
+
+    # Parse dates
+    if 'Announced On' in df.columns:
+        df['Announced On'] = pd.to_datetime(df['Announced On'], errors='coerce')
+
+    return df
+
+
+@st.cache_data(ttl=300)
 def load_transactions() -> pd.DataFrame:
     """
     Load transaction data from S3 (Stripe + Square combined).
