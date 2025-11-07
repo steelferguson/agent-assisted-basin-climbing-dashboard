@@ -61,6 +61,12 @@ s3_path_at_risk_members_snapshot = "capitan/snapshots/at_risk_members.csv"
 snapshot_day_of_month = 1
 s3_path_text_and_metadata = "agent/text_and_metadata"
 
+# Basin Climbing operational dates
+# Official opening was end of September 2024
+# For operational analysis, filter to October 2024 onwards
+# See PRE_OPENING_REVENUE_CONTEXT.md for details
+basin_opening_date = "2024-10-01"
+
 ## Dictionaries for processing string in decripitions
 revenue_category_keywords = {
     "day pass": "Day Pass",

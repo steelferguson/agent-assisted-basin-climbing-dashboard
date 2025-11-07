@@ -180,6 +180,9 @@ cython_debug/
 # Generated presentations (contain sensitive business data)
 *.pptx
 
+# Revenue/financial context documents (stored in S3)
+PRE_OPENING_REVENUE_CONTEXT.md
+
 # the txt files created by the doc_generator.py script
 **/plain_text_files/*.txt
 
