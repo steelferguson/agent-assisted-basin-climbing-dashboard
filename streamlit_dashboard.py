@@ -360,7 +360,7 @@ with tab2:
         frequency_filter = st.multiselect(
             'Frequency',
             options=['bi_weekly', 'monthly', 'annual', 'prepaid_3mo', 'prepaid_6mo', 'prepaid_12mo'],
-            default=['bi_weekly', 'monthly'],
+            default=['bi_weekly', 'monthly', 'annual', 'prepaid_3mo', 'prepaid_6mo', 'prepaid_12mo'],
             format_func=lambda x: x.replace('_', ' ').title()
         )
 
@@ -417,7 +417,21 @@ with tab2:
     if '90_for_90' not in category_filter:
         df_memberships_filtered = df_memberships_filtered[~df_memberships_filtered['is_90_for_90']]
     if 'not_special' in category_filter:
-        df_memberships_filtered = df_memberships_filtered[df_memberships_filtered['is_not_in_special']]
+        # Include members NOT in any other special category
+        special_mask = (
+            ~df_memberships_filtered['is_bcf'] &
+            ~df_memberships_filtered['is_founder'] &
+            ~df_memberships_filtered['is_college'] &
+            ~df_memberships_filtered['is_corporate'] &
+            ~df_memberships_filtered['is_mid_day'] &
+            ~df_memberships_filtered['is_fitness_only'] &
+            ~df_memberships_filtered['has_fitness_addon'] &
+            ~df_memberships_filtered['is_team_dues'] &
+            ~df_memberships_filtered['is_90_for_90']
+        )
+        # Keep existing data PLUS those not in special categories
+        not_special_members = df_memberships[special_mask]
+        df_memberships_filtered = pd.concat([df_memberships_filtered, not_special_members]).drop_duplicates()
 
     # Process dates
     df_memberships_filtered['start_date'] = pd.to_datetime(df_memberships_filtered['start_date'], errors='coerce')
@@ -755,42 +769,85 @@ with tab5:
     # Youth Team Members
     st.subheader('Youth Team Members Over Time')
 
-    df_youth_team = df_members[df_members['is_team_dues'] == True].copy()
+    # Extract team type from membership name in df_memberships
+    youth_memberships = []
+    for _, membership in df_memberships.iterrows():
+        name = str(membership.get('name', '')).lower()
+        status = membership.get('status')
 
-    if not df_youth_team.empty:
-        df_youth_team['start_date'] = pd.to_datetime(df_youth_team['start_date'], errors='coerce')
-        df_youth_team['end_date'] = pd.to_datetime(df_youth_team['end_date'], errors='coerce')
+        # Only include active memberships
+        if status != 'ACT':
+            continue
 
-        min_date = df_youth_team['start_date'].min()
+        # Determine team type
+        team_type = None
+        if 'recreation' in name or 'rec team' in name:
+            team_type = 'Recreation'
+        elif 'development' in name or 'dev team' in name:
+            team_type = 'Development'
+        elif 'competitive' in name or 'comp team' in name:
+            team_type = 'Competitive'
+
+        if team_type:
+            start_date = pd.to_datetime(membership.get('start_date'), errors='coerce')
+            end_date = pd.to_datetime(membership.get('end_date'), errors='coerce')
+
+            if pd.notna(start_date) and pd.notna(end_date):
+                youth_memberships.append({
+                    'team_type': team_type,
+                    'start_date': start_date,
+                    'end_date': end_date
+                })
+
+    if youth_memberships:
+        df_youth = pd.DataFrame(youth_memberships)
+
+        min_date = df_youth['start_date'].min()
         max_date = pd.Timestamp.now()
         date_range = pd.date_range(start=min_date, end=max_date, freq='M')
 
         youth_counts = []
         for date in date_range:
-            active_youth = df_youth_team[
-                (df_youth_team['start_date'] <= date) &
-                (df_youth_team['end_date'] >= date)
+            active_youth = df_youth[
+                (df_youth['start_date'] <= date) &
+                (df_youth['end_date'] >= date)
             ]
+            # Count by team type
+            counts_by_type = active_youth['team_type'].value_counts().to_dict()
             youth_counts.append({
                 'date': date,
-                'count': len(active_youth)
+                'Recreation': counts_by_type.get('Recreation', 0),
+                'Development': counts_by_type.get('Development', 0),
+                'Competitive': counts_by_type.get('Competitive', 0)
             })
 
         youth_df = pd.DataFrame(youth_counts)
 
-        fig_youth = px.line(
-            youth_df,
+        # Reshape for stacked area chart
+        youth_melted = youth_df.melt(id_vars='date',
+                                      value_vars=['Recreation', 'Development', 'Competitive'],
+                                      var_name='Team Type',
+                                      value_name='Members')
+
+        fig_youth = px.area(
+            youth_melted,
             x='date',
-            y='count',
-            title='Active Youth Team Members'
+            y='Members',
+            color='Team Type',
+            title='Active Youth Team Members by Team Type',
+            color_discrete_map={
+                'Recreation': COLORS['primary'],
+                'Development': COLORS['secondary'],
+                'Competitive': COLORS['tertiary']
+            }
         )
-        fig_youth.update_traces(line_color=COLORS['primary'])
         fig_youth.update_layout(
             plot_bgcolor=COLORS['background'],
             paper_bgcolor=COLORS['background'],
             font_color=COLORS['text'],
             yaxis_title='Number of Team Members',
-            xaxis_title='Date'
+            xaxis_title='Date',
+            hovermode='x unified'
         )
         st.plotly_chart(fig_youth, use_container_width=True)
     else:
