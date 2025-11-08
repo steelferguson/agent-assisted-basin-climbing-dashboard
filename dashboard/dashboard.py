@@ -32,13 +32,14 @@ def load_data():
         config.aws_bucket_name, config.s3_path_capitan_membership_revenue_projection
     )
     df_at_risk = load_df_from_s3(config.aws_bucket_name, config.s3_path_at_risk_members)
+    df_facebook_ads = load_df_from_s3(config.aws_bucket_name, config.s3_path_facebook_ads)
 
-    return df_memberships, df_members, df_transactions, df_projection, df_at_risk
+    return df_memberships, df_members, df_transactions, df_projection, df_at_risk, df_facebook_ads
 
 
 def create_dashboard(app):
 
-    df_memberships, df_members, df_combined, df_projection, df_at_risk = load_data()
+    df_memberships, df_members, df_combined, df_projection, df_at_risk, df_facebook_ads = load_data()
 
     # Prepare at-risk members data for display
     if not df_at_risk.empty:
@@ -272,6 +273,12 @@ def create_dashboard(app):
                     "marginBottom": "40px",
                 },
             ),
+            # Marketing Performance section
+            html.H1(
+                children="Marketing Performance (Last 3 Months)",
+                style={"color": "#213B3F", "marginTop": "30px"},
+            ),
+            dcc.Graph(id="marketing-performance-chart"),
             # Camps Revenue section
             html.H1(
                 children="Camps Revenue",
@@ -1304,6 +1311,148 @@ def create_dashboard(app):
             plot_bgcolor=chart_colors["background"],
             paper_bgcolor=chart_colors["background"],
             font_color=chart_colors["text"],
+        )
+
+        return fig
+
+    # Callback for Marketing Performance chart
+    @app.callback(
+        Output("marketing-performance-chart", "figure"), [Input("timeframe-toggle", "value")]
+    )
+    def update_marketing_performance_chart(selected_timeframe):
+        # Filter to last 3 months
+        df_ads = df_facebook_ads.copy()
+        df_ads['date'] = pd.to_datetime(df_ads['date'])
+        three_months_ago = df_ads['date'].max() - pd.Timedelta(days=90)
+        df_ads = df_ads[df_ads['date'] >= three_months_ago]
+
+        if df_ads.empty:
+            fig = px.bar(title="No Facebook Ads data available")
+            fig.add_annotation(
+                text="No Facebook Ads data available for the last 3 months",
+                xref="paper",
+                yref="paper",
+                x=0.5,
+                y=0.5,
+                showarrow=False,
+                font=dict(size=16),
+            )
+            return fig
+
+        # Calculate metrics by target/objective
+        metrics_data = []
+
+        # Add to Cart metrics
+        add_to_cart_spend = df_ads[df_ads['add_to_carts'] > 0]['spend'].sum()
+        add_to_cart_count = df_ads['add_to_carts'].sum()
+        if add_to_cart_count > 0:
+            metrics_data.append({
+                'Target': 'Add to Cart',
+                'Spend': add_to_cart_spend,
+                'Count': add_to_cart_count,
+                'Cost per Action': add_to_cart_spend / add_to_cart_count if add_to_cart_count > 0 else 0
+            })
+
+        # Purchase metrics
+        purchase_spend = df_ads[df_ads['purchases'] > 0]['spend'].sum()
+        purchase_count = df_ads['purchases'].sum()
+        if purchase_count > 0:
+            metrics_data.append({
+                'Target': 'Purchase',
+                'Spend': purchase_spend,
+                'Count': purchase_count,
+                'Cost per Action': purchase_spend / purchase_count if purchase_count > 0 else 0
+            })
+
+        # Click-through (Link Clicks) metrics
+        link_click_spend = df_ads[df_ads['link_clicks'] > 0]['spend'].sum()
+        link_click_count = df_ads['link_clicks'].sum()
+        if link_click_count > 0:
+            metrics_data.append({
+                'Target': 'Link Click',
+                'Spend': link_click_spend,
+                'Count': link_click_count,
+                'Cost per Action': link_click_spend / link_click_count if link_click_count > 0 else 0
+            })
+
+        # Lead metrics
+        lead_spend = df_ads[df_ads['leads'] > 0]['spend'].sum()
+        lead_count = df_ads['leads'].sum()
+        if lead_count > 0:
+            metrics_data.append({
+                'Target': 'Lead',
+                'Spend': lead_spend,
+                'Count': lead_count,
+                'Cost per Action': lead_spend / lead_count if lead_count > 0 else 0
+            })
+
+        if not metrics_data:
+            fig = px.bar(title="No conversion data available")
+            fig.add_annotation(
+                text="No conversion actions recorded in the last 3 months",
+                xref="paper",
+                yref="paper",
+                x=0.5,
+                y=0.5,
+                showarrow=False,
+                font=dict(size=16),
+            )
+            return fig
+
+        metrics_df = pd.DataFrame(metrics_data)
+
+        # Create grouped bar chart
+        fig = go.Figure()
+
+        # Add bars for Count
+        fig.add_trace(go.Bar(
+            name='Count',
+            x=metrics_df['Target'],
+            y=metrics_df['Count'],
+            text=metrics_df['Count'].apply(lambda x: f'{int(x)}'),
+            textposition='outside',
+            marker_color=chart_colors["quaternary"],  # Teal
+            yaxis='y',
+            offsetgroup=0
+        ))
+
+        # Add bars for Spend
+        fig.add_trace(go.Bar(
+            name='Spend ($)',
+            x=metrics_df['Target'],
+            y=metrics_df['Spend'],
+            text=metrics_df['Spend'].apply(lambda x: f'${x:.0f}'),
+            textposition='outside',
+            marker_color=chart_colors["secondary"],  # Gold
+            yaxis='y2',
+            offsetgroup=1
+        ))
+
+        # Add bars for Cost per Action
+        fig.add_trace(go.Bar(
+            name='Cost per Action ($)',
+            x=metrics_df['Target'],
+            y=metrics_df['Cost per Action'],
+            text=metrics_df['Cost per Action'].apply(lambda x: f'${x:.2f}'),
+            textposition='outside',
+            marker_color=chart_colors["primary"],  # Rust
+            yaxis='y3',
+            offsetgroup=2
+        ))
+
+        # Update layout for multiple y-axes
+        fig.update_layout(
+            title='Marketing Performance by Target (Last 3 Months)',
+            barmode='group',
+            plot_bgcolor=chart_colors["background"],
+            paper_bgcolor=chart_colors["background"],
+            font_color=chart_colors["text"],
+            xaxis=dict(title='Target'),
+            yaxis=dict(title='Count', side='left'),
+            yaxis2=dict(title='Spend ($)', overlaying='y', side='right'),
+            yaxis3=dict(title='Cost per Action ($)', overlaying='y', side='right', position=0.92),
+            legend=dict(x=0, y=1.1, orientation='h'),
+            height=500
         )
 
         return fig
