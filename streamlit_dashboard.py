@@ -416,22 +416,20 @@ with tab2:
         df_memberships_filtered = df_memberships_filtered[~df_memberships_filtered['is_team_dues']]
     if '90_for_90' not in category_filter:
         df_memberships_filtered = df_memberships_filtered[~df_memberships_filtered['is_90_for_90']]
-    if 'not_special' in category_filter:
-        # Include members NOT in any other special category
+    if 'not_special' not in category_filter:
+        # Exclude members NOT in any special category (i.e., only show special category members)
         special_mask = (
-            ~df_memberships_filtered['is_bcf'] &
-            ~df_memberships_filtered['is_founder'] &
-            ~df_memberships_filtered['is_college'] &
-            ~df_memberships_filtered['is_corporate'] &
-            ~df_memberships_filtered['is_mid_day'] &
-            ~df_memberships_filtered['is_fitness_only'] &
-            ~df_memberships_filtered['has_fitness_addon'] &
-            ~df_memberships_filtered['is_team_dues'] &
-            ~df_memberships_filtered['is_90_for_90']
+            df_memberships_filtered['is_bcf'] |
+            df_memberships_filtered['is_founder'] |
+            df_memberships_filtered['is_college'] |
+            df_memberships_filtered['is_corporate'] |
+            df_memberships_filtered['is_mid_day'] |
+            df_memberships_filtered['is_fitness_only'] |
+            df_memberships_filtered['has_fitness_addon'] |
+            df_memberships_filtered['is_team_dues'] |
+            df_memberships_filtered['is_90_for_90']
         )
-        # Keep existing data PLUS those not in special categories
-        not_special_members = df_memberships[special_mask]
-        df_memberships_filtered = pd.concat([df_memberships_filtered, not_special_members]).drop_duplicates()
+        df_memberships_filtered = df_memberships_filtered[special_mask]
 
     # Process dates
     df_memberships_filtered['start_date'] = pd.to_datetime(df_memberships_filtered['start_date'], errors='coerce')
