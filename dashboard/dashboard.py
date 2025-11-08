@@ -33,13 +33,14 @@ def load_data():
     )
     df_at_risk = load_df_from_s3(config.aws_bucket_name, config.s3_path_at_risk_members)
     df_facebook_ads = load_df_from_s3(config.aws_bucket_name, config.s3_path_facebook_ads)
+    df_events = load_df_from_s3(config.aws_bucket_name, config.s3_path_capitan_events)
 
-    return df_memberships, df_members, df_transactions, df_projection, df_at_risk, df_facebook_ads
+    return df_memberships, df_members, df_transactions, df_projection, df_at_risk, df_facebook_ads, df_events
 
 
 def create_dashboard(app):
 
-    df_memberships, df_members, df_combined, df_projection, df_at_risk, df_facebook_ads = load_data()
+    df_memberships, df_members, df_combined, df_projection, df_at_risk, df_facebook_ads, df_events = load_data()
 
     # Prepare at-risk members data for display
     if not df_at_risk.empty:
@@ -265,6 +266,23 @@ def create_dashboard(app):
                 [
                     dcc.Graph(id="birthday-participants-chart"),
                     dcc.Graph(id="birthday-revenue-chart"),
+                ],
+                style={
+                    "backgroundColor": "#F5F5F5",
+                    "padding": "20px",
+                    "borderRadius": "10px",
+                    "marginBottom": "40px",
+                },
+            ),
+            # Fitness Revenue section
+            html.H1(
+                children="Fitness Revenue & Class Attendance",
+                style={"color": "#213B3F", "marginTop": "30px"},
+            ),
+            html.Div(
+                [
+                    dcc.Graph(id="fitness-revenue-chart"),
+                    dcc.Graph(id="fitness-class-attendance-chart"),
                 ],
                 style={
                     "backgroundColor": "#F5F5F5",
@@ -1382,6 +1400,101 @@ def create_dashboard(app):
             plot_bgcolor=chart_colors["background"],
             paper_bgcolor=chart_colors["background"],
             font_color=chart_colors["text"],
+        )
+
+        return fig
+
+    # Callback for Fitness Revenue chart
+    @app.callback(
+        Output("fitness-revenue-chart", "figure"), [Input("timeframe-toggle", "value")]
+    )
+    def update_fitness_revenue_chart(selected_timeframe):
+        # Filter for transactions with fitness_amount > 0
+        df_filtered = df_combined[df_combined["fitness_amount"] > 0].copy()
+        df_filtered["Date"] = pd.to_datetime(df_filtered["Date"], errors="coerce")
+        df_filtered["Date"] = df_filtered["Date"].dt.tz_localize(None)
+        df_filtered["date"] = (
+            df_filtered["Date"].dt.to_period(selected_timeframe).dt.start_time
+        )
+
+        # Calculate total fitness revenue by date
+        fitness_revenue = (
+            df_filtered.groupby("date")["fitness_amount"].sum().reset_index()
+        )
+
+        # Create the bar chart
+        fig = px.bar(
+            fitness_revenue,
+            x="date",
+            y="fitness_amount",
+            title="Fitness Revenue (Classes, Fitness-Only Memberships, Add-ons)"
+        )
+
+        # Update trace color
+        fig.update_traces(marker_color=chart_colors["secondary"])  # gold
+
+        # Update layout
+        fig.update_layout(
+            plot_bgcolor=chart_colors["background"],
+            paper_bgcolor=chart_colors["background"],
+            font_color=chart_colors["text"],
+            yaxis_title="Fitness Revenue ($)",
+            xaxis_title="Date",
+        )
+
+        return fig
+
+    # Callback for Fitness Class Attendance chart
+    @app.callback(
+        Output("fitness-class-attendance-chart", "figure"), [Input("timeframe-toggle", "value")]
+    )
+    def update_fitness_class_attendance_chart(selected_timeframe):
+        # Filter for fitness class events (HYROX, transformation, strength, etc.)
+        # Event types that are fitness-related
+        fitness_event_keywords = ['HYROX', 'transformation', 'strength', 'fitness', 'yoga', 'workout']
+
+        df_filtered = df_events.copy()
+        df_filtered['event_type_name_lower'] = df_filtered['event_type_name'].str.lower()
+
+        # Filter for fitness events
+        fitness_mask = df_filtered['event_type_name_lower'].apply(
+            lambda x: any(keyword.lower() in str(x) for keyword in fitness_event_keywords) if pd.notna(x) else False
+        )
+        df_filtered = df_filtered[fitness_mask]
+
+        # Convert dates
+        df_filtered['start_datetime'] = pd.to_datetime(df_filtered['start_datetime'], errors='coerce')
+        df_filtered = df_filtered[df_filtered['start_datetime'].notna()]
+        df_filtered['start_datetime'] = df_filtered['start_datetime'].dt.tz_localize(None)
+
+        # Group by timeframe
+        df_filtered['date'] = (
+            df_filtered['start_datetime'].dt.to_period(selected_timeframe).dt.start_time
+        )
+
+        # Calculate total attendance (num_reservations) by date
+        attendance = (
+            df_filtered.groupby('date')['num_reservations'].sum().reset_index()
+        )
+
+        # Create the bar chart
+        fig = px.bar(
+            attendance,
+            x='date',
+            y='num_reservations',
+            title='Fitness Class Attendance (Total Reservations)'
+        )
+
+        # Update trace color
+        fig.update_traces(marker_color=chart_colors["tertiary"])  # sage green
+
+        # Update layout
+        fig.update_layout(
+            plot_bgcolor=chart_colors["background"],
+            paper_bgcolor=chart_colors["background"],
+            font_color=chart_colors["text"],
+            yaxis_title='Total Attendance',
+            xaxis_title='Date',
         )
 
         return fig
