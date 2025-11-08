@@ -316,34 +316,29 @@ with tab2:
     # Membership Revenue Projection
     st.subheader('Membership Revenue Projections (Current Month + 3 Months)')
 
-    # Frequency filter for projections
-    projection_frequencies = st.multiselect(
-        'Membership Frequency',
-        options=['bi_weekly', 'monthly', 'annual', 'prepaid_3mo', 'prepaid_6mo', 'prepaid_12mo'],
-        default=['bi_weekly', 'monthly'],
-        format_func=lambda x: x.replace('_', ' ').title()
+    # Convert date column to datetime and create month column
+    df_proj = df_projection.copy()
+    df_proj['date'] = pd.to_datetime(df_proj['date'])
+    df_proj['month'] = df_proj['date'].dt.to_period('M').astype(str)
+
+    # Aggregate by month
+    proj_summary = df_proj.groupby('month')['projected_total'].sum().reset_index()
+
+    fig_projection = px.bar(
+        proj_summary,
+        x='month',
+        y='projected_total',
+        title='Projected Membership Revenue'
     )
-
-    if projection_frequencies:
-        df_proj_filtered = df_projection[df_projection['frequency'].isin(projection_frequencies)]
-
-        proj_summary = df_proj_filtered.groupby('month')['projected_revenue'].sum().reset_index()
-
-        fig_projection = px.bar(
-            proj_summary,
-            x='month',
-            y='projected_revenue',
-            title='Projected Membership Revenue'
-        )
-        fig_projection.update_traces(marker_color=COLORS['secondary'])
-        fig_projection.update_layout(
-            plot_bgcolor=COLORS['background'],
-            paper_bgcolor=COLORS['background'],
-            font_color=COLORS['text'],
-            yaxis_title='Projected Revenue ($)',
-            xaxis_title='Month'
-        )
-        st.plotly_chart(fig_projection, use_container_width=True)
+    fig_projection.update_traces(marker_color=COLORS['secondary'])
+    fig_projection.update_layout(
+        plot_bgcolor=COLORS['background'],
+        paper_bgcolor=COLORS['background'],
+        font_color=COLORS['text'],
+        yaxis_title='Projected Revenue ($)',
+        xaxis_title='Month'
+    )
+    st.plotly_chart(fig_projection, use_container_width=True)
 
     # Membership Timeline
     st.subheader('Active Memberships Over Time')
