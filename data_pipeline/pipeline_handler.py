@@ -88,6 +88,12 @@ def fetch_stripe_and_square_and_combine(days=2, end_date=datetime.datetime.now()
     from data_pipeline.link_refunds_to_categories import link_refunds_to_original_categories
     df_combined, linking_stats = link_refunds_to_original_categories(df_combined)
 
+    # Calculate fitness amount for each transaction
+    # This extracts fitness revenue from: fitness-only memberships, fitness add-ons, and fitness classes
+    from utils.stripe_and_square_helpers import calculate_fitness_amount
+    df_combined = calculate_fitness_amount(df_combined)
+    print(f"Calculated fitness amounts: ${df_combined['fitness_amount'].sum():,.2f} total fitness revenue")
+
     return df_combined
 
 

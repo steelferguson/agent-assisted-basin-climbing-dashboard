@@ -110,6 +110,7 @@ def create_dashboard(app):
                     dcc.Graph(id="square-stripe-revenue-stacked-chart"),
                     dcc.Graph(id="revenue-percentage-chart"),
                     dcc.Graph(id="refund-rate-chart"),
+                    dcc.Graph(id="revenue-accounting-groups-chart"),
                 ],
                 style={"marginBottom": "40px"},
             ),
@@ -501,6 +502,7 @@ def create_dashboard(app):
             Output("square-stripe-revenue-stacked-chart", "figure"),
             Output("revenue-percentage-chart", "figure"),
             Output("refund-rate-chart", "figure"),
+            Output("revenue-accounting-groups-chart", "figure"),
         ],
         [Input("timeframe-toggle", "value"), Input("source-toggle", "value")],
     )
@@ -590,6 +592,11 @@ def create_dashboard(app):
             title="Percentage of Revenue by Category",
             barmode="stack",
             category_orders={"revenue_category": category_order},
+            text=revenue_with_total["percentage"].apply(lambda x: f"{x:.1f}%"),
+        )
+        percentage_fig.update_traces(
+            textposition="inside",
+            textfont=dict(size=12, color="white"),
         )
         percentage_fig.update_layout(
             plot_bgcolor=chart_colors["background"],
@@ -657,7 +664,70 @@ def create_dashboard(app):
             height=400
         )
 
-        return line_fig, stacked_fig, percentage_fig, refund_fig
+        # Accounting groups chart (combine categories for accounting purposes)
+        # Group: Memberships (New + Renewing), Team & Programming (Team Dues + Programming)
+        accounting_groups = revenue_by_category.copy()
+
+        # Create accounting group mapping
+        def map_to_accounting_group(category):
+            if category in ['New Membership', 'Membership Renewal']:
+                return 'Memberships'
+            elif category in ['Team Dues', 'Programming']:
+                return 'Team & Programming'
+            else:
+                return category
+
+        accounting_groups['accounting_group'] = accounting_groups['revenue_category'].apply(map_to_accounting_group)
+
+        # Aggregate by accounting group
+        accounting_revenue = accounting_groups.groupby(['date', 'accounting_group'])['Total Amount'].sum().reset_index()
+
+        # Calculate percentages
+        accounting_total = accounting_revenue.groupby('date')['Total Amount'].sum().reset_index()
+        accounting_total.columns = ['date', 'total_revenue']
+        accounting_with_total = pd.merge(accounting_revenue, accounting_total, on='date')
+        accounting_with_total['percentage'] = (accounting_with_total['Total Amount'] / accounting_with_total['total_revenue']) * 100
+
+        # Define color mapping for accounting groups (reuse existing colors where possible)
+        accounting_colors = {
+            'Memberships': revenue_category_colors.get('Membership Renewal', chart_colors["primary"]),
+            'Team & Programming': revenue_category_colors.get('Programming', chart_colors["secondary"]),
+            'Day Pass': revenue_category_colors.get('Day Pass', chart_colors["quaternary"]),
+            'Retail': revenue_category_colors.get('Retail', chart_colors["tertiary"]),
+            'Event Booking': revenue_category_colors.get('Event Booking', '#8B4229'),
+        }
+
+        accounting_fig = px.bar(
+            accounting_with_total,
+            x='date',
+            y='percentage',
+            color='accounting_group',
+            title='Revenue by Accounting Groups (Memberships, Team & Programming, etc.)',
+            barmode='stack',
+            text=accounting_with_total['percentage'].apply(lambda x: f'{x:.1f}%'),
+        )
+
+        accounting_fig.update_traces(
+            textposition='inside',
+            textfont=dict(size=12, color='white'),
+        )
+
+        accounting_fig.update_layout(
+            plot_bgcolor=chart_colors["background"],
+            paper_bgcolor=chart_colors["background"],
+            font_color=chart_colors["text"],
+            yaxis_title='Percentage (%)',
+            xaxis_title='Date',
+        )
+
+        # Apply colors
+        for group in accounting_colors:
+            accounting_fig.update_traces(
+                marker_color=accounting_colors[group],
+                selector=dict(name=group),
+            )
+
+        return line_fig, stacked_fig, percentage_fig, refund_fig, accounting_fig
 
     # Callback for Day Pass chart
     @app.callback(

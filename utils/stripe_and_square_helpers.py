@@ -211,3 +211,54 @@ def transform_payments_data(
         )
 
     return df
+
+
+def calculate_fitness_amount(df):
+    """
+    Calculate the fitness portion of each transaction.
+
+    Fitness revenue includes:
+    1. Fitness-only memberships (100% is fitness)
+    2. Fitness add-ons to regular memberships (estimate from description)
+    3. Fitness classes (HYROX, transformation, strength, yoga, etc.)
+
+    Returns:
+        DataFrame with 'fitness_amount' column added
+    """
+    df = df.copy()
+    df['fitness_amount'] = 0.0
+
+    # 1. Fitness classes - full amount is fitness
+    fitness_class_mask = df['sub_category'] == 'fitness'
+    df.loc[fitness_class_mask, 'fitness_amount'] = df.loc[fitness_class_mask, 'Total Amount']
+
+    # 2. Fitness-only memberships - full amount is fitness
+    # Check description for "fitness only" or "fitness-only"
+    fitness_only_mask = (
+        df['Description'].str.contains('fitness only', case=False, na=False) |
+        df['Description'].str.contains('fitness-only', case=False, na=False)
+    )
+    df.loc[fitness_only_mask, 'fitness_amount'] = df.loc[fitness_only_mask, 'Total Amount']
+
+    # 3. Fitness add-ons - estimate from membership description
+    # Common pricing: $25-30/month fitness addon
+    # If description contains "fitness" but not "fitness only", it's likely an addon
+    has_fitness_addon_mask = (
+        df['Description'].str.contains('fitness', case=False, na=False) &
+        ~fitness_only_mask &
+        ~fitness_class_mask
+    )
+
+    # For fitness add-ons, estimate based on transaction amount
+    # If it's a membership payment with fitness, assume ~$25-30 is the fitness portion
+    # We'll use a simple heuristic: if total amount > $60, assume $28 is fitness addon
+    for idx in df[has_fitness_addon_mask].index:
+        total_amount = df.at[idx, 'Total Amount']
+        if total_amount > 60:
+            # Assume $28 fitness addon for regular memberships
+            df.at[idx, 'fitness_amount'] = 28.0
+        elif total_amount > 0:
+            # If smaller amount, maybe it's just the addon - take full amount
+            df.at[idx, 'fitness_amount'] = total_amount
+
+    return df
