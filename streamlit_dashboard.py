@@ -937,10 +937,14 @@ with tab5:
     df_events_filtered = df_events_filtered[fitness_mask]
 
     if not df_events_filtered.empty:
-        df_events_filtered['start_datetime'] = pd.to_datetime(df_events_filtered['start_datetime'], errors='coerce')
-        df_events_filtered = df_events_filtered[df_events_filtered['start_datetime'].notna()]
+        # Ensure we have a copy to avoid SettingWithCopyWarning
+        df_events_filtered = df_events_filtered.copy()
+        df_events_filtered['start_datetime'] = pd.to_datetime(df_events_filtered['start_datetime'], errors='coerce', utc=True)
+        df_events_filtered = df_events_filtered[df_events_filtered['start_datetime'].notna()].copy()
 
-        if not df_events_filtered.empty:
+        if not df_events_filtered.empty and len(df_events_filtered) > 0:
+            # Convert timezone-aware datetime to timezone-naive for period conversion
+            df_events_filtered['start_datetime'] = df_events_filtered['start_datetime'].dt.tz_localize(None)
             df_events_filtered['date'] = df_events_filtered['start_datetime'].dt.to_period(timeframe_prog).dt.start_time
 
             attendance = (
