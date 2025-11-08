@@ -308,11 +308,275 @@ with tab1:
     st.plotly_chart(fig_accounting, use_container_width=True)
 
 # ============================================================================
-# TAB 2: MEMBERSHIP (Placeholder)
+# TAB 2: MEMBERSHIP
 # ============================================================================
 with tab2:
     st.header('Membership Analysis')
-    st.info('Membership charts will be added in the next iteration.')
+
+    # Membership Revenue Projection
+    st.subheader('Membership Revenue Projections (Current Month + 3 Months)')
+
+    # Frequency filter for projections
+    projection_frequencies = st.multiselect(
+        'Membership Frequency',
+        options=['bi_weekly', 'monthly', 'annual', 'prepaid_3mo', 'prepaid_6mo', 'prepaid_12mo'],
+        default=['bi_weekly', 'monthly'],
+        format_func=lambda x: x.replace('_', ' ').title()
+    )
+
+    if projection_frequencies:
+        df_proj_filtered = df_projection[df_projection['frequency'].isin(projection_frequencies)]
+
+        proj_summary = df_proj_filtered.groupby('month')['projected_revenue'].sum().reset_index()
+
+        fig_projection = px.bar(
+            proj_summary,
+            x='month',
+            y='projected_revenue',
+            title='Projected Membership Revenue'
+        )
+        fig_projection.update_traces(marker_color=COLORS['secondary'])
+        fig_projection.update_layout(
+            plot_bgcolor=COLORS['background'],
+            paper_bgcolor=COLORS['background'],
+            font_color=COLORS['text'],
+            yaxis_title='Projected Revenue ($)',
+            xaxis_title='Month'
+        )
+        st.plotly_chart(fig_projection, use_container_width=True)
+
+    # Membership Timeline
+    st.subheader('Active Memberships Over Time')
+
+    # Filters
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        status_filter = st.multiselect(
+            'Status',
+            options=['ACT', 'END', 'FRZ'],
+            default=['ACT', 'END'],
+            format_func=lambda x: {'ACT': 'Active', 'END': 'Ended', 'FRZ': 'Frozen'}[x]
+        )
+
+    with col2:
+        frequency_filter = st.multiselect(
+            'Frequency',
+            options=['bi_weekly', 'monthly', 'annual', 'prepaid_3mo', 'prepaid_6mo', 'prepaid_12mo'],
+            default=['bi_weekly', 'monthly'],
+            format_func=lambda x: x.replace('_', ' ').title()
+        )
+
+    with col3:
+        size_filter = st.multiselect(
+            'Size',
+            options=['solo', 'duo', 'family', 'corporate'],
+            default=['solo', 'duo', 'family', 'corporate'],
+            format_func=lambda x: x.title()
+        )
+
+    # Category filters
+    category_options = {
+        'founder': 'Founder',
+        'college': 'College',
+        'corporate': 'Corporate',
+        'mid_day': 'Mid-Day',
+        'fitness_only': 'Fitness Only',
+        'has_fitness_addon': 'Has Fitness Addon',
+        'team_dues': 'Team Dues',
+        '90_for_90': '90 for 90',
+        'not_special': 'Not in Special Category'
+    }
+
+    category_filter = st.multiselect(
+        'Special Categories',
+        options=list(category_options.keys()),
+        default=['founder', 'college', 'corporate', 'mid_day', 'fitness_only', 'has_fitness_addon', 'team_dues', '90_for_90', 'not_special'],
+        format_func=lambda x: category_options[x]
+    )
+
+    # Filter memberships
+    df_memberships_filtered = df_memberships[df_memberships['status'].isin(status_filter)].copy()
+    df_memberships_filtered = df_memberships_filtered[df_memberships_filtered['frequency'].isin(frequency_filter)]
+    df_memberships_filtered = df_memberships_filtered[df_memberships_filtered['size'].isin(size_filter)]
+
+    # Apply category filters
+    if 'include_bcf' not in category_filter:
+        df_memberships_filtered = df_memberships_filtered[~df_memberships_filtered['is_bcf']]
+    if 'founder' not in category_filter:
+        df_memberships_filtered = df_memberships_filtered[~df_memberships_filtered['is_founder']]
+    if 'college' not in category_filter:
+        df_memberships_filtered = df_memberships_filtered[~df_memberships_filtered['is_college']]
+    if 'corporate' not in category_filter:
+        df_memberships_filtered = df_memberships_filtered[~df_memberships_filtered['is_corporate']]
+    if 'mid_day' not in category_filter:
+        df_memberships_filtered = df_memberships_filtered[~df_memberships_filtered['is_mid_day']]
+    if 'fitness_only' not in category_filter:
+        df_memberships_filtered = df_memberships_filtered[~df_memberships_filtered['is_fitness_only']]
+    if 'has_fitness_addon' not in category_filter:
+        df_memberships_filtered = df_memberships_filtered[~df_memberships_filtered['has_fitness_addon']]
+    if 'team_dues' not in category_filter:
+        df_memberships_filtered = df_memberships_filtered[~df_memberships_filtered['is_team_dues']]
+    if '90_for_90' not in category_filter:
+        df_memberships_filtered = df_memberships_filtered[~df_memberships_filtered['is_90_for_90']]
+    if 'not_special' in category_filter:
+        df_memberships_filtered = df_memberships_filtered[df_memberships_filtered['is_not_in_special']]
+
+    # Process dates
+    df_memberships_filtered['start_date'] = pd.to_datetime(df_memberships_filtered['start_date'], errors='coerce')
+    df_memberships_filtered['end_date'] = pd.to_datetime(df_memberships_filtered['end_date'], errors='coerce')
+
+    if not df_memberships_filtered.empty:
+        min_date = df_memberships_filtered['start_date'].min()
+        max_date = pd.Timestamp.now()
+        date_range = pd.date_range(start=min_date, end=max_date, freq='D')
+
+        daily_counts = []
+        for date in date_range:
+            active = df_memberships_filtered[
+                (df_memberships_filtered['start_date'] <= date) &
+                (df_memberships_filtered['end_date'] >= date)
+            ]
+            counts = active['frequency'].value_counts().to_dict()
+            daily_counts.append({
+                'date': date,
+                **{freq: counts.get(freq, 0) for freq in frequency_filter}
+            })
+
+        daily_counts_df = pd.DataFrame(daily_counts)
+
+        # Create stacked area chart
+        fig_timeline = go.Figure()
+
+        frequency_colors = {
+            'bi_weekly': '#1f77b4',
+            'monthly': '#ff7f0e',
+            'annual': '#2ca02c',
+            'prepaid_3mo': '#8B4229',
+            'prepaid_6mo': '#BAA052',
+            'prepaid_12mo': '#96A682',
+        }
+
+        for freq in frequency_filter:
+            if freq in daily_counts_df.columns:
+                fig_timeline.add_trace(go.Scatter(
+                    x=daily_counts_df['date'],
+                    y=daily_counts_df[freq],
+                    mode='lines',
+                    name=freq.replace('_', ' ').title(),
+                    stackgroup='one',
+                    line=dict(color=frequency_colors.get(freq, COLORS['primary']))
+                ))
+
+        # Add total line
+        total = daily_counts_df[frequency_filter].sum(axis=1)
+        fig_timeline.add_trace(go.Scatter(
+            x=daily_counts_df['date'],
+            y=total,
+            mode='lines',
+            name='Total',
+            line=dict(color='#222222', width=2, dash='dash')
+        ))
+
+        fig_timeline.update_layout(
+            title='Active Memberships Over Time by Payment Frequency',
+            plot_bgcolor=COLORS['background'],
+            paper_bgcolor=COLORS['background'],
+            font_color=COLORS['text'],
+            height=600,
+            xaxis_title='Date',
+            yaxis_title='Number of Active Memberships',
+            hovermode='x unified'
+        )
+
+        st.plotly_chart(fig_timeline, use_container_width=True)
+
+    # 90 for 90 Conversion
+    st.subheader('90 for 90 Conversion Summary')
+
+    ninety_members = df_members[df_members['is_90_for_90'] == True].copy()
+
+    if not ninety_members.empty:
+        ninety_members['person_id'] = ninety_members['member_first_name'] + ' ' + ninety_members['member_last_name']
+        df_members_copy = df_members.copy()
+        df_members_copy['person_id'] = df_members_copy['member_first_name'] + ' ' + df_members_copy['member_last_name']
+
+        unique_person_ids = ninety_members['person_id'].unique()
+
+        converted_count = 0
+        not_converted_count = 0
+
+        for person_id in unique_person_ids:
+            person_ninety = ninety_members[ninety_members['person_id'] == person_id]
+            ninety_start_date = pd.to_datetime(person_ninety['start_date'].min(), errors='coerce')
+
+            if pd.notna(ninety_start_date):
+                regular_memberships = df_members_copy[
+                    (df_members_copy['person_id'] == person_id) &
+                    (df_members_copy['is_90_for_90'] == False) &
+                    (pd.to_datetime(df_members_copy['start_date'], errors='coerce') > ninety_start_date)
+                ]
+                if len(regular_memberships) > 0:
+                    converted_count += 1
+                else:
+                    not_converted_count += 1
+
+        total = converted_count + not_converted_count
+        conversion_rate = (converted_count / total * 100) if total > 0 else 0
+
+        summary_data = pd.DataFrame({
+            'Status': ['Converted', 'Not Converted'],
+            'Count': [converted_count, not_converted_count]
+        })
+
+        fig_90 = px.bar(
+            summary_data,
+            x='Status',
+            y='Count',
+            title=f'90 for 90 Conversion Summary (Conversion Rate: {conversion_rate:.1f}%)',
+            color='Status',
+            color_discrete_map={
+                'Converted': COLORS['secondary'],
+                'Not Converted': COLORS['primary']
+            }
+        )
+        fig_90.update_traces(texttemplate='%{y}', textposition='outside')
+        fig_90.update_layout(
+            plot_bgcolor=COLORS['background'],
+            paper_bgcolor=COLORS['background'],
+            font_color=COLORS['text'],
+            height=400,
+            showlegend=False,
+            yaxis_title='Number of Members'
+        )
+        st.plotly_chart(fig_90, use_container_width=True)
+    else:
+        st.info('No 90 for 90 memberships found')
+
+    # At-Risk Members Table
+    st.subheader('At-Risk Members')
+
+    if not df_at_risk.empty:
+        risk_category_filter = st.multiselect(
+            'Filter by Risk Category',
+            options=df_at_risk['risk_category'].unique(),
+            default=df_at_risk['risk_category'].unique()
+        )
+
+        df_at_risk_filtered = df_at_risk_display[
+            df_at_risk['risk_category'].isin(risk_category_filter)
+        ]
+
+        st.dataframe(
+            df_at_risk_filtered,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                'Capitan Link': st.column_config.LinkColumn('Capitan Link')
+            }
+        )
+
+        st.caption(f'Total at-risk members: {len(df_at_risk_filtered)}')
 
 # ============================================================================
 # TAB 3: DAY PASSES & CHECK-INS (Placeholder)
