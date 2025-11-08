@@ -34,13 +34,13 @@ COLORS = {
 
 # Revenue category colors
 REVENUE_CATEGORY_COLORS = {
-    'Day Pass': COLORS['quaternary'],
-    'New Membership': COLORS['primary'],
-    'Membership Renewal': COLORS['secondary'],
-    'Programming': COLORS['tertiary'],
-    'Team Dues': '#8B4229',
-    'Retail': COLORS['secondary'],
-    'Event Booking': '#96A682',
+    'Day Pass': COLORS['quaternary'],        # Dark teal
+    'New Membership': COLORS['primary'],      # Rust
+    'Membership Renewal': '#D4AF6A',          # Lighter gold (different from secondary)
+    'Programming': COLORS['tertiary'],        # Sage green
+    'Team Dues': '#C85A3E',                   # Lighter rust (different from primary)
+    'Retail': COLORS['dark_grey'],            # Dark grey
+    'Event Booking': '#B8C9A8',               # Lighter sage (different from tertiary)
 }
 
 
@@ -193,7 +193,7 @@ with tab1:
         title='Percentage of Revenue by Category',
         barmode='stack',
         category_orders={'revenue_category': category_order},
-        text=revenue_with_total['percentage'].apply(lambda x: f'{x:.1f}%'),
+        text=revenue_with_total['percentage'].apply(lambda x: f'{x:.1f}%' if x >= 5 else ''),
         color_discrete_map=REVENUE_CATEGORY_COLORS
     )
     fig_percentage.update_traces(
@@ -276,11 +276,11 @@ with tab1:
     accounting_with_total['percentage'] = (accounting_with_total['Total Amount'] / accounting_with_total['total_revenue']) * 100
 
     accounting_colors = {
-        'Memberships': REVENUE_CATEGORY_COLORS.get('Membership Renewal', COLORS['primary']),
-        'Team & Programming': REVENUE_CATEGORY_COLORS.get('Programming', COLORS['secondary']),
-        'Day Pass': REVENUE_CATEGORY_COLORS.get('Day Pass', COLORS['quaternary']),
-        'Retail': REVENUE_CATEGORY_COLORS.get('Retail', COLORS['tertiary']),
-        'Event Booking': REVENUE_CATEGORY_COLORS.get('Event Booking', '#8B4229'),
+        'Memberships': COLORS['primary'],         # Rust
+        'Team & Programming': COLORS['tertiary'], # Sage green
+        'Day Pass': COLORS['quaternary'],         # Dark teal
+        'Retail': '#8B7355',                      # Brown (distinct from memberships)
+        'Event Booking': '#B8C9A8',               # Light sage
     }
 
     fig_accounting = px.bar(
@@ -290,7 +290,7 @@ with tab1:
         color='accounting_group',
         title='Revenue by Accounting Groups (Memberships, Team & Programming, etc.)',
         barmode='stack',
-        text=accounting_with_total['percentage'].apply(lambda x: f'{x:.1f}%'),
+        text=accounting_with_total['percentage'].apply(lambda x: f'{x:.1f}%' if x >= 5 else ''),
         color_discrete_map=accounting_colors
     )
     fig_accounting.update_traces(
@@ -827,32 +827,35 @@ with tab5:
     # Fitness Revenue
     st.subheader('Fitness Revenue')
 
-    df_fitness = df_transactions[df_transactions['fitness_amount'] > 0].copy()
-    df_fitness['Date'] = pd.to_datetime(df_fitness['Date'], errors='coerce')
-    df_fitness = df_fitness[df_fitness['Date'].notna()]
-    df_fitness['date'] = df_fitness['Date'].dt.to_period(timeframe).dt.start_time
+    if 'fitness_amount' in df_transactions.columns:
+        df_fitness = df_transactions[df_transactions['fitness_amount'] > 0].copy()
+        df_fitness['Date'] = pd.to_datetime(df_fitness['Date'], errors='coerce')
+        df_fitness = df_fitness[df_fitness['Date'].notna()]
+        df_fitness['date'] = df_fitness['Date'].dt.to_period(timeframe).dt.start_time
 
-    fitness_revenue = (
-        df_fitness.groupby('date')['fitness_amount']
-        .sum()
-        .reset_index()
-    )
+        fitness_revenue = (
+            df_fitness.groupby('date')['fitness_amount']
+            .sum()
+            .reset_index()
+        )
 
-    fig_fitness = px.bar(
-        fitness_revenue,
-        x='date',
-        y='fitness_amount',
-        title='Fitness Revenue (Classes, Fitness-Only Memberships, Add-ons)'
-    )
-    fig_fitness.update_traces(marker_color=COLORS['secondary'])
-    fig_fitness.update_layout(
-        plot_bgcolor=COLORS['background'],
-        paper_bgcolor=COLORS['background'],
-        font_color=COLORS['text'],
-        yaxis_title='Fitness Revenue ($)',
-        xaxis_title='Date'
-    )
-    st.plotly_chart(fig_fitness, use_container_width=True)
+        fig_fitness = px.bar(
+            fitness_revenue,
+            x='date',
+            y='fitness_amount',
+            title='Fitness Revenue (Classes, Fitness-Only Memberships, Add-ons)'
+        )
+        fig_fitness.update_traces(marker_color=COLORS['secondary'])
+        fig_fitness.update_layout(
+            plot_bgcolor=COLORS['background'],
+            paper_bgcolor=COLORS['background'],
+            font_color=COLORS['text'],
+            yaxis_title='Fitness Revenue ($)',
+            xaxis_title='Date'
+        )
+        st.plotly_chart(fig_fitness, use_container_width=True)
+    else:
+        st.info('Fitness revenue data is being calculated. Please wait for the next data pipeline run.')
 
     # Fitness Class Attendance
     st.subheader('Fitness Class Attendance')
