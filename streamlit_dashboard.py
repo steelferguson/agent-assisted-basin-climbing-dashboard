@@ -936,31 +936,38 @@ with tab5:
     )
     df_events_filtered = df_events_filtered[fitness_mask]
 
-    df_events_filtered['start_datetime'] = pd.to_datetime(df_events_filtered['start_datetime'], errors='coerce')
-    df_events_filtered = df_events_filtered[df_events_filtered['start_datetime'].notna()]
-    df_events_filtered['date'] = df_events_filtered['start_datetime'].dt.to_period(timeframe_prog).dt.start_time
+    if not df_events_filtered.empty:
+        df_events_filtered['start_datetime'] = pd.to_datetime(df_events_filtered['start_datetime'], errors='coerce')
+        df_events_filtered = df_events_filtered[df_events_filtered['start_datetime'].notna()]
 
-    attendance = (
-        df_events_filtered.groupby('date')['num_reservations']
-        .sum()
-        .reset_index()
-    )
+        if not df_events_filtered.empty:
+            df_events_filtered['date'] = df_events_filtered['start_datetime'].dt.to_period(timeframe_prog).dt.start_time
 
-    fig_attendance = px.bar(
-        attendance,
-        x='date',
-        y='num_reservations',
-        title='Fitness Class Attendance (Total Reservations)'
-    )
-    fig_attendance.update_traces(marker_color=COLORS['tertiary'])
-    fig_attendance.update_layout(
-        plot_bgcolor=COLORS['background'],
-        paper_bgcolor=COLORS['background'],
-        font_color=COLORS['text'],
-        yaxis_title='Total Attendance',
-        xaxis_title='Date'
-    )
-    st.plotly_chart(fig_attendance, use_container_width=True)
+            attendance = (
+                df_events_filtered.groupby('date')['num_reservations']
+                .sum()
+                .reset_index()
+            )
+
+            fig_attendance = px.bar(
+                attendance,
+                x='date',
+                y='num_reservations',
+                title='Fitness Class Attendance (Total Reservations)'
+            )
+            fig_attendance.update_traces(marker_color=COLORS['tertiary'])
+            fig_attendance.update_layout(
+                plot_bgcolor=COLORS['background'],
+                paper_bgcolor=COLORS['background'],
+                font_color=COLORS['text'],
+                yaxis_title='Total Attendance',
+                xaxis_title='Date'
+            )
+            st.plotly_chart(fig_attendance, use_container_width=True)
+        else:
+            st.info('No fitness class data available with valid dates')
+    else:
+        st.info('No fitness class data available')
 
 # Footer
 st.markdown('---')
