@@ -193,12 +193,13 @@ with tab1:
         title='Percentage of Revenue by Category',
         barmode='stack',
         category_orders={'revenue_category': category_order},
-        text=revenue_with_total['percentage'].apply(lambda x: f'{x:.1f}%' if x >= 5 else ''),
+        text=revenue_with_total['percentage'].apply(lambda x: f'{x:.1f}%'),
         color_discrete_map=REVENUE_CATEGORY_COLORS
     )
     fig_percentage.update_traces(
-        textposition='inside',
-        textfont=dict(size=12, color='white')
+        textposition='auto',  # Auto positions text inside when fits, outside when too small
+        textfont=dict(size=11, color='white'),
+        insidetextanchor='middle'
     )
     fig_percentage.update_layout(
         plot_bgcolor=COLORS['background'],
@@ -290,12 +291,13 @@ with tab1:
         color='accounting_group',
         title='Revenue by Accounting Groups (Memberships, Team & Programming, etc.)',
         barmode='stack',
-        text=accounting_with_total['percentage'].apply(lambda x: f'{x:.1f}%' if x >= 5 else ''),
+        text=accounting_with_total['percentage'].apply(lambda x: f'{x:.1f}%'),
         color_discrete_map=accounting_colors
     )
     fig_accounting.update_traces(
-        textposition='inside',
-        textfont=dict(size=12, color='white')
+        textposition='auto',  # Auto positions text inside when fits, outside when too small
+        textfont=dict(size=11, color='white'),
+        insidetextanchor='middle'
     )
     fig_accounting.update_layout(
         plot_bgcolor=COLORS['background'],
@@ -824,6 +826,15 @@ with tab5:
     )
     st.plotly_chart(fig_team_revenue, use_container_width=True)
 
+    # Timeframe selector for Programming tab
+    timeframe_prog = st.selectbox(
+        'Select Timeframe',
+        options=['D', 'W', 'M'],
+        format_func=lambda x: {'D': 'Daily', 'W': 'Weekly', 'M': 'Monthly'}[x],
+        index=2,  # Default to Monthly
+        key='programming_timeframe'
+    )
+
     # Fitness Revenue
     st.subheader('Fitness Revenue')
 
@@ -831,7 +842,7 @@ with tab5:
         df_fitness = df_transactions[df_transactions['fitness_amount'] > 0].copy()
         df_fitness['Date'] = pd.to_datetime(df_fitness['Date'], errors='coerce')
         df_fitness = df_fitness[df_fitness['Date'].notna()]
-        df_fitness['date'] = df_fitness['Date'].dt.to_period(timeframe).dt.start_time
+        df_fitness['date'] = df_fitness['Date'].dt.to_period(timeframe_prog).dt.start_time
 
         fitness_revenue = (
             df_fitness.groupby('date')['fitness_amount']
@@ -872,7 +883,7 @@ with tab5:
 
     df_events_filtered['start_datetime'] = pd.to_datetime(df_events_filtered['start_datetime'], errors='coerce')
     df_events_filtered = df_events_filtered[df_events_filtered['start_datetime'].notna()]
-    df_events_filtered['date'] = df_events_filtered['start_datetime'].dt.to_period(timeframe).dt.start_time
+    df_events_filtered['date'] = df_events_filtered['start_datetime'].dt.to_period(timeframe_prog).dt.start_time
 
     attendance = (
         df_events_filtered.groupby('date')['num_reservations']
