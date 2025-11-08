@@ -579,25 +579,324 @@ with tab2:
         st.caption(f'Total at-risk members: {len(df_at_risk_filtered)}')
 
 # ============================================================================
-# TAB 3: DAY PASSES & CHECK-INS (Placeholder)
+# TAB 3: DAY PASSES & CHECK-INS
 # ============================================================================
 with tab3:
     st.header('Day Passes & Check-ins')
-    st.info('Day pass and check-in charts will be added in the next iteration.')
+
+    # Day Pass Count
+    st.subheader('Total Day Passes Purchased')
+
+    df_day_pass = df_transactions[df_transactions['revenue_category'] == 'Day Pass'].copy()
+    df_day_pass['Date'] = pd.to_datetime(df_day_pass['Date'], errors='coerce')
+    df_day_pass = df_day_pass[df_day_pass['Date'].notna()]
+    df_day_pass['date'] = df_day_pass['Date'].dt.to_period(timeframe).dt.start_time
+
+    day_pass_sum = (
+        df_day_pass.groupby('date')['Day Pass Count']
+        .sum()
+        .reset_index(name='total_day_passes')
+    )
+
+    fig_day_pass_count = px.bar(
+        day_pass_sum,
+        x='date',
+        y='total_day_passes',
+        title='Total Day Passes Purchased'
+    )
+    fig_day_pass_count.update_traces(marker_color=COLORS['quaternary'])
+    fig_day_pass_count.update_layout(
+        plot_bgcolor=COLORS['background'],
+        paper_bgcolor=COLORS['background'],
+        font_color=COLORS['text'],
+        yaxis_title='Number of Day Passes',
+        xaxis_title='Date'
+    )
+    st.plotly_chart(fig_day_pass_count, use_container_width=True)
+
+    # Day Pass Revenue
+    st.subheader('Day Pass Revenue')
+
+    day_pass_revenue = (
+        df_day_pass.groupby('date')['Total Amount']
+        .sum()
+        .reset_index(name='revenue')
+    )
+
+    fig_day_pass_revenue = px.bar(
+        day_pass_revenue,
+        x='date',
+        y='revenue',
+        title='Day Pass Revenue Over Time'
+    )
+    fig_day_pass_revenue.update_traces(marker_color=COLORS['tertiary'])
+    fig_day_pass_revenue.update_layout(
+        plot_bgcolor=COLORS['background'],
+        paper_bgcolor=COLORS['background'],
+        font_color=COLORS['text'],
+        yaxis_title='Revenue ($)',
+        xaxis_title='Date'
+    )
+    st.plotly_chart(fig_day_pass_revenue, use_container_width=True)
+
+    # Check-ins by Member vs Non-Member
+    st.subheader('Check-ins: Members vs Non-Members')
+    st.info('Check-in data visualization coming soon - requires Capitan check-in data integration')
 
 # ============================================================================
-# TAB 4: RENTALS (Placeholder)
+# TAB 4: RENTALS
 # ============================================================================
 with tab4:
     st.header('Rentals')
-    st.info('Rental charts will be added in the next iteration.')
+
+    # Birthday Party Participants
+    st.subheader('Birthday Party Participants')
+
+    df_birthday = df_transactions[df_transactions['sub_category'] == 'birthday'].copy()
+    df_birthday['Date'] = pd.to_datetime(df_birthday['Date'], errors='coerce')
+    df_birthday = df_birthday[df_birthday['Date'].notna()]
+    df_birthday['date'] = df_birthday['Date'].dt.to_period(timeframe).dt.start_time
+
+    # Extract participant count
+    def extract_participants(desc):
+        if pd.isna(desc):
+            return 0
+        import re
+        match = re.search(r'(\d+)\s*participants?', str(desc), re.IGNORECASE)
+        if match:
+            return int(match.group(1))
+        return 0
+
+    df_birthday['participants'] = df_birthday['Description'].apply(extract_participants)
+
+    birthday_participants = (
+        df_birthday.groupby('date')['participants']
+        .sum()
+        .reset_index()
+    )
+
+    fig_birthday_participants = px.bar(
+        birthday_participants,
+        x='date',
+        y='participants',
+        title='Birthday Party Participants'
+    )
+    fig_birthday_participants.update_traces(marker_color=COLORS['secondary'])
+    fig_birthday_participants.update_layout(
+        plot_bgcolor=COLORS['background'],
+        paper_bgcolor=COLORS['background'],
+        font_color=COLORS['text'],
+        yaxis_title='Number of Participants',
+        xaxis_title='Date'
+    )
+    st.plotly_chart(fig_birthday_participants, use_container_width=True)
+
+    # Birthday Party Revenue
+    st.subheader('Birthday Party Revenue')
+
+    birthday_revenue = (
+        df_birthday.groupby('date')['Total Amount']
+        .sum()
+        .reset_index()
+    )
+
+    fig_birthday_revenue = px.line(
+        birthday_revenue,
+        x='date',
+        y='Total Amount',
+        title='Birthday Party Revenue'
+    )
+    fig_birthday_revenue.update_traces(line_color=COLORS['quaternary'])
+    fig_birthday_revenue.update_layout(
+        plot_bgcolor=COLORS['background'],
+        paper_bgcolor=COLORS['background'],
+        font_color=COLORS['text'],
+        yaxis_title='Revenue ($)',
+        xaxis_title='Date'
+    )
+    st.plotly_chart(fig_birthday_revenue, use_container_width=True)
+
+    # All Rental Revenue (Event Booking category)
+    st.subheader('All Rental Revenue (Event Bookings)')
+
+    df_rentals = df_transactions[df_transactions['revenue_category'] == 'Event Booking'].copy()
+    df_rentals['Date'] = pd.to_datetime(df_rentals['Date'], errors='coerce')
+    df_rentals = df_rentals[df_rentals['Date'].notna()]
+    df_rentals['date'] = df_rentals['Date'].dt.to_period(timeframe).dt.start_time
+
+    # Group by sub_category
+    rental_by_type = (
+        df_rentals.groupby(['date', 'sub_category'])['Total Amount']
+        .sum()
+        .reset_index()
+    )
+
+    fig_all_rentals = px.bar(
+        rental_by_type,
+        x='date',
+        y='Total Amount',
+        color='sub_category',
+        title='All Rental Revenue by Type (Birthday Parties, Events, etc.)',
+        barmode='stack'
+    )
+    fig_all_rentals.update_layout(
+        plot_bgcolor=COLORS['background'],
+        paper_bgcolor=COLORS['background'],
+        font_color=COLORS['text'],
+        yaxis_title='Revenue ($)',
+        xaxis_title='Date',
+        legend_title='Rental Type'
+    )
+    st.plotly_chart(fig_all_rentals, use_container_width=True)
 
 # ============================================================================
-# TAB 5: PROGRAMMING (Placeholder)
+# TAB 5: PROGRAMMING
 # ============================================================================
 with tab5:
     st.header('Programming')
-    st.info('Programming charts will be added in the next iteration.')
+
+    # Youth Team Members
+    st.subheader('Youth Team Members Over Time')
+
+    df_youth_team = df_members[df_members['is_team_dues'] == True].copy()
+
+    if not df_youth_team.empty:
+        df_youth_team['start_date'] = pd.to_datetime(df_youth_team['start_date'], errors='coerce')
+        df_youth_team['end_date'] = pd.to_datetime(df_youth_team['end_date'], errors='coerce')
+
+        min_date = df_youth_team['start_date'].min()
+        max_date = pd.Timestamp.now()
+        date_range = pd.date_range(start=min_date, end=max_date, freq='M')
+
+        youth_counts = []
+        for date in date_range:
+            active_youth = df_youth_team[
+                (df_youth_team['start_date'] <= date) &
+                (df_youth_team['end_date'] >= date)
+            ]
+            youth_counts.append({
+                'date': date,
+                'count': len(active_youth)
+            })
+
+        youth_df = pd.DataFrame(youth_counts)
+
+        fig_youth = px.line(
+            youth_df,
+            x='date',
+            y='count',
+            title='Active Youth Team Members'
+        )
+        fig_youth.update_traces(line_color=COLORS['primary'])
+        fig_youth.update_layout(
+            plot_bgcolor=COLORS['background'],
+            paper_bgcolor=COLORS['background'],
+            font_color=COLORS['text'],
+            yaxis_title='Number of Team Members',
+            xaxis_title='Date'
+        )
+        st.plotly_chart(fig_youth, use_container_width=True)
+    else:
+        st.info('No youth team data available')
+
+    # Youth Team Revenue
+    st.subheader('Youth Team Revenue')
+
+    df_team_revenue = df_transactions[df_transactions['revenue_category'] == 'Team Dues'].copy()
+    df_team_revenue['Date'] = pd.to_datetime(df_team_revenue['Date'], errors='coerce')
+    df_team_revenue = df_team_revenue[df_team_revenue['Date'].notna()]
+    df_team_revenue['date'] = df_team_revenue['Date'].dt.to_period(timeframe).dt.start_time
+
+    team_revenue = (
+        df_team_revenue.groupby('date')['Total Amount']
+        .sum()
+        .reset_index()
+    )
+
+    fig_team_revenue = px.bar(
+        team_revenue,
+        x='date',
+        y='Total Amount',
+        title='Youth Team Revenue'
+    )
+    fig_team_revenue.update_traces(marker_color=COLORS['primary'])
+    fig_team_revenue.update_layout(
+        plot_bgcolor=COLORS['background'],
+        paper_bgcolor=COLORS['background'],
+        font_color=COLORS['text'],
+        yaxis_title='Revenue ($)',
+        xaxis_title='Date'
+    )
+    st.plotly_chart(fig_team_revenue, use_container_width=True)
+
+    # Fitness Revenue
+    st.subheader('Fitness Revenue')
+
+    df_fitness = df_transactions[df_transactions['fitness_amount'] > 0].copy()
+    df_fitness['Date'] = pd.to_datetime(df_fitness['Date'], errors='coerce')
+    df_fitness = df_fitness[df_fitness['Date'].notna()]
+    df_fitness['date'] = df_fitness['Date'].dt.to_period(timeframe).dt.start_time
+
+    fitness_revenue = (
+        df_fitness.groupby('date')['fitness_amount']
+        .sum()
+        .reset_index()
+    )
+
+    fig_fitness = px.bar(
+        fitness_revenue,
+        x='date',
+        y='fitness_amount',
+        title='Fitness Revenue (Classes, Fitness-Only Memberships, Add-ons)'
+    )
+    fig_fitness.update_traces(marker_color=COLORS['secondary'])
+    fig_fitness.update_layout(
+        plot_bgcolor=COLORS['background'],
+        paper_bgcolor=COLORS['background'],
+        font_color=COLORS['text'],
+        yaxis_title='Fitness Revenue ($)',
+        xaxis_title='Date'
+    )
+    st.plotly_chart(fig_fitness, use_container_width=True)
+
+    # Fitness Class Attendance
+    st.subheader('Fitness Class Attendance')
+
+    fitness_event_keywords = ['HYROX', 'transformation', 'strength', 'fitness', 'yoga', 'workout']
+
+    df_events_filtered = df_events.copy()
+    df_events_filtered['event_type_name_lower'] = df_events_filtered['event_type_name'].str.lower()
+
+    fitness_mask = df_events_filtered['event_type_name_lower'].apply(
+        lambda x: any(keyword.lower() in str(x) for keyword in fitness_event_keywords) if pd.notna(x) else False
+    )
+    df_events_filtered = df_events_filtered[fitness_mask]
+
+    df_events_filtered['start_datetime'] = pd.to_datetime(df_events_filtered['start_datetime'], errors='coerce')
+    df_events_filtered = df_events_filtered[df_events_filtered['start_datetime'].notna()]
+    df_events_filtered['date'] = df_events_filtered['start_datetime'].dt.to_period(timeframe).dt.start_time
+
+    attendance = (
+        df_events_filtered.groupby('date')['num_reservations']
+        .sum()
+        .reset_index()
+    )
+
+    fig_attendance = px.bar(
+        attendance,
+        x='date',
+        y='num_reservations',
+        title='Fitness Class Attendance (Total Reservations)'
+    )
+    fig_attendance.update_traces(marker_color=COLORS['tertiary'])
+    fig_attendance.update_layout(
+        plot_bgcolor=COLORS['background'],
+        paper_bgcolor=COLORS['background'],
+        font_color=COLORS['text'],
+        yaxis_title='Total Attendance',
+        xaxis_title='Date'
+    )
+    st.plotly_chart(fig_attendance, use_container_width=True)
 
 # Footer
 st.markdown('---')
