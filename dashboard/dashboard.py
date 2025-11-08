@@ -233,7 +233,6 @@ def create_dashboard(app):
                             "has_fitness_addon",
                             "team_dues",
                             "90_for_90",
-                            "include_bcf",
                             "not_special",
                         ],
                         inline=True,
@@ -823,8 +822,9 @@ def create_dashboard(app):
             df = df[~df["is_team_dues"]]
         if "90_for_90" not in category_toggle:
             df = df[~df["is_90_for_90"]]
-        if "not_special" not in category_toggle:
-            df = df[~df["is_not_in_special"]]
+        if "not_special" in category_toggle:
+            # When "not_special" is selected, show ONLY members NOT in special categories
+            df = df[df["is_not_in_special"]]
 
         # Create a date range from the earliest start date to today
         min_date = df["start_date"].min()
@@ -938,8 +938,9 @@ def create_dashboard(app):
             df = df[~df["is_team_dues"]]
         if "90_for_90" not in category_toggle:
             df = df[~df["is_90_for_90"]]
-        if "not_special" not in category_toggle:
-            df = df[~df["is_not_in_special"]]
+        if "not_special" in category_toggle:
+            # When "not_special" is selected, show ONLY members NOT in special categories
+            df = df[df["is_not_in_special"]]
 
         # Create a date range from the earliest start date to today
         min_date = df["start_date"].min()

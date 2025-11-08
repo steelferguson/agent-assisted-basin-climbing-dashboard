@@ -18,7 +18,7 @@ class AtRiskMemberIdentifier:
 
     Risk Categories:
     1. Declining Activity - No check-ins in last 2 weeks, but had check-ins in last 2 months
-    2. Completely Inactive - No check-ins in last 2 months
+    2. Very Inactive - Active members with no check-ins in last 2 months
     """
 
     def __init__(self, df_checkins: pd.DataFrame, df_members: pd.DataFrame,
@@ -132,14 +132,14 @@ class AtRiskMemberIdentifier:
         print(f"  Found {len(at_risk)} members with declining activity")
         return pd.DataFrame(at_risk)
 
-    def identify_completely_inactive(self) -> pd.DataFrame:
+    def identify_very_inactive(self) -> pd.DataFrame:
         """
-        Identify members with no check-ins in last 2 months.
+        Identify active members with no check-ins in last 2 months.
 
         Returns:
             DataFrame with at-risk members in this category
         """
-        print(f"Identifying completely inactive members...")
+        print(f"Identifying very inactive members...")
 
         two_weeks_ago = self.today - timedelta(weeks=2)
         two_months_ago = self.today - timedelta(days=60)
@@ -200,11 +200,11 @@ class AtRiskMemberIdentifier:
                     'last_checkin_date': last_checkin,
                     'checkins_last_2_weeks': 0,
                     'checkins_last_2_months': 0,
-                    'risk_category': 'Completely Inactive',
+                    'risk_category': 'Very Inactive',
                     'risk_description': f'No visits in 2+ months' + (f' (last visit {days_since_checkin} days ago)' if days_since_checkin else ' (never visited)')
                 })
 
-        print(f"  Found {len(at_risk)} completely inactive members")
+        print(f"  Found {len(at_risk)} very inactive members")
         return pd.DataFrame(at_risk)
 
     def identify_all_at_risk(self) -> pd.DataFrame:
@@ -220,12 +220,12 @@ class AtRiskMemberIdentifier:
 
         # Run both identification methods
         declining = self.identify_declining_activity()
-        inactive = self.identify_completely_inactive()
+        very_inactive = self.identify_very_inactive()
 
         # Combine results
         all_at_risk = pd.concat([
             declining,
-            inactive
+            very_inactive
         ], ignore_index=True)
 
         # Remove duplicates (shouldn't happen with current logic, but safety check)
@@ -240,7 +240,7 @@ class AtRiskMemberIdentifier:
         all_at_risk['generated_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
         # Sort by category, then by last check-in date (most recent first)
-        category_order = ['Declining Activity', 'Completely Inactive']
+        category_order = ['Declining Activity', 'Very Inactive']
         all_at_risk['category_order'] = all_at_risk['risk_category'].map(
             {cat: i for i, cat in enumerate(category_order)}
         )
