@@ -85,7 +85,7 @@ class SlideTemplate:
 
         paragraph = text_frame.paragraphs[0]
         paragraph.font.size = Pt(10)
-        paragraph.font.color.rgb = COLORS['gray']
+        paragraph.font.color.rgb = COLORS['dark_grey']
         paragraph.font.name = BRAND_FONT
 
     def _add_text_box(self, slide, text: str, left: Inches, top: Inches,
@@ -148,7 +148,7 @@ class SlideTemplate:
             self._add_text_box(
                 slide, date,
                 title_left, date_top, title_width, Inches(0.5),
-                font_size=18, color=COLORS['gray'], align=PP_ALIGN.CENTER
+                font_size=18, color=COLORS['sage'], align=PP_ALIGN.CENTER
             )
 
     def section_header(self, text: str) -> None:
@@ -222,7 +222,7 @@ class SlideTemplate:
             )
             card.fill.solid()
             card.fill.fore_color.rgb = RGBColor(240, 242, 246)  # Light gray background
-            card.line.color.rgb = COLORS['gray']
+            card.line.color.rgb = COLORS['sage']
 
             # Metric value
             value_top = top + height / 2 - Inches(0.4)
@@ -259,7 +259,7 @@ class SlideTemplate:
                 delta_frame.text = metric['delta']
                 delta_para = delta_frame.paragraphs[0]
                 delta_para.font.size = Pt(12)
-                delta_para.font.color.rgb = COLORS['gray']
+                delta_para.font.color.rgb = COLORS['dark_grey']
                 delta_para.font.name = BRAND_FONT
                 delta_para.alignment = PP_ALIGN.CENTER
 

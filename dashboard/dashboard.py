@@ -108,6 +108,7 @@ def create_dashboard(app):
                     dcc.Graph(id="square-stripe-revenue-chart"),
                     dcc.Graph(id="square-stripe-revenue-stacked-chart"),
                     dcc.Graph(id="revenue-percentage-chart"),
+                    dcc.Graph(id="refund-rate-chart"),
                 ],
                 style={"marginBottom": "40px"},
             ),
@@ -493,6 +494,7 @@ def create_dashboard(app):
             Output("square-stripe-revenue-chart", "figure"),
             Output("square-stripe-revenue-stacked-chart", "figure"),
             Output("revenue-percentage-chart", "figure"),
+            Output("refund-rate-chart", "figure"),
         ],
         [Input("timeframe-toggle", "value"), Input("source-toggle", "value")],
     )
@@ -594,7 +596,62 @@ def create_dashboard(app):
                 selector=dict(name=category),
             )
 
-        return line_fig, stacked_fig, percentage_fig
+        # Refund rate chart
+        # Calculate gross revenue (positive amounts) and refunds (negative amounts) by category
+        df_filtered_copy = df_filtered.copy()
+        df_filtered_copy['is_refund'] = df_filtered_copy['Total Amount'] < 0
+
+        refund_stats = df_filtered_copy.groupby('revenue_category').agg({
+            'Total Amount': lambda x: {
+                'gross': x[x > 0].sum(),
+                'refunds': abs(x[x < 0].sum()),
+                'net': x.sum()
+            }
+        }).reset_index()
+
+        # Expand the dict into columns
+        refund_stats['gross_revenue'] = refund_stats['Total Amount'].apply(lambda x: x['gross'])
+        refund_stats['refunds'] = refund_stats['Total Amount'].apply(lambda x: x['refunds'])
+        refund_stats['net_revenue'] = refund_stats['Total Amount'].apply(lambda x: x['net'])
+        refund_stats.drop('Total Amount', axis=1, inplace=True)
+
+        # Calculate refund rate percentage
+        refund_stats['refund_rate'] = (refund_stats['refunds'] / refund_stats['gross_revenue'] * 100).fillna(0)
+
+        # Filter out categories with no gross revenue
+        refund_stats = refund_stats[refund_stats['gross_revenue'] > 0]
+
+        # Sort by refund rate descending
+        refund_stats = refund_stats.sort_values('refund_rate', ascending=False)
+
+        # Create horizontal bar chart for refund rates
+        refund_fig = px.bar(
+            refund_stats,
+            y='revenue_category',
+            x='refund_rate',
+            title='Refund Rate by Category (%)',
+            orientation='h',
+            text='refund_rate',
+            labels={'refund_rate': 'Refund Rate (%)', 'revenue_category': 'Category'}
+        )
+
+        # Update text to show percentage with 1 decimal
+        refund_fig.update_traces(
+            texttemplate='%{text:.1f}%',
+            textposition='outside',
+            marker_color=chart_colors["primary"]
+        )
+
+        refund_fig.update_layout(
+            plot_bgcolor=chart_colors["background"],
+            paper_bgcolor=chart_colors["background"],
+            font_color=chart_colors["text"],
+            xaxis_title="Refund Rate (%)",
+            yaxis_title="Category",
+            height=400
+        )
+
+        return line_fig, stacked_fig, percentage_fig, refund_fig
 
     # Callback for Day Pass chart
     @app.callback(

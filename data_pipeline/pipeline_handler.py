@@ -72,7 +72,7 @@ def fetch_stripe_and_square_and_combine(days=2, end_date=datetime.datetime.now()
     )
 
     df_combined = pd.concat([stripe_df, square_df], ignore_index=True)
-    
+
     # Ensure consistent date format as strings in "M/D/YYYY" format
     # Convert to datetime first to handle any timezone issues
     df_combined["Date"] = pd.to_datetime(df_combined["Date"], errors="coerce")
@@ -81,7 +81,13 @@ def fetch_stripe_and_square_and_combine(days=2, end_date=datetime.datetime.now()
         df_combined["Date"] = df_combined["Date"].dt.tz_localize(None)
     # Format as string in the expected format "YYYY-MM-DD"
     df_combined["Date"] = df_combined["Date"].dt.strftime("%Y-%m-%d")
-    
+
+    # Link refunds to their original transaction categories
+    # This ensures refunds are attributed to the correct revenue category (e.g., Day Pass, Programming)
+    # instead of showing all refunds as one "Refund" category
+    from data_pipeline.link_refunds_to_categories import link_refunds_to_original_categories
+    df_combined, linking_stats = link_refunds_to_original_categories(df_combined)
+
     return df_combined
 
 
