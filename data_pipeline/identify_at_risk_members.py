@@ -81,7 +81,8 @@ class AtRiskMemberIdentifier:
         at_risk = []
 
         for _, member in active_members.iterrows():
-            customer_id = member['member_id']
+            # Use customer_id (Capitan ID) for URLs, not member_id
+            customer_id = member.get('customer_id', member['member_id'])
 
             # Get membership type and BCF status directly from member record
             membership_type = member.get('name', 'Unknown')
@@ -156,7 +157,8 @@ class AtRiskMemberIdentifier:
         at_risk = []
 
         for _, member in active_members.iterrows():
-            customer_id = member['member_id']
+            # Use customer_id (Capitan ID) for URLs, not member_id
+            customer_id = member.get('customer_id', member['member_id'])
 
             # Get membership type and BCF status directly from member record
             membership_type = member.get('name', 'Unknown')

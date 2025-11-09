@@ -216,6 +216,7 @@ class CapitanDataFetcher:
                     {
                         "membership_id": membership.get("membership_id"),
                         "member_id": member.get("member_id"),
+                        "customer_id": member.get("id"),  # Capitan customer ID for URLs
                         "member_first_name": member.get("first_name"),
                         "member_last_name": member.get("last_name"),
                         "member_is_individually_frozen": member.get(

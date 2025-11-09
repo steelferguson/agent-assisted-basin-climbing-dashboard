@@ -60,13 +60,14 @@ def load_data():
     df_at_risk = load_df(config.aws_bucket_name, config.s3_path_at_risk_members)
     df_facebook_ads = load_df(config.aws_bucket_name, config.s3_path_facebook_ads)
     df_events = load_df(config.aws_bucket_name, config.s3_path_capitan_events)
+    df_checkins = load_df(config.aws_bucket_name, config.s3_path_capitan_checkins)
 
-    return df_transactions, df_memberships, df_members, df_projection, df_at_risk, df_facebook_ads, df_events
+    return df_transactions, df_memberships, df_members, df_projection, df_at_risk, df_facebook_ads, df_events, df_checkins
 
 
 # Load data
 with st.spinner('Loading data from S3...'):
-    df_transactions, df_memberships, df_members, df_projection, df_at_risk, df_facebook_ads, df_events = load_data()
+    df_transactions, df_memberships, df_members, df_projection, df_at_risk, df_facebook_ads, df_events, df_checkins = load_data()
 
 # Prepare at-risk members data
 if not df_at_risk.empty:
@@ -140,9 +141,14 @@ with tab1:
         total_revenue,
         x='date',
         y='Total Amount',
-        title='Total Revenue Over Time'
+        title='Total Revenue Over Time',
+        text=total_revenue['Total Amount'].apply(lambda x: f'${x/1000:.1f}K')
     )
-    fig_line.update_traces(line_color=COLORS['primary'])
+    fig_line.update_traces(
+        line_color=COLORS['primary'],
+        textposition='top center',
+        textfont=dict(size=10)
+    )
     fig_line.update_layout(
         plot_bgcolor=COLORS['background'],
         paper_bgcolor=COLORS['background'],
@@ -197,9 +203,9 @@ with tab1:
         color_discrete_map=REVENUE_CATEGORY_COLORS
     )
     fig_percentage.update_traces(
-        textposition='auto',  # Auto positions text inside when fits, outside when too small
-        textfont=dict(size=11, color='white'),
-        insidetextanchor='middle'
+        textposition='outside',  # Always position labels outside for consistent size/visibility
+        textfont=dict(size=11),
+        cliponaxis=False
     )
     fig_percentage.update_layout(
         plot_bgcolor=COLORS['background'],
@@ -309,38 +315,145 @@ with tab1:
     )
     st.plotly_chart(fig_accounting, use_container_width=True)
 
+    # Membership Revenue Projection
+    st.subheader('Membership Revenue: Historical & Projected')
+
+    # Get historical membership revenue (last 3 months)
+    df_membership_revenue = df_transactions[
+        df_transactions['revenue_category'].isin(['New Membership', 'Membership Renewal'])
+    ].copy()
+    df_membership_revenue['date'] = pd.to_datetime(df_membership_revenue['Date'])
+    df_membership_revenue['month'] = df_membership_revenue['date'].dt.to_period('M')
+
+    historical_revenue = (
+        df_membership_revenue.groupby('month')['Total Amount']
+        .sum()
+        .reset_index()
+    )
+    historical_revenue.columns = ['month', 'amount']
+    historical_revenue['month_str'] = historical_revenue['month'].astype(str)
+    historical_revenue['type'] = 'Realized'
+
+    # Get current month
+    current_month = pd.Period.now('M')
+
+    # Filter to last 3 months
+    historical_revenue = historical_revenue[
+        historical_revenue['month'] >= (current_month - 2)
+    ]
+
+    # Get projected revenue
+    df_proj = df_projection.copy()
+    df_proj['date'] = pd.to_datetime(df_proj['date'])
+    df_proj['month'] = df_proj['date'].dt.to_period('M')
+
+    proj_summary = df_proj.groupby('month')['projected_total'].sum().reset_index()
+    proj_summary.columns = ['month', 'amount']
+    proj_summary['month_str'] = proj_summary['month'].astype(str)
+    proj_summary['type'] = 'Projected'
+
+    # Filter to next 4 months (including current month)
+    proj_summary = proj_summary[
+        (proj_summary['month'] >= current_month) &
+        (proj_summary['month'] <= current_month + 3)
+    ]
+
+    # For current month, we want both realized (so far) and projected (scheduled)
+    # Get realized revenue for current month
+    current_month_realized = historical_revenue[
+        historical_revenue['month'] == current_month
+    ].copy()
+
+    # Remove current month from projected (we'll add it back with both components)
+    proj_summary_future = proj_summary[proj_summary['month'] > current_month].copy()
+    current_month_projected = proj_summary[proj_summary['month'] == current_month].copy()
+
+    # Combine data for chart
+    # Past months: realized only
+    past_months = historical_revenue[historical_revenue['month'] < current_month].copy()
+
+    # Current month: both realized and projected stacked
+    # Future months: projected only
+
+    # Create chart data
+    chart_data = []
+
+    # Add past months (realized)
+    for _, row in past_months.iterrows():
+        chart_data.append({
+            'month': row['month_str'],
+            'Realized': row['amount'],
+            'Projected': 0
+        })
+
+    # Add current month (both)
+    if not current_month_realized.empty and not current_month_projected.empty:
+        chart_data.append({
+            'month': current_month.strftime('%Y-%m'),
+            'Realized': current_month_realized['amount'].iloc[0],
+            'Projected': current_month_projected['amount'].iloc[0]
+        })
+    elif not current_month_projected.empty:
+        # No realized revenue yet this month
+        chart_data.append({
+            'month': current_month.strftime('%Y-%m'),
+            'Realized': 0,
+            'Projected': current_month_projected['amount'].iloc[0]
+        })
+
+    # Add future months (projected only)
+    for _, row in proj_summary_future.iterrows():
+        chart_data.append({
+            'month': row['month_str'],
+            'Realized': 0,
+            'Projected': row['amount']
+        })
+
+    df_chart = pd.DataFrame(chart_data)
+
+    # Create stacked bar chart
+    fig_projection = go.Figure()
+
+    # Add realized revenue bars
+    fig_projection.add_trace(go.Bar(
+        name='Realized',
+        x=df_chart['month'],
+        y=df_chart['Realized'],
+        marker_color=COLORS['primary'],
+        text=df_chart['Realized'].apply(lambda x: f'${x/1000:.1f}K' if x > 0 else ''),
+        textposition='inside',
+        textfont=dict(size=11, color='white')
+    ))
+
+    # Add projected revenue bars
+    fig_projection.add_trace(go.Bar(
+        name='Projected',
+        x=df_chart['month'],
+        y=df_chart['Projected'],
+        marker_color=COLORS['secondary'],
+        text=df_chart['Projected'].apply(lambda x: f'${x/1000:.1f}K' if x > 0 else ''),
+        textposition='inside',
+        textfont=dict(size=11, color='white')
+    ))
+
+    fig_projection.update_layout(
+        barmode='stack',
+        plot_bgcolor=COLORS['background'],
+        paper_bgcolor=COLORS['background'],
+        font_color=COLORS['text'],
+        yaxis_title='Revenue ($)',
+        xaxis_title='Month',
+        legend_title='Type',
+        showlegend=True
+    )
+
+    st.plotly_chart(fig_projection, use_container_width=True)
+
 # ============================================================================
 # TAB 2: MEMBERSHIP
 # ============================================================================
 with tab2:
     st.header('Membership Analysis')
-
-    # Membership Revenue Projection
-    st.subheader('Membership Revenue Projections (Current Month + 3 Months)')
-
-    # Convert date column to datetime and create month column
-    df_proj = df_projection.copy()
-    df_proj['date'] = pd.to_datetime(df_proj['date'])
-    df_proj['month'] = df_proj['date'].dt.to_period('M').astype(str)
-
-    # Aggregate by month
-    proj_summary = df_proj.groupby('month')['projected_total'].sum().reset_index()
-
-    fig_projection = px.bar(
-        proj_summary,
-        x='month',
-        y='projected_total',
-        title='Projected Membership Revenue'
-    )
-    fig_projection.update_traces(marker_color=COLORS['secondary'])
-    fig_projection.update_layout(
-        plot_bgcolor=COLORS['background'],
-        paper_bgcolor=COLORS['background'],
-        font_color=COLORS['text'],
-        yaxis_title='Projected Revenue ($)',
-        xaxis_title='Month'
-    )
-    st.plotly_chart(fig_projection, use_container_width=True)
 
     # Membership Timeline
     st.subheader('Active Memberships Over Time')
@@ -587,11 +700,75 @@ with tab2:
 
         st.caption(f'Total at-risk members: {len(df_at_risk_filtered)}')
 
+    # Recently Attrited Members
+    st.subheader('Recently Attrited Members (Last 60 Days)')
+
+    # Find members whose membership ended in last 60 days and no longer have active membership
+    from datetime import datetime, timedelta
+    sixty_days_ago = datetime.now() - timedelta(days=60)
+
+    # Get members whose membership ended recently
+    df_memberships['end_date'] = pd.to_datetime(df_memberships['end_date'], errors='coerce')
+    recently_ended = df_memberships[
+        (df_memberships['end_date'] >= sixty_days_ago) &
+        (df_memberships['end_date'] <= datetime.now())
+    ].copy()
+
+    # Check if they have any active memberships
+    active_member_ids = df_memberships[
+        df_memberships['status'] == 'ACT'
+    ]['owner_id'].unique()
+
+    # Filter to only those without active memberships
+    attrited = recently_ended[
+        ~recently_ended['owner_id'].isin(active_member_ids)
+    ].copy()
+
+    if not attrited.empty:
+        # Get unique members (they might have multiple ended memberships)
+        attrited_unique = attrited.sort_values('end_date', ascending=False).drop_duplicates('owner_id')
+
+        # Prepare display data
+        attrited_display = attrited_unique[[
+            'owner_id', 'membership_owner_age', 'name', 'end_date'
+        ]].copy()
+        attrited_display.columns = ['Customer ID', 'Age', 'Membership Type', 'End Date']
+
+        # Add Capitan link
+        attrited_display['Capitan Link'] = attrited_display['Customer ID'].apply(
+            lambda x: f"https://app.hellocapitan.com/customers/{x}/check-ins" if pd.notna(x) else ''
+        )
+
+        # Format end date
+        attrited_display['End Date'] = pd.to_datetime(attrited_display['End Date']).dt.strftime('%Y-%m-%d')
+
+        st.dataframe(
+            attrited_display,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                'Capitan Link': st.column_config.LinkColumn('Capitan Link')
+            }
+        )
+
+        st.caption(f'Total recently attrited members: {len(attrited_unique)}')
+    else:
+        st.info('No recently attrited members found')
+
 # ============================================================================
 # TAB 3: DAY PASSES & CHECK-INS
 # ============================================================================
 with tab3:
     st.header('Day Passes & Check-ins')
+
+    # Timeframe selector for day pass charts
+    timeframe_daypass = st.selectbox(
+        'Select Timeframe',
+        options=['D', 'W', 'M', 'Y'],
+        format_func=lambda x: {'D': 'Daily', 'W': 'Weekly', 'M': 'Monthly', 'Y': 'Yearly'}[x],
+        index=2,  # Default to Monthly
+        key='daypass_timeframe'
+    )
 
     # Day Pass Count
     st.subheader('Total Day Passes Purchased')
@@ -599,7 +776,7 @@ with tab3:
     df_day_pass = df_transactions[df_transactions['revenue_category'] == 'Day Pass'].copy()
     df_day_pass['Date'] = pd.to_datetime(df_day_pass['Date'], errors='coerce')
     df_day_pass = df_day_pass[df_day_pass['Date'].notna()]
-    df_day_pass['date'] = df_day_pass['Date'].dt.to_period(timeframe).dt.start_time
+    df_day_pass['date'] = df_day_pass['Date'].dt.to_period(timeframe_daypass).dt.start_time
 
     day_pass_sum = (
         df_day_pass.groupby('date')['Day Pass Count']
@@ -607,13 +784,21 @@ with tab3:
         .reset_index(name='total_day_passes')
     )
 
+    # Calculate total for caption
+    total_day_passes = day_pass_sum['total_day_passes'].sum()
+
     fig_day_pass_count = px.bar(
         day_pass_sum,
         x='date',
         y='total_day_passes',
-        title='Total Day Passes Purchased'
+        title='Total Day Passes Purchased',
+        text=day_pass_sum['total_day_passes']
     )
-    fig_day_pass_count.update_traces(marker_color=COLORS['quaternary'])
+    fig_day_pass_count.update_traces(
+        marker_color=COLORS['quaternary'],
+        textposition='outside',
+        textfont=dict(size=11)
+    )
     fig_day_pass_count.update_layout(
         plot_bgcolor=COLORS['background'],
         paper_bgcolor=COLORS['background'],
@@ -622,6 +807,7 @@ with tab3:
         xaxis_title='Date'
     )
     st.plotly_chart(fig_day_pass_count, use_container_width=True)
+    st.caption(f'Total day passes: {int(total_day_passes):,}')
 
     # Day Pass Revenue
     st.subheader('Day Pass Revenue')
@@ -636,9 +822,14 @@ with tab3:
         day_pass_revenue,
         x='date',
         y='revenue',
-        title='Day Pass Revenue Over Time'
+        title='Day Pass Revenue Over Time',
+        text=day_pass_revenue['revenue'].apply(lambda x: f'${x/1000:.1f}K')
     )
-    fig_day_pass_revenue.update_traces(marker_color=COLORS['tertiary'])
+    fig_day_pass_revenue.update_traces(
+        marker_color=COLORS['tertiary'],
+        textposition='outside',
+        textfont=dict(size=11)
+    )
     fig_day_pass_revenue.update_layout(
         plot_bgcolor=COLORS['background'],
         paper_bgcolor=COLORS['background'],
@@ -650,7 +841,120 @@ with tab3:
 
     # Check-ins by Member vs Non-Member
     st.subheader('Check-ins: Members vs Non-Members')
-    st.info('Check-in data visualization coming soon - requires Capitan check-in data integration')
+
+    if not df_checkins.empty:
+        # Prepare check-in data
+        df_checkins_chart = df_checkins.copy()
+        df_checkins_chart['checkin_datetime'] = pd.to_datetime(df_checkins_chart['checkin_datetime'], errors='coerce', utc=True)
+        df_checkins_chart = df_checkins_chart[df_checkins_chart['checkin_datetime'].notna()].copy()
+        df_checkins_chart['checkin_datetime'] = df_checkins_chart['checkin_datetime'].dt.tz_localize(None)
+        df_checkins_chart['date'] = df_checkins_chart['checkin_datetime'].dt.to_period(timeframe_daypass).dt.start_time
+
+        # Determine if check-in is from member or non-member
+        # Check if customer has a membership (is in memberships df with active status)
+        active_member_customer_ids = set()
+        if 'owner_id' in df_memberships.columns:
+            active_member_customer_ids = set(df_memberships[df_memberships['status'] == 'ACT']['owner_id'].dropna())
+
+        # If we have customer_id in members df, also use that
+        if 'customer_id' in df_members.columns:
+            member_customer_ids = set(df_members['customer_id'].dropna())
+            active_member_customer_ids = active_member_customer_ids.union(member_customer_ids)
+        elif 'member_id' in df_members.columns:
+            member_customer_ids = set(df_members['member_id'].dropna())
+            active_member_customer_ids = active_member_customer_ids.union(member_customer_ids)
+
+        df_checkins_chart['type'] = df_checkins_chart['customer_id'].apply(
+            lambda x: 'Member' if x in active_member_customer_ids else 'Non-Member'
+        )
+
+        checkins_by_type = df_checkins_chart.groupby(['date', 'type']).size().reset_index(name='count')
+
+        fig_checkins_type = px.bar(
+            checkins_by_type,
+            x='date',
+            y='count',
+            color='type',
+            title='Check-ins by Member vs Non-Member',
+            barmode='stack',
+            color_discrete_map={'Member': COLORS['primary'], 'Non-Member': COLORS['quaternary']}
+        )
+        fig_checkins_type.update_layout(
+            plot_bgcolor=COLORS['background'],
+            paper_bgcolor=COLORS['background'],
+            font_color=COLORS['text'],
+            yaxis_title='Number of Check-ins',
+            xaxis_title='Date',
+            legend_title='Type'
+        )
+        st.plotly_chart(fig_checkins_type, use_container_width=True)
+    else:
+        st.info('No check-in data available')
+
+    # Check-ins by Day of Week and Month
+    st.subheader('Check-ins by Day of Week and Month')
+
+    if not df_checkins.empty:
+        # Group by month and day of week
+        df_checkins_dow = df_checkins.copy()
+        df_checkins_dow['checkin_datetime'] = pd.to_datetime(df_checkins_dow['checkin_datetime'], errors='coerce', utc=True)
+        df_checkins_dow = df_checkins_dow[df_checkins_dow['checkin_datetime'].notna()].copy()
+        df_checkins_dow['checkin_datetime'] = df_checkins_dow['checkin_datetime'].dt.tz_localize(None)
+        df_checkins_dow['month'] = df_checkins_dow['checkin_datetime'].dt.to_period('M').astype(str)
+        df_checkins_dow['day_of_week'] = df_checkins_dow['checkin_datetime'].dt.day_name()
+
+        # Order days of week
+        day_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+
+        # Group by day of week and month
+        checkins_dow_summary = df_checkins_dow.groupby(['day_of_week', 'month']).size().reset_index(name='count')
+
+        # Chart 1: Grouped by Day of Week first (x-axis = Day, color = Month)
+        fig_checkins_by_day = px.bar(
+            checkins_dow_summary,
+            x='day_of_week',
+            y='count',
+            color='month',
+            title='Check-ins by Day of Week (Grouped by Day, Colored by Month)',
+            barmode='group',
+            category_orders={'day_of_week': day_order}
+        )
+        fig_checkins_by_day.update_layout(
+            plot_bgcolor=COLORS['background'],
+            paper_bgcolor=COLORS['background'],
+            font_color=COLORS['text'],
+            yaxis_title='Number of Check-ins',
+            xaxis_title='Day of Week',
+            legend_title='Month'
+        )
+        st.plotly_chart(fig_checkins_by_day, use_container_width=True)
+
+        # Chart 2: Grouped by Month first (x-axis = Month, color = Day of Week)
+        st.subheader('Check-ins by Month and Day of Week')
+
+        # Regroup for month-first view
+        checkins_month_summary = df_checkins_dow.groupby(['month', 'day_of_week']).size().reset_index(name='count')
+
+        fig_checkins_by_month = px.bar(
+            checkins_month_summary,
+            x='month',
+            y='count',
+            color='day_of_week',
+            title='Check-ins by Month (Grouped by Month, Colored by Day of Week)',
+            barmode='group',
+            category_orders={'day_of_week': day_order}
+        )
+        fig_checkins_by_month.update_layout(
+            plot_bgcolor=COLORS['background'],
+            paper_bgcolor=COLORS['background'],
+            font_color=COLORS['text'],
+            yaxis_title='Number of Check-ins',
+            xaxis_title='Month',
+            legend_title='Day of Week'
+        )
+        st.plotly_chart(fig_checkins_by_month, use_container_width=True)
+    else:
+        st.info('No check-in data available')
 
 # ============================================================================
 # TAB 4: RENTALS
@@ -658,47 +962,47 @@ with tab3:
 with tab4:
     st.header('Rentals')
 
-    # Birthday Party Participants
-    st.subheader('Birthday Party Participants')
+    # Birthday Parties Booked
+    st.subheader('Birthday Parties Booked')
 
     df_birthday = df_transactions[df_transactions['sub_category'] == 'birthday'].copy()
+    # Only count Calendly payments (first payment)
+    df_birthday = df_birthday[df_birthday['Description'].str.contains('Calendly', case=False, na=False)]
     df_birthday['Date'] = pd.to_datetime(df_birthday['Date'], errors='coerce')
     df_birthday = df_birthday[df_birthday['Date'].notna()]
     df_birthday['date'] = df_birthday['Date'].dt.to_period(timeframe).dt.start_time
 
-    # Extract participant count
-    def extract_participants(desc):
-        if pd.isna(desc):
-            return 0
-        import re
-        match = re.search(r'(\d+)\s*participants?', str(desc), re.IGNORECASE)
-        if match:
-            return int(match.group(1))
-        return 0
+    if not df_birthday.empty:
+        # Count number of parties booked
+        birthday_count = (
+            df_birthday.groupby('date')
+            .size()
+            .reset_index(name='num_parties')
+        )
 
-    df_birthday['participants'] = df_birthday['Description'].apply(extract_participants)
-
-    birthday_participants = (
-        df_birthday.groupby('date')['participants']
-        .sum()
-        .reset_index()
-    )
-
-    fig_birthday_participants = px.bar(
-        birthday_participants,
-        x='date',
-        y='participants',
-        title='Birthday Party Participants'
-    )
-    fig_birthday_participants.update_traces(marker_color=COLORS['secondary'])
-    fig_birthday_participants.update_layout(
-        plot_bgcolor=COLORS['background'],
-        paper_bgcolor=COLORS['background'],
-        font_color=COLORS['text'],
-        yaxis_title='Number of Participants',
-        xaxis_title='Date'
-    )
-    st.plotly_chart(fig_birthday_participants, use_container_width=True)
+        fig_birthday_count = px.bar(
+            birthday_count,
+            x='date',
+            y='num_parties',
+            title='Number of Birthday Parties Booked',
+            text='num_parties'
+        )
+        fig_birthday_count.update_traces(
+            marker_color=COLORS['secondary'],
+            textposition='outside',
+            textfont=dict(size=11)
+        )
+        fig_birthday_count.update_layout(
+            plot_bgcolor=COLORS['background'],
+            paper_bgcolor=COLORS['background'],
+            font_color=COLORS['text'],
+            yaxis_title='Number of Parties',
+            xaxis_title='Date'
+        )
+        st.plotly_chart(fig_birthday_count, use_container_width=True)
+        st.caption(f'Total parties booked: {birthday_count["num_parties"].sum()}')
+    else:
+        st.info('No birthday party data available')
 
     # Birthday Party Revenue
     st.subheader('Birthday Party Revenue')
@@ -851,36 +1155,6 @@ with tab5:
     else:
         st.info('No youth team data available')
 
-    # Youth Team Revenue
-    st.subheader('Youth Team Revenue')
-
-    df_team_revenue = df_transactions[df_transactions['revenue_category'] == 'Team Dues'].copy()
-    df_team_revenue['Date'] = pd.to_datetime(df_team_revenue['Date'], errors='coerce')
-    df_team_revenue = df_team_revenue[df_team_revenue['Date'].notna()]
-    df_team_revenue['date'] = df_team_revenue['Date'].dt.to_period(timeframe).dt.start_time
-
-    team_revenue = (
-        df_team_revenue.groupby('date')['Total Amount']
-        .sum()
-        .reset_index()
-    )
-
-    fig_team_revenue = px.bar(
-        team_revenue,
-        x='date',
-        y='Total Amount',
-        title='Youth Team Revenue'
-    )
-    fig_team_revenue.update_traces(marker_color=COLORS['primary'])
-    fig_team_revenue.update_layout(
-        plot_bgcolor=COLORS['background'],
-        paper_bgcolor=COLORS['background'],
-        font_color=COLORS['text'],
-        yaxis_title='Revenue ($)',
-        xaxis_title='Date'
-    )
-    st.plotly_chart(fig_team_revenue, use_container_width=True)
-
     # Timeframe selector for Programming tab
     timeframe_prog = st.selectbox(
         'Select Timeframe',
@@ -889,6 +1163,44 @@ with tab5:
         index=2,  # Default to Monthly
         key='programming_timeframe'
     )
+
+    # Youth Team Revenue
+    st.subheader('Youth Team Revenue')
+
+    df_team_revenue = df_transactions[df_transactions['revenue_category'] == 'Team'].copy()
+    df_team_revenue['Date'] = pd.to_datetime(df_team_revenue['Date'], errors='coerce')
+    df_team_revenue = df_team_revenue[df_team_revenue['Date'].notna()]
+    df_team_revenue['date'] = df_team_revenue['Date'].dt.to_period(timeframe_prog).dt.start_time
+
+    if not df_team_revenue.empty:
+        team_revenue = (
+            df_team_revenue.groupby('date')['Total Amount']
+            .sum()
+            .reset_index()
+        )
+
+        fig_team_revenue = px.bar(
+            team_revenue,
+            x='date',
+            y='Total Amount',
+            title='Youth Team Revenue',
+            text=team_revenue['Total Amount'].apply(lambda x: f'${x/1000:.1f}K')
+        )
+        fig_team_revenue.update_traces(
+            marker_color=COLORS['primary'],
+            textposition='outside',
+            textfont=dict(size=11)
+        )
+        fig_team_revenue.update_layout(
+            plot_bgcolor=COLORS['background'],
+            paper_bgcolor=COLORS['background'],
+            font_color=COLORS['text'],
+            yaxis_title='Revenue ($)',
+            xaxis_title='Date'
+        )
+        st.plotly_chart(fig_team_revenue, use_container_width=True)
+    else:
+        st.info('No youth team revenue data available')
 
     # Fitness Revenue
     st.subheader('Fitness Revenue')
@@ -909,9 +1221,14 @@ with tab5:
             fitness_revenue,
             x='date',
             y='fitness_amount',
-            title='Fitness Revenue (Classes, Fitness-Only Memberships, Add-ons)'
+            title='Fitness Revenue (Classes, Fitness-Only Memberships, Add-ons)',
+            text=fitness_revenue['fitness_amount'].apply(lambda x: f'${x/1000:.1f}K')
         )
-        fig_fitness.update_traces(marker_color=COLORS['secondary'])
+        fig_fitness.update_traces(
+            marker_color=COLORS['secondary'],
+            textposition='outside',
+            textfont=dict(size=11)
+        )
         fig_fitness.update_layout(
             plot_bgcolor=COLORS['background'],
             paper_bgcolor=COLORS['background'],
@@ -957,9 +1274,14 @@ with tab5:
                 attendance,
                 x='date',
                 y='num_reservations',
-                title='Fitness Class Attendance (Total Reservations)'
+                title='Fitness Class Attendance (Total Reservations)',
+                text=attendance['num_reservations'].apply(lambda x: f'{x/1000:.1f}K' if x >= 1000 else str(int(x)))
             )
-            fig_attendance.update_traces(marker_color=COLORS['tertiary'])
+            fig_attendance.update_traces(
+                marker_color=COLORS['tertiary'],
+                textposition='outside',
+                textfont=dict(size=11)
+            )
             fig_attendance.update_layout(
                 plot_bgcolor=COLORS['background'],
                 paper_bgcolor=COLORS['background'],
@@ -968,6 +1290,47 @@ with tab5:
                 xaxis_title='Date'
             )
             st.plotly_chart(fig_attendance, use_container_width=True)
+
+            # Fitness Check-ins by Class Type
+            st.subheader('Fitness Check-ins by Class Type')
+
+            # Group by class type (event_type_name or truncated name)
+            df_events_by_type = df_events_filtered.copy()
+
+            # Truncate long names for better display
+            def truncate_name(name, max_length=30):
+                if pd.isna(name):
+                    return 'Unknown'
+                name_str = str(name)
+                if len(name_str) > max_length:
+                    return name_str[:max_length-3] + '...'
+                return name_str
+
+            df_events_by_type['class_type'] = df_events_by_type['event_type_name'].apply(truncate_name)
+
+            class_type_attendance = (
+                df_events_by_type.groupby(['date', 'class_type'])['num_reservations']
+                .sum()
+                .reset_index()
+            )
+
+            fig_class_types = px.bar(
+                class_type_attendance,
+                x='date',
+                y='num_reservations',
+                color='class_type',
+                title='Fitness Check-ins by Class Type',
+                barmode='stack'
+            )
+            fig_class_types.update_layout(
+                plot_bgcolor=COLORS['background'],
+                paper_bgcolor=COLORS['background'],
+                font_color=COLORS['text'],
+                yaxis_title='Check-ins',
+                xaxis_title='Date',
+                legend_title='Class Type'
+            )
+            st.plotly_chart(fig_class_types, use_container_width=True)
         else:
             st.info('No fitness class data available with valid dates')
     else:
