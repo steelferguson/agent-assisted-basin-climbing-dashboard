@@ -82,6 +82,12 @@ Instagram metrics available:
 - Comment analysis (unique commenters, engagement)
 - Time-series charts for posts and engagement metrics
 
+Mailchimp email campaign metrics available:
+- Campaign performance (open rates, click rates, sends)
+- Top performing campaigns
+- Campaign summaries with best/worst performers
+- AI-analyzed campaign content (tone, themes, CTAs)
+
 TOOL SELECTION GUIDE:
 
 When user asks about...          Use this tool:
@@ -96,6 +102,8 @@ When user asks about...          Use this tool:
 "show/create chart"            → create_*_chart tools
 "instagram posts chart"        → create_instagram_posts_chart
 "instagram engagement chart"   → create_instagram_posts_chart
+"top/best email campaigns"     → get_top_mailchimp_campaigns
+"email performance/summary"    → get_mailchimp_summary
 
 Critical Distinction:
 - "How many PEOPLE" = unique customers (use get_unique_day_pass_customers)

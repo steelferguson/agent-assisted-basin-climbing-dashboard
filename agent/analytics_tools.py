@@ -87,7 +87,16 @@ def load_data_frames():
         print(f"Warning: Could not load check-in data: {e}")
         df_checkins = pd.DataFrame()
 
-    return df_transactions, df_memberships, df_members, df_instagram_posts, df_instagram_comments, df_facebook_ads, df_checkins
+    # Mailchimp Campaign data
+    try:
+        csv_content = uploader.download_from_s3(config.aws_bucket_name, config.s3_path_mailchimp_campaigns)
+        df_mailchimp = uploader.convert_csv_to_df(csv_content)
+        df_mailchimp['send_time'] = pd.to_datetime(df_mailchimp['send_time'], errors='coerce')
+    except Exception as e:
+        print(f"Warning: Could not load Mailchimp data: {e}")
+        df_mailchimp = pd.DataFrame()
+
+    return df_transactions, df_memberships, df_members, df_instagram_posts, df_instagram_comments, df_facebook_ads, df_checkins, df_mailchimp
 
 
 # ============================================================================
@@ -1085,6 +1094,134 @@ def create_day_pass_breakdown_chart_tool(df_transactions: pd.DataFrame):
         func=create_day_pass_breakdown_chart,
         description="Create a bar chart showing day pass counts by type",
         args_schema=DayPassChartInput
+    )
+
+
+# ============================================================================
+# MAILCHIMP TOOLS
+# ============================================================================
+
+class MailchimpCampaignsInput(BaseModel):
+    start_date: str = Field(description="Start date in YYYY-MM-DD format")
+    end_date: str = Field(description="End date in YYYY-MM-DD format")
+    sort_by: Optional[Literal['open_rate', 'click_rate', 'send_time']] = Field(
+        'open_rate',
+        description="Sort campaigns by metric (default: open_rate)"
+    )
+    limit: Optional[int] = Field(10, description="Number of campaigns to return (default: 10)")
+
+
+def create_get_top_mailchimp_campaigns_tool(df_mailchimp: pd.DataFrame):
+    """Get top performing Mailchimp campaigns by open rate or click rate."""
+
+    def get_top_mailchimp_campaigns(
+        start_date: str,
+        end_date: str,
+        sort_by: str = 'open_rate',
+        limit: int = 10
+    ) -> str:
+        if df_mailchimp.empty:
+            return "No Mailchimp data available. Please upload Mailchimp data first."
+
+        df = df_mailchimp.copy()
+
+        # Filter by date
+        start = pd.to_datetime(start_date).tz_localize('UTC')
+        end = pd.to_datetime(end_date).tz_localize('UTC')
+        df = df[(df['send_time'] >= start) & (df['send_time'] <= end)]
+
+        if df.empty:
+            return f"No Mailchimp campaigns found between {start_date} and {end_date}"
+
+        # Sort by metric
+        df = df.sort_values(sort_by, ascending=False).head(limit)
+
+        result = f"Top {limit} Mailchimp campaigns by {sort_by} ({start_date} to {end_date}):\\n\\n"
+
+        for i, row in df.iterrows():
+            send_date = row['send_time'].strftime('%Y-%m-%d')
+            open_rate_pct = row['open_rate'] * 100
+            click_rate_pct = row['click_rate'] * 100
+
+            result += f"{send_date} | {row['campaign_title']}\\n"
+            result += f"  Subject: {row['subject_line']}\\n"
+            result += f"  Open Rate: {open_rate_pct:.1f}% | Click Rate: {click_rate_pct:.2f}%\\n"
+            result += f"  Sent to: {int(row['emails_sent']):,} | Opens: {int(row['unique_opens']):,}\\n"
+
+            if pd.notna(row['ai_summary']):
+                result += f"  Summary: {row['ai_summary']}\\n"
+            if pd.notna(row['ai_tone']):
+                result += f"  Tone: {row['ai_tone']}\\n"
+
+            result += "\\n"
+
+        return result
+
+    return StructuredTool.from_function(
+        name="get_top_mailchimp_campaigns",
+        func=get_top_mailchimp_campaigns,
+        description="Get top performing Mailchimp email campaigns sorted by open rate or click rate",
+        args_schema=MailchimpCampaignsInput
+    )
+
+
+class MailchimpSummaryInput(BaseModel):
+    start_date: str = Field(description="Start date in YYYY-MM-DD format")
+    end_date: str = Field(description="End date in YYYY-MM-DD format")
+
+
+def create_get_mailchimp_summary_tool(df_mailchimp: pd.DataFrame):
+    """Get overall Mailchimp campaign performance summary."""
+
+    def get_mailchimp_summary(start_date: str, end_date: str) -> str:
+        if df_mailchimp.empty:
+            return "No Mailchimp data available. Please upload Mailchimp data first."
+
+        df = df_mailchimp.copy()
+
+        # Filter by date
+        start = pd.to_datetime(start_date).tz_localize('UTC')
+        end = pd.to_datetime(end_date).tz_localize('UTC')
+        df = df[(df['send_time'] >= start) & (df['send_time'] <= end)]
+
+        if df.empty:
+            return f"No Mailchimp campaigns found between {start_date} and {end_date}"
+
+        # Calculate metrics
+        total_campaigns = len(df)
+        total_emails_sent = df['emails_sent'].sum()
+        avg_open_rate = (df['open_rate'].mean() * 100)
+        avg_click_rate = (df['click_rate'].mean() * 100)
+        total_opens = df['unique_opens'].sum()
+        total_clicks = df['unique_clicks'].sum()
+
+        # Find best and worst campaigns
+        best_open = df.loc[df['open_rate'].idxmax()]
+        worst_open = df.loc[df['open_rate'].idxmin()]
+
+        result = f"Mailchimp Campaign Summary ({start_date} to {end_date}):\\n\\n"
+        result += f"Total Campaigns: {total_campaigns}\\n"
+        result += f"Total Emails Sent: {int(total_emails_sent):,}\\n"
+        result += f"Average Open Rate: {avg_open_rate:.1f}%\\n"
+        result += f"Average Click Rate: {avg_click_rate:.2f}%\\n"
+        result += f"Total Unique Opens: {int(total_opens):,}\\n"
+        result += f"Total Unique Clicks: {int(total_clicks):,}\\n\\n"
+
+        result += f"Best Performing Campaign (by open rate):\\n"
+        result += f"  {best_open['campaign_title']} ({best_open['open_rate']*100:.1f}% open rate)\\n"
+        result += f"  Subject: {best_open['subject_line']}\\n\\n"
+
+        result += f"Worst Performing Campaign (by open rate):\\n"
+        result += f"  {worst_open['campaign_title']} ({worst_open['open_rate']*100:.1f}% open rate)\\n"
+        result += f"  Subject: {worst_open['subject_line']}\\n"
+
+        return result
+
+    return StructuredTool.from_function(
+        name="get_mailchimp_summary",
+        func=get_mailchimp_summary,
+        description="Get overall Mailchimp campaign performance metrics including average open/click rates and best/worst campaigns",
+        args_schema=MailchimpSummaryInput
     )
 
 
@@ -2341,7 +2478,7 @@ def create_generic_chart_tool():
 def create_all_tools():
     """Create all analytical tools with loaded data."""
     print("Loading data from S3...")
-    df_transactions, df_memberships, df_members, df_instagram_posts, df_instagram_comments, df_facebook_ads, df_checkins = load_data_frames()
+    df_transactions, df_memberships, df_members, df_instagram_posts, df_instagram_comments, df_facebook_ads, df_checkins, df_mailchimp = load_data_frames()
     print(f"Loaded {len(df_transactions)} transactions, {len(df_memberships)} memberships, {len(df_members)} members")
 
     if not df_instagram_posts.empty:
@@ -2352,6 +2489,9 @@ def create_all_tools():
 
     if not df_checkins.empty:
         print(f"Loaded {len(df_checkins)} check-in records from {df_checkins['customer_id'].nunique()} unique customers")
+
+    if not df_mailchimp.empty:
+        print(f"Loaded {len(df_mailchimp)} Mailchimp campaigns")
 
     tools = [
         # Revenue tools
@@ -2403,6 +2543,13 @@ def create_all_tools():
             create_get_checkin_summary_tool(df_checkins),
             create_get_inactive_members_tool(df_checkins, df_memberships),
             create_checkin_timeseries_chart_tool(df_checkins),
+        ])
+
+    # Add Mailchimp tools if data is available
+    if not df_mailchimp.empty:
+        tools.extend([
+            create_get_top_mailchimp_campaigns_tool(df_mailchimp),
+            create_get_mailchimp_summary_tool(df_mailchimp),
         ])
 
     # Add Generic Query and Charting tools (always available)
