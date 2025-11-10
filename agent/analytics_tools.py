@@ -19,8 +19,8 @@ import json
 import os
 import uuid
 
-# Chart output directory
-CHART_OUTPUT_DIR = "outputs/charts"
+# Chart output directory (must match streamlit_app.py chart detection path)
+CHART_OUTPUT_DIR = "agent/charts"
 
 # Global data registry for storing custom query results
 # Format: {data_id: {'dataframe': pd.DataFrame, 'description': str, 'timestamp': datetime}}
