@@ -61,13 +61,15 @@ def load_data():
     df_facebook_ads = load_df(config.aws_bucket_name, config.s3_path_facebook_ads)
     df_events = load_df(config.aws_bucket_name, config.s3_path_capitan_events)
     df_checkins = load_df(config.aws_bucket_name, config.s3_path_capitan_checkins)
+    df_instagram = load_df(config.aws_bucket_name, config.s3_path_instagram_posts)
+    df_mailchimp = load_df(config.aws_bucket_name, config.s3_path_mailchimp_campaigns)
 
-    return df_transactions, df_memberships, df_members, df_projection, df_at_risk, df_facebook_ads, df_events, df_checkins
+    return df_transactions, df_memberships, df_members, df_projection, df_at_risk, df_facebook_ads, df_events, df_checkins, df_instagram, df_mailchimp
 
 
 # Load data
 with st.spinner('Loading data from S3...'):
-    df_transactions, df_memberships, df_members, df_projection, df_at_risk, df_facebook_ads, df_events, df_checkins = load_data()
+    df_transactions, df_memberships, df_members, df_projection, df_at_risk, df_facebook_ads, df_events, df_checkins, df_instagram, df_mailchimp = load_data()
 
 # Prepare at-risk members data
 if not df_at_risk.empty:
@@ -86,12 +88,13 @@ st.title('🧗 Basin Climbing & Fitness Dashboard')
 st.markdown('---')
 
 # Create tabs
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "📊 Revenue",
     "👥 Membership",
     "🎟️ Day Passes & Check-ins",
     "🎉 Rentals",
-    "💪 Programming"
+    "💪 Programming",
+    "📱 Marketing"
 ])
 
 # ============================================================================
@@ -728,11 +731,20 @@ with tab2:
         # Get unique members (they might have multiple ended memberships)
         attrited_unique = attrited.sort_values('end_date', ascending=False).drop_duplicates('owner_id')
 
+        # Join with members table to get names
+        # Match owner_id from memberships to customer_id in members
+        attrited_with_names = attrited_unique.merge(
+            df_members[['customer_id', 'member_first_name', 'member_last_name']],
+            left_on='owner_id',
+            right_on='customer_id',
+            how='left'
+        )
+
         # Prepare display data
-        attrited_display = attrited_unique[[
-            'owner_id', 'membership_owner_age', 'name', 'end_date'
+        attrited_display = attrited_with_names[[
+            'owner_id', 'member_first_name', 'member_last_name', 'membership_owner_age', 'name', 'end_date'
         ]].copy()
-        attrited_display.columns = ['Customer ID', 'Age', 'Membership Type', 'End Date']
+        attrited_display.columns = ['Customer ID', 'First Name', 'Last Name', 'Age', 'Membership Type', 'End Date']
 
         # Add Capitan link
         attrited_display['Capitan Link'] = attrited_display['Customer ID'].apply(
@@ -1335,6 +1347,258 @@ with tab5:
             st.info('No fitness class data available with valid dates')
     else:
         st.info('No fitness class data available')
+
+# ============================================================================
+# TAB 6: MARKETING
+# ============================================================================
+with tab6:
+    st.header('Marketing Performance')
+
+    # Timeframe selector
+    marketing_timeframe = st.radio(
+        'Select Timeframe',
+        options=['Day', 'Week', 'Month'],
+        index=2,
+        key='marketing_timeframe',
+        horizontal=True
+    )
+
+    timeframe_map = {'Day': 'D', 'Week': 'W', 'Month': 'M'}
+    marketing_period = timeframe_map[marketing_timeframe]
+
+    # ========== FACEBOOK ADS SECTION ==========
+    st.subheader('Facebook/Instagram Ads Performance')
+
+    if not df_facebook_ads.empty:
+        df_ads = df_facebook_ads.copy()
+        df_ads['date'] = pd.to_datetime(df_ads['date'], errors='coerce')
+        df_ads = df_ads[df_ads['date'].notna()]
+
+        # Recent ads table
+        st.markdown('**Recent Ad Campaigns**')
+
+        # Get most recent ads with performance
+        recent_ads = df_ads.sort_values('date', ascending=False).drop_duplicates(['ad_name', 'campaign_name']).head(10)
+
+        ads_display = recent_ads[[
+            'ad_name', 'campaign_name', 'impressions', 'clicks', 'spend',
+            'purchases', 'add_to_carts', 'link_clicks', 'ctr'
+        ]].copy()
+
+        # Format columns
+        ads_display['spend'] = ads_display['spend'].apply(lambda x: f'${x:.2f}' if pd.notna(x) else '$0.00')
+        ads_display['ctr'] = ads_display['ctr'].apply(lambda x: f'{x:.2f}%' if pd.notna(x) else '0%')
+        ads_display.columns = ['Ad Name', 'Campaign', 'Impressions', 'Clicks', 'Spend',
+                                'Purchases', 'Add to Carts', 'Link Clicks', 'CTR']
+
+        st.dataframe(ads_display, use_container_width=True, hide_index=True)
+
+        # Ads performance over time
+        st.markdown('**Ad Spend & Performance Over Time**')
+
+        df_ads['period'] = df_ads['date'].dt.to_period(marketing_period).dt.start_time
+        ads_by_period = df_ads.groupby('period').agg({
+            'spend': 'sum',
+            'impressions': 'sum',
+            'clicks': 'sum',
+            'purchases': 'sum',
+            'add_to_carts': 'sum'
+        }).reset_index()
+
+        # Create dual-axis chart
+        from plotly.subplots import make_subplots
+        fig_ads = make_subplots(specs=[[{"secondary_y": True}]])
+
+        fig_ads.add_trace(
+            go.Bar(x=ads_by_period['period'], y=ads_by_period['spend'],
+                   name='Spend', marker_color=COLORS['primary']),
+            secondary_y=False
+        )
+
+        fig_ads.add_trace(
+            go.Scatter(x=ads_by_period['period'], y=ads_by_period['purchases'],
+                      name='Purchases', line=dict(color=COLORS['secondary'], width=3)),
+            secondary_y=True
+        )
+
+        fig_ads.add_trace(
+            go.Scatter(x=ads_by_period['period'], y=ads_by_period['add_to_carts'],
+                      name='Add to Carts', line=dict(color=COLORS['tertiary'], width=2)),
+            secondary_y=True
+        )
+
+        fig_ads.update_layout(
+            plot_bgcolor=COLORS['background'],
+            paper_bgcolor=COLORS['background'],
+            font_color=COLORS['text'],
+            title='Ad Spend vs Conversions',
+            hovermode='x unified'
+        )
+        fig_ads.update_yaxes(title_text='Spend ($)', secondary_y=False)
+        fig_ads.update_yaxes(title_text='Count', secondary_y=True)
+
+        st.plotly_chart(fig_ads, use_container_width=True)
+    else:
+        st.info('No Facebook Ads data available')
+
+    # ========== INSTAGRAM POSTS SECTION ==========
+    st.subheader('Instagram Posts Performance')
+
+    if not df_instagram.empty:
+        df_ig = df_instagram.copy()
+        df_ig['timestamp'] = pd.to_datetime(df_ig['timestamp'], errors='coerce')
+        df_ig = df_ig[df_ig['timestamp'].notna()]
+
+        # Posts metrics over time
+        df_ig['period'] = df_ig['timestamp'].dt.to_period(marketing_period).dt.start_time
+
+        ig_by_period = df_ig.groupby('period').agg({
+            'post_id': 'count',
+            'likes': ['mean', 'min', 'max'],
+            'comments': ['mean', 'min', 'max'],
+            'reach': ['mean', 'min', 'max'],
+            'saved': ['mean', 'min', 'max'],
+            'engagement_rate': ['mean', 'min', 'max']
+        }).reset_index()
+
+        # Flatten column names
+        ig_by_period.columns = ['period', 'num_posts',
+                                'likes_avg', 'likes_min', 'likes_max',
+                                'comments_avg', 'comments_min', 'comments_max',
+                                'reach_avg', 'reach_min', 'reach_max',
+                                'saved_avg', 'saved_min', 'saved_max',
+                                'engagement_avg', 'engagement_min', 'engagement_max']
+
+        # Chart: Number of posts and average engagement
+        fig_ig = make_subplots(specs=[[{"secondary_y": True}]])
+
+        fig_ig.add_trace(
+            go.Bar(x=ig_by_period['period'], y=ig_by_period['num_posts'],
+                   name='Number of Posts', marker_color=COLORS['primary']),
+            secondary_y=False
+        )
+
+        fig_ig.add_trace(
+            go.Scatter(x=ig_by_period['period'], y=ig_by_period['likes_avg'],
+                      name='Avg Likes', line=dict(color=COLORS['secondary'], width=3)),
+            secondary_y=True
+        )
+
+        fig_ig.add_trace(
+            go.Scatter(x=ig_by_period['period'], y=ig_by_period['comments_avg'],
+                      name='Avg Comments', line=dict(color=COLORS['tertiary'], width=2)),
+            secondary_y=True
+        )
+
+        fig_ig.update_layout(
+            plot_bgcolor=COLORS['background'],
+            paper_bgcolor=COLORS['background'],
+            font_color=COLORS['text'],
+            title=f'Instagram Posts & Engagement by {marketing_timeframe}',
+            hovermode='x unified'
+        )
+        fig_ig.update_yaxes(title_text='Number of Posts', secondary_y=False)
+        fig_ig.update_yaxes(title_text='Engagement', secondary_y=True)
+
+        st.plotly_chart(fig_ig, use_container_width=True)
+
+        # Stats summary
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric('Total Posts', len(df_ig))
+        with col2:
+            st.metric('Avg Likes/Post', f"{df_ig['likes'].mean():.0f}")
+        with col3:
+            st.metric('Avg Comments/Post', f"{df_ig['comments'].mean():.1f}")
+        with col4:
+            st.metric('Avg Engagement Rate', f"{df_ig['engagement_rate'].mean():.2f}%")
+
+    else:
+        st.info('No Instagram data available')
+
+    # ========== EMAIL CAMPAIGNS SECTION ==========
+    st.subheader('Email Campaign Performance')
+
+    if not df_mailchimp.empty:
+        df_email = df_mailchimp.copy()
+        df_email['send_time'] = pd.to_datetime(df_email['send_time'], errors='coerce')
+        df_email = df_email[df_email['send_time'].notna()]
+
+        # Recent campaigns table
+        st.markdown('**Recent Email Campaigns**')
+
+        recent_emails = df_email.sort_values('send_time', ascending=False).head(10)
+
+        emails_display = recent_emails[[
+            'campaign_title', 'send_time', 'emails_sent', 'open_rate',
+            'click_rate', 'unsubscribed'
+        ]].copy()
+
+        emails_display['send_time'] = pd.to_datetime(emails_display['send_time']).dt.strftime('%Y-%m-%d')
+        emails_display['open_rate'] = emails_display['open_rate'].apply(lambda x: f'{x:.1f}%' if pd.notna(x) else '0%')
+        emails_display['click_rate'] = emails_display['click_rate'].apply(lambda x: f'{x:.2f}%' if pd.notna(x) else '0%')
+        emails_display.columns = ['Campaign', 'Send Date', 'Emails Sent', 'Open Rate', 'Click Rate', 'Unsubscribed']
+
+        st.dataframe(emails_display, use_container_width=True, hide_index=True)
+
+        # Email performance over time
+        df_email['period'] = df_email['send_time'].dt.to_period(marketing_period).dt.start_time
+
+        email_by_period = df_email.groupby('period').agg({
+            'campaign_id': 'count',
+            'emails_sent': 'sum',
+            'open_rate': 'mean',
+            'click_rate': 'mean',
+            'unsubscribed': 'sum'
+        }).reset_index()
+        email_by_period.columns = ['period', 'num_campaigns', 'emails_sent', 'avg_open_rate', 'avg_click_rate', 'unsubscribed']
+
+        # Chart: Campaigns and engagement rates
+        fig_email = make_subplots(specs=[[{"secondary_y": True}]])
+
+        fig_email.add_trace(
+            go.Bar(x=email_by_period['period'], y=email_by_period['num_campaigns'],
+                   name='Number of Campaigns', marker_color=COLORS['primary']),
+            secondary_y=False
+        )
+
+        fig_email.add_trace(
+            go.Scatter(x=email_by_period['period'], y=email_by_period['avg_open_rate'],
+                      name='Avg Open Rate (%)', line=dict(color=COLORS['secondary'], width=3)),
+            secondary_y=True
+        )
+
+        fig_email.add_trace(
+            go.Scatter(x=email_by_period['period'], y=email_by_period['avg_click_rate'],
+                      name='Avg Click Rate (%)', line=dict(color=COLORS['tertiary'], width=2)),
+            secondary_y=True
+        )
+
+        fig_email.update_layout(
+            plot_bgcolor=COLORS['background'],
+            paper_bgcolor=COLORS['background'],
+            font_color=COLORS['text'],
+            title=f'Email Campaigns & Engagement by {marketing_timeframe}',
+            hovermode='x unified'
+        )
+        fig_email.update_yaxes(title_text='Number of Campaigns', secondary_y=False)
+        fig_email.update_yaxes(title_text='Rate (%)', secondary_y=True)
+
+        st.plotly_chart(fig_email, use_container_width=True)
+
+        # Stats summary
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric('Total Campaigns', len(df_email))
+        with col2:
+            st.metric('Avg Open Rate', f"{df_email['open_rate'].mean():.1f}%")
+        with col3:
+            st.metric('Avg Click Rate', f"{df_email['click_rate'].mean():.2f}%")
+        with col4:
+            st.metric('Total Unsubscribes', int(df_email['unsubscribed'].sum()))
+
+    else:
+        st.info('No email campaign data available')
 
 # Footer
 st.markdown('---')
