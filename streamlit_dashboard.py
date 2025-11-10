@@ -9,6 +9,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from data_pipeline import upload_data
 from data_pipeline import config
 import os
@@ -1374,68 +1375,123 @@ with tab6:
         df_ads['date'] = pd.to_datetime(df_ads['date'], errors='coerce')
         df_ads = df_ads[df_ads['date'].notna()]
 
-        # Recent ads table
-        st.markdown('**Recent Ad Campaigns**')
+        # Aggregate by campaign for lifetime performance
+        st.markdown('**Ad Campaigns - Lifetime Performance**')
 
-        # Get most recent ads with performance
-        recent_ads = df_ads.sort_values('date', ascending=False).drop_duplicates(['ad_name', 'campaign_name']).head(10)
-
-        ads_display = recent_ads[[
-            'ad_name', 'campaign_name', 'impressions', 'clicks', 'spend',
-            'purchases', 'add_to_carts', 'link_clicks', 'ctr'
-        ]].copy()
-
-        # Format columns
-        ads_display['spend'] = ads_display['spend'].apply(lambda x: f'${x:.2f}' if pd.notna(x) else '$0.00')
-        ads_display['ctr'] = ads_display['ctr'].apply(lambda x: f'{x:.2f}%' if pd.notna(x) else '0%')
-        ads_display.columns = ['Ad Name', 'Campaign', 'Impressions', 'Clicks', 'Spend',
-                                'Purchases', 'Add to Carts', 'Link Clicks', 'CTR']
-
-        st.dataframe(ads_display, use_container_width=True, hide_index=True)
-
-        # Ads performance over time
-        st.markdown('**Ad Spend & Performance Over Time**')
-
-        df_ads['period'] = df_ads['date'].dt.to_period(marketing_period).dt.start_time
-        ads_by_period = df_ads.groupby('period').agg({
+        campaign_lifetime = df_ads.groupby(['campaign_name', 'campaign_id']).agg({
             'spend': 'sum',
             'impressions': 'sum',
             'clicks': 'sum',
             'purchases': 'sum',
-            'add_to_carts': 'sum'
+            'add_to_carts': 'sum',
+            'link_clicks': 'sum',
+            'leads': 'sum',
+            'registrations': 'sum',
+            'date': ['min', 'max']  # Get start and end dates
         }).reset_index()
 
-        # Create dual-axis chart
-        from plotly.subplots import make_subplots
-        fig_ads = make_subplots(specs=[[{"secondary_y": True}]])
+        # Flatten column names
+        campaign_lifetime.columns = ['campaign_name', 'campaign_id', 'spend', 'impressions', 'clicks',
+                                      'purchases', 'add_to_carts', 'link_clicks', 'leads',
+                                      'registrations', 'start_date', 'end_date']
 
-        fig_ads.add_trace(
-            go.Bar(x=ads_by_period['period'], y=ads_by_period['spend'],
-                   name='Spend', marker_color=COLORS['primary']),
-            secondary_y=False
+        # Infer campaign objective based on which metric has the most activity
+        def infer_objective(row):
+            """Infer campaign objective from metrics."""
+            if row['purchases'] > 0:
+                return 'Purchases', row['purchases'], row['spend'] / row['purchases'] if row['purchases'] > 0 else 0
+            elif row['add_to_carts'] > 0:
+                return 'Add to Cart', row['add_to_carts'], row['spend'] / row['add_to_carts'] if row['add_to_carts'] > 0 else 0
+            elif row['registrations'] > 0:
+                return 'Registrations', row['registrations'], row['spend'] / row['registrations'] if row['registrations'] > 0 else 0
+            elif row['leads'] > 0:
+                return 'Leads', row['leads'], row['spend'] / row['leads'] if row['leads'] > 0 else 0
+            elif row['link_clicks'] > 0:
+                return 'Link Clicks', row['link_clicks'], row['spend'] / row['link_clicks'] if row['link_clicks'] > 0 else 0
+            elif row['clicks'] > 0:
+                return 'Clicks', row['clicks'], row['spend'] / row['clicks'] if row['clicks'] > 0 else 0
+            else:
+                return 'Impressions', row['impressions'], row['spend'] / row['impressions'] if row['impressions'] > 0 else 0
+
+        campaign_lifetime[['objective', 'result_count', 'cost_per_result']] = campaign_lifetime.apply(
+            lambda row: pd.Series(infer_objective(row)), axis=1
         )
 
-        fig_ads.add_trace(
-            go.Scatter(x=ads_by_period['period'], y=ads_by_period['purchases'],
-                      name='Purchases', line=dict(color=COLORS['secondary'], width=3)),
-            secondary_y=True
-        )
+        # Prepare display
+        from datetime import datetime, timedelta
+        today = pd.Timestamp.now().normalize()
 
-        fig_ads.add_trace(
-            go.Scatter(x=ads_by_period['period'], y=ads_by_period['add_to_carts'],
-                      name='Add to Carts', line=dict(color=COLORS['tertiary'], width=2)),
-            secondary_y=True
+        ads_display = campaign_lifetime[[
+            'campaign_name', 'start_date', 'end_date', 'objective', 'spend', 'result_count', 'cost_per_result',
+            'impressions', 'clicks'
+        ]].copy()
+
+        # Determine if campaign is active (has activity within last 2 days)
+        ads_display['is_active'] = (today - pd.to_datetime(ads_display['end_date'])).dt.days <= 2
+
+        # Format columns
+        ads_display['start_date'] = pd.to_datetime(ads_display['start_date']).dt.strftime('%Y-%m-%d')
+        ads_display['end_date_formatted'] = ads_display.apply(
+            lambda row: 'Active' if row['is_active'] else pd.to_datetime(row['end_date']).strftime('%Y-%m-%d'),
+            axis=1
         )
+        ads_display['spend'] = ads_display['spend'].apply(lambda x: f'${x:.2f}')
+        ads_display['cost_per_result'] = ads_display['cost_per_result'].apply(lambda x: f'${x:.2f}')
+        ads_display['result_count'] = ads_display['result_count'].astype(int)
+
+        # Select and rename columns
+        ads_display = ads_display[[
+            'campaign_name', 'start_date', 'end_date_formatted', 'objective', 'spend', 'result_count',
+            'cost_per_result', 'impressions', 'clicks'
+        ]]
+        ads_display.columns = ['Campaign', 'Start Date', 'Status', 'Objective', 'Total Spend', 'Results',
+                                'Cost per Result', 'Impressions', 'Clicks']
+
+        # Sort by start date descending (most recent first)
+        ads_display = ads_display.sort_values('Start Date', ascending=False)
+
+        st.dataframe(ads_display, use_container_width=True, hide_index=True)
+
+        # Campaign comparison chart
+        st.markdown('**Campaign Performance Comparison**')
+
+        # Sort campaigns by spend for chart
+        campaign_lifetime_sorted = campaign_lifetime.sort_values('spend', ascending=False)
+
+        fig_ads = go.Figure()
+
+        # Add spend bars
+        fig_ads.add_trace(go.Bar(
+            x=campaign_lifetime_sorted['campaign_name'],
+            y=campaign_lifetime_sorted['spend'],
+            name='Total Spend',
+            marker_color=COLORS['primary'],
+            yaxis='y',
+            text=campaign_lifetime_sorted['spend'].apply(lambda x: f'${x:.0f}'),
+            textposition='outside'
+        ))
+
+        # Add cost per result line
+        fig_ads.add_trace(go.Scatter(
+            x=campaign_lifetime_sorted['campaign_name'],
+            y=campaign_lifetime_sorted['cost_per_result'],
+            name='Cost per Result',
+            line=dict(color=COLORS['secondary'], width=3),
+            yaxis='y2',
+            mode='lines+markers'
+        ))
 
         fig_ads.update_layout(
             plot_bgcolor=COLORS['background'],
             paper_bgcolor=COLORS['background'],
             font_color=COLORS['text'],
-            title='Ad Spend vs Conversions',
-            hovermode='x unified'
+            title='Campaign Spend vs Cost per Result',
+            xaxis_title='Campaign',
+            yaxis=dict(title='Total Spend ($)', side='left'),
+            yaxis2=dict(title='Cost per Result ($)', side='right', overlaying='y'),
+            hovermode='x unified',
+            showlegend=True
         )
-        fig_ads.update_yaxes(title_text='Spend ($)', secondary_y=False)
-        fig_ads.update_yaxes(title_text='Count', secondary_y=True)
 
         st.plotly_chart(fig_ads, use_container_width=True)
     else:
