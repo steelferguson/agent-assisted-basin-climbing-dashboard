@@ -1270,6 +1270,136 @@ def create_get_instagram_content_themes_tool(df_posts: pd.DataFrame):
     )
 
 
+class InstagramPostsChartInput(BaseModel):
+    start_date: str = Field(description="Start date in YYYY-MM-DD format")
+    end_date: str = Field(description="End date in YYYY-MM-DD format")
+    grouping: Literal['day', 'week', 'month'] = Field(
+        'week',
+        description="Time period to group posts by (default: week)"
+    )
+    metric: Literal['post_count', 'likes', 'comments', 'reach', 'engagement_rate'] = Field(
+        'post_count',
+        description="Metric to display (default: post_count)"
+    )
+
+
+def create_instagram_posts_chart_tool(df_posts: pd.DataFrame):
+    """Create a chart showing Instagram posts and engagement over time."""
+
+    def create_instagram_posts_chart(
+        start_date: str,
+        end_date: str,
+        grouping: str = 'week',
+        metric: str = 'post_count'
+    ) -> str:
+        if df_posts.empty:
+            return "No Instagram data available. Please upload Instagram data first."
+
+        df = df_posts.copy()
+
+        # Filter by date (make timezone-aware for comparison)
+        start = pd.to_datetime(start_date).tz_localize('UTC')
+        end = pd.to_datetime(end_date).tz_localize('UTC')
+        df = df[(df['timestamp'] >= start) & (df['timestamp'] <= end)]
+
+        if df.empty:
+            return f"No Instagram posts found between {start_date} and {end_date}"
+
+        # Group by time period
+        if grouping == 'day':
+            df['period'] = df['timestamp'].dt.date
+            period_format = '%Y-%m-%d'
+        elif grouping == 'week':
+            df['period'] = df['timestamp'].dt.to_period('W').apply(lambda r: r.start_time)
+            period_format = 'Week of %Y-%m-%d'
+        else:  # month
+            df['period'] = df['timestamp'].dt.to_period('M').apply(lambda r: r.start_time)
+            period_format = '%Y-%m'
+
+        # Calculate metrics by period
+        if metric == 'post_count':
+            period_data = df.groupby('period').size().reset_index(name='value')
+            y_label = 'Number of Posts'
+            chart_title = f'Instagram Posts Over Time ({grouping.capitalize()})'
+        elif metric == 'likes':
+            period_data = df.groupby('period')['likes'].sum().reset_index(name='value')
+            y_label = 'Total Likes'
+            chart_title = f'Instagram Likes Over Time ({grouping.capitalize()})'
+        elif metric == 'comments':
+            period_data = df.groupby('period')['comments'].sum().reset_index(name='value')
+            y_label = 'Total Comments'
+            chart_title = f'Instagram Comments Over Time ({grouping.capitalize()})'
+        elif metric == 'reach':
+            period_data = df.groupby('period')['reach'].sum().reset_index(name='value')
+            y_label = 'Total Reach'
+            chart_title = f'Instagram Reach Over Time ({grouping.capitalize()})'
+        elif metric == 'engagement_rate':
+            period_data = df.groupby('period')['engagement_rate'].mean().reset_index(name='value')
+            y_label = 'Average Engagement Rate (%)'
+            chart_title = f'Instagram Engagement Rate Over Time ({grouping.capitalize()})'
+
+        # Create figure
+        fig = go.Figure()
+
+        fig.add_trace(go.Scatter(
+            x=period_data['period'],
+            y=period_data['value'],
+            name=metric.replace('_', ' ').title(),
+            mode='lines+markers',
+            line=dict(color='#E1306C', width=3),  # Instagram brand color
+            marker=dict(size=8),
+            hovertemplate='<b>%{x}</b><br>' +
+                         f'{y_label}: %{{y:,.0f}}<br>' +
+                         '<extra></extra>'
+        ))
+
+        fig.update_layout(
+            title=chart_title,
+            xaxis_title='Date',
+            yaxis_title=y_label,
+            hovermode='x unified',
+            template='plotly_white',
+            showlegend=False
+        )
+
+        # Save chart
+        os.makedirs(CHART_OUTPUT_DIR, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"{timestamp}_instagram_{metric}_{grouping}.html"
+        filepath = os.path.join(CHART_OUTPUT_DIR, filename)
+        fig.write_html(filepath)
+
+        summary = f"Instagram chart created successfully!\n"
+        summary += f"Saved to: {filepath}\n"
+        summary += f"Metric: {metric}\n"
+        summary += f"Grouping: {grouping}\n"
+        summary += f"Date range: {start_date} to {end_date}\n"
+        summary += f"Total periods: {len(period_data)}\n"
+
+        if metric == 'post_count':
+            total_posts = period_data['value'].sum()
+            avg_posts = period_data['value'].mean()
+            summary += f"Total posts: {int(total_posts)}\n"
+            summary += f"Average posts per {grouping}: {avg_posts:.1f}\n"
+        elif metric == 'engagement_rate':
+            avg_engagement = period_data['value'].mean()
+            summary += f"Average engagement rate: {avg_engagement:.2f}%\n"
+        else:
+            total_value = period_data['value'].sum()
+            avg_value = period_data['value'].mean()
+            summary += f"Total {metric}: {int(total_value):,}\n"
+            summary += f"Average {metric} per {grouping}: {avg_value:,.1f}\n"
+
+        return summary
+
+    return StructuredTool.from_function(
+        name="create_instagram_posts_chart",
+        func=create_instagram_posts_chart,
+        description="Create a time-series chart showing Instagram posts and engagement metrics (post count, likes, comments, reach, engagement rate) over time",
+        args_schema=InstagramPostsChartInput
+    )
+
+
 # ============================================================================
 # CREATE ALL TOOLS
 # ============================================================================
@@ -2256,6 +2386,7 @@ def create_all_tools():
             create_get_instagram_engagement_summary_tool(df_instagram_posts, df_instagram_comments),
             create_get_instagram_content_themes_tool(df_instagram_posts),
             create_get_instagram_revenue_correlation_tool(df_instagram_posts, df_transactions),
+            create_instagram_posts_chart_tool(df_instagram_posts),
         ])
 
     # Add Facebook Ads tools if data is available
