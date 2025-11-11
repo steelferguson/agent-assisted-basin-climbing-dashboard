@@ -1349,6 +1349,141 @@ with tab5:
     else:
         st.info('No fitness class data available')
 
+    # Camp Signups
+    st.subheader('Camp Signups')
+
+    # Filter for camp events
+    df_camps = df_events[
+        df_events['event_type_name'].str.contains('camp', case=False, na=False)
+    ].copy()
+
+    if not df_camps.empty:
+        # Parse dates
+        df_camps['start_datetime'] = pd.to_datetime(df_camps['start_datetime'], errors='coerce', utc=True)
+        df_camps = df_camps[df_camps['start_datetime'].notna()].copy()
+
+        # Convert to timezone-naive for comparisons
+        df_camps['start_datetime'] = df_camps['start_datetime'].dt.tz_localize(None)
+
+        # Separate upcoming and past camps
+        now = pd.Timestamp.now()
+        df_upcoming = df_camps[df_camps['start_datetime'] >= now].copy()
+        df_past = df_camps[df_camps['start_datetime'] < now].copy()
+
+        # Display upcoming camps
+        st.markdown('#### 🔜 Upcoming Camps')
+        if not df_upcoming.empty:
+            df_upcoming_display = df_upcoming.sort_values('start_datetime')[[
+                'start_datetime', 'event_type_name', 'num_reservations', 'capacity'
+            ]].copy()
+
+            # Calculate fill rate
+            df_upcoming_display['fill_rate'] = (
+                df_upcoming_display['num_reservations'] / df_upcoming_display['capacity'] * 100
+            ).round(1)
+
+            # Format for display
+            df_upcoming_display['start_datetime'] = df_upcoming_display['start_datetime'].dt.strftime('%Y-%m-%d')
+            df_upcoming_display['Signups'] = df_upcoming_display['num_reservations'].astype(int).astype(str) + ' / ' + df_upcoming_display['capacity'].astype(int).astype(str)
+            df_upcoming_display['Fill Rate'] = df_upcoming_display['fill_rate'].astype(str) + '%'
+
+            # Select and rename columns for display
+            df_upcoming_display = df_upcoming_display[[
+                'start_datetime', 'event_type_name', 'Signups', 'Fill Rate'
+            ]].copy()
+            df_upcoming_display.columns = ['Date', 'Camp Name', 'Signups', 'Fill Rate']
+
+            st.dataframe(df_upcoming_display, use_container_width=True, hide_index=True)
+
+            # Summary stats for upcoming
+            total_upcoming_signups = df_upcoming['num_reservations'].sum()
+            total_upcoming_capacity = df_upcoming['capacity'].sum()
+            avg_fill_rate = (total_upcoming_signups / total_upcoming_capacity * 100) if total_upcoming_capacity > 0 else 0
+
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric('Total Signups', f'{int(total_upcoming_signups)}')
+            with col2:
+                st.metric('Total Capacity', f'{int(total_upcoming_capacity)}')
+            with col3:
+                st.metric('Avg Fill Rate', f'{avg_fill_rate:.1f}%')
+        else:
+            st.info('No upcoming camps scheduled')
+
+        st.markdown('---')
+
+        # Display past camps
+        st.markdown('#### 📅 Past Camps')
+        if not df_past.empty:
+            df_past_display = df_past.sort_values('start_datetime', ascending=False).head(15)[[
+                'start_datetime', 'event_type_name', 'num_reservations', 'capacity'
+            ]].copy()
+
+            # Calculate fill rate
+            df_past_display['fill_rate'] = (
+                df_past_display['num_reservations'] / df_past_display['capacity'] * 100
+            ).round(1)
+
+            # Format for display
+            df_past_display['start_datetime'] = df_past_display['start_datetime'].dt.strftime('%Y-%m-%d')
+            df_past_display['Attendance'] = df_past_display['num_reservations'].astype(int).astype(str) + ' / ' + df_past_display['capacity'].astype(int).astype(str)
+            df_past_display['Fill Rate'] = df_past_display['fill_rate'].astype(str) + '%'
+
+            # Select and rename columns for display
+            df_past_display = df_past_display[[
+                'start_datetime', 'event_type_name', 'Attendance', 'Fill Rate'
+            ]].copy()
+            df_past_display.columns = ['Date', 'Camp Name', 'Attendance', 'Fill Rate']
+
+            st.dataframe(df_past_display, use_container_width=True, hide_index=True)
+
+            # Chart: Past camp attendance over time
+            df_past_chart = df_past.copy()
+            df_past_chart['date'] = df_past_chart['start_datetime'].dt.to_period('M').dt.start_time
+
+            past_attendance = df_past_chart.groupby('date').agg({
+                'num_reservations': 'sum',
+                'capacity': 'sum'
+            }).reset_index()
+
+            fig_past_camps = go.Figure()
+            fig_past_camps.add_trace(go.Bar(
+                x=past_attendance['date'],
+                y=past_attendance['num_reservations'],
+                name='Attendance',
+                marker_color=COLORS['primary']
+            ))
+            fig_past_camps.add_trace(go.Scatter(
+                x=past_attendance['date'],
+                y=past_attendance['capacity'],
+                name='Capacity',
+                mode='lines+markers',
+                line=dict(color=COLORS['quaternary'], width=2),
+                marker=dict(size=8)
+            ))
+
+            fig_past_camps.update_layout(
+                title='Past Camp Attendance vs Capacity',
+                plot_bgcolor=COLORS['background'],
+                paper_bgcolor=COLORS['background'],
+                font_color=COLORS['text'],
+                yaxis_title='Count',
+                xaxis_title='Month',
+                hovermode='x unified',
+                legend=dict(
+                    orientation="h",
+                    yanchor="bottom",
+                    y=1.02,
+                    xanchor="right",
+                    x=1
+                )
+            )
+            st.plotly_chart(fig_past_camps, use_container_width=True)
+        else:
+            st.info('No past camp data available')
+    else:
+        st.info('No camp events found')
+
 # ============================================================================
 # TAB 6: MARKETING
 # ============================================================================
