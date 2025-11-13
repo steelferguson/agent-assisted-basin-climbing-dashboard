@@ -617,7 +617,12 @@ def create_get_attrition_tool(df_memberships: pd.DataFrame):
         start = pd.to_datetime(start_date)
         end = pd.to_datetime(end_date)
 
-        ended_members = df[(df['end_date'] >= start) & (df['end_date'] <= end)]
+        # ONLY count memberships with status='END' to avoid counting active memberships' billing dates
+        ended_members = df[
+            (df['status'] == 'END') &
+            (df['end_date'] >= start) &
+            (df['end_date'] <= end)
+        ]
         count = len(ended_members)
 
         # Breakdown by type
