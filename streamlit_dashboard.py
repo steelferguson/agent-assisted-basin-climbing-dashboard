@@ -617,6 +617,258 @@ with tab2:
 
         st.plotly_chart(fig_timeline, use_container_width=True)
 
+    # Active Members Over Time
+    st.subheader('Active Members Over Time')
+
+    # Use same filters as above but work with df_members
+    df_members_filtered = df_members[df_members['status'].isin(status_filter)].copy()
+    df_members_filtered = df_members_filtered[df_members_filtered['frequency'].isin(frequency_filter)]
+    df_members_filtered = df_members_filtered[df_members_filtered['size'].isin(size_filter)]
+
+    # Apply category filters
+    if 'include_bcf' not in category_filter:
+        df_members_filtered = df_members_filtered[~df_members_filtered['is_bcf']]
+    if 'founder' not in category_filter:
+        df_members_filtered = df_members_filtered[~df_members_filtered['is_founder']]
+    if 'college' not in category_filter:
+        df_members_filtered = df_members_filtered[~df_members_filtered['is_college']]
+    if 'corporate' not in category_filter:
+        df_members_filtered = df_members_filtered[~df_members_filtered['is_corporate']]
+    if 'mid_day' not in category_filter:
+        df_members_filtered = df_members_filtered[~df_members_filtered['is_mid_day']]
+    if 'fitness_only' not in category_filter:
+        df_members_filtered = df_members_filtered[~df_members_filtered['is_fitness_only']]
+    if 'has_fitness_addon' not in category_filter:
+        df_members_filtered = df_members_filtered[~df_members_filtered['has_fitness_addon']]
+    if 'team_dues' not in category_filter:
+        df_members_filtered = df_members_filtered[~df_members_filtered['is_team_dues']]
+    if '90_for_90' not in category_filter:
+        df_members_filtered = df_members_filtered[~df_members_filtered['is_90_for_90']]
+    if 'not_special' not in category_filter:
+        # Exclude members NOT in any special category (i.e., only show special category members)
+        special_mask = (
+            df_members_filtered['is_bcf'] |
+            df_members_filtered['is_founder'] |
+            df_members_filtered['is_college'] |
+            df_members_filtered['is_corporate'] |
+            df_members_filtered['is_mid_day'] |
+            df_members_filtered['is_fitness_only'] |
+            df_members_filtered['has_fitness_addon'] |
+            df_members_filtered['is_team_dues'] |
+            df_members_filtered['is_90_for_90']
+        )
+        df_members_filtered = df_members_filtered[special_mask]
+
+    # Process dates
+    df_members_filtered['start_date'] = pd.to_datetime(df_members_filtered['start_date'], errors='coerce')
+    df_members_filtered['end_date'] = pd.to_datetime(df_members_filtered['end_date'], errors='coerce')
+
+    if not df_members_filtered.empty:
+        min_date = df_members_filtered['start_date'].min()
+        max_date = pd.Timestamp.now()
+        date_range = pd.date_range(start=min_date, end=max_date, freq='D')
+
+        daily_member_counts = []
+        for date in date_range:
+            active_members = df_members_filtered[
+                (df_members_filtered['start_date'] <= date) &
+                (df_members_filtered['end_date'] >= date)
+            ]
+            count = len(active_members)
+            daily_member_counts.append({
+                'date': date,
+                'count': count
+            })
+
+        daily_members_df = pd.DataFrame(daily_member_counts)
+
+        # Create line chart
+        fig_members_timeline = px.line(
+            daily_members_df,
+            x='date',
+            y='count',
+            title='Active Individual Members Over Time',
+            line_shape='linear'
+        )
+        fig_members_timeline.update_traces(line_color=COLORS['primary'], line_width=2)
+        fig_members_timeline.update_layout(
+            plot_bgcolor=COLORS['background'],
+            paper_bgcolor=COLORS['background'],
+            font_color=COLORS['text'],
+            height=500,
+            xaxis_title='Date',
+            yaxis_title='Number of Active Members',
+            hovermode='x unified'
+        )
+
+        st.plotly_chart(fig_members_timeline, use_container_width=True)
+    else:
+        st.info('No members match the selected filters')
+
+    # Memberships by Size
+    st.subheader('Active Memberships by Group Size')
+
+    if not df_memberships_filtered.empty:
+        daily_size_counts = []
+        for date in date_range:
+            active = df_memberships_filtered[
+                (df_memberships_filtered['start_date'] <= date) &
+                (df_memberships_filtered['end_date'] >= date)
+            ]
+            counts = active['size'].value_counts().to_dict()
+            daily_size_counts.append({
+                'date': date,
+                **{size: counts.get(size, 0) for size in size_filter}
+            })
+
+        daily_size_df = pd.DataFrame(daily_size_counts)
+
+        # Create stacked area chart
+        fig_size = go.Figure()
+
+        size_colors = {
+            'solo': COLORS['primary'],
+            'duo': COLORS['secondary'],
+            'family': COLORS['tertiary'],
+            'corporate': COLORS['quaternary']
+        }
+
+        for size in size_filter:
+            if size in daily_size_df.columns:
+                fig_size.add_trace(go.Scatter(
+                    x=daily_size_df['date'],
+                    y=daily_size_df[size],
+                    mode='lines',
+                    name=size.title(),
+                    stackgroup='one',
+                    line=dict(color=size_colors.get(size, COLORS['primary']))
+                ))
+
+        # Add total line
+        total_size = daily_size_df[size_filter].sum(axis=1)
+        fig_size.add_trace(go.Scatter(
+            x=daily_size_df['date'],
+            y=total_size,
+            mode='lines',
+            name='Total',
+            line=dict(color='#222222', width=2, dash='dash')
+        ))
+
+        fig_size.update_layout(
+            title='Active Memberships Over Time by Group Size',
+            plot_bgcolor=COLORS['background'],
+            paper_bgcolor=COLORS['background'],
+            font_color=COLORS['text'],
+            height=600,
+            xaxis_title='Date',
+            yaxis_title='Number of Active Memberships',
+            hovermode='x unified'
+        )
+
+        st.plotly_chart(fig_size, use_container_width=True)
+    else:
+        st.info('No memberships match the selected filters')
+
+    # Memberships by Special Category
+    st.subheader('Active Memberships by Special Category')
+
+    if not df_memberships_filtered.empty:
+        # Define categories to track
+        special_categories = {
+            'Founder': 'is_founder',
+            'College': 'is_college',
+            'Corporate': 'is_corporate',
+            'Mid-Day': 'is_mid_day',
+            'Fitness Only': 'is_fitness_only',
+            'Has Fitness Addon': 'has_fitness_addon',
+            'Team Dues': 'is_team_dues',
+            '90 for 90': 'is_90_for_90',
+            'Regular': 'regular'  # Not in any special category
+        }
+
+        daily_category_counts = []
+        for date in date_range:
+            active = df_memberships_filtered[
+                (df_memberships_filtered['start_date'] <= date) &
+                (df_memberships_filtered['end_date'] >= date)
+            ]
+
+            counts = {}
+            for category_name, column_name in special_categories.items():
+                if column_name == 'regular':
+                    # Count memberships NOT in any special category
+                    regular_mask = ~(
+                        active['is_founder'] |
+                        active['is_college'] |
+                        active['is_corporate'] |
+                        active['is_mid_day'] |
+                        active['is_fitness_only'] |
+                        active['has_fitness_addon'] |
+                        active['is_team_dues'] |
+                        active['is_90_for_90']
+                    )
+                    counts[category_name] = regular_mask.sum()
+                else:
+                    counts[category_name] = active[column_name].sum()
+
+            daily_category_counts.append({
+                'date': date,
+                **counts
+            })
+
+        daily_category_df = pd.DataFrame(daily_category_counts)
+
+        # Create stacked area chart
+        fig_category = go.Figure()
+
+        category_colors = {
+            'Founder': '#8B4229',
+            'College': '#BAA052',
+            'Corporate': '#96A682',
+            'Mid-Day': '#1A2E31',
+            'Fitness Only': '#C85A3E',
+            'Has Fitness Addon': '#D4AF6A',
+            'Team Dues': '#B8C9A8',
+            '90 for 90': '#4A4A4A',
+            'Regular': '#E0E0E0'
+        }
+
+        for category in special_categories.keys():
+            if category in daily_category_df.columns:
+                fig_category.add_trace(go.Scatter(
+                    x=daily_category_df['date'],
+                    y=daily_category_df[category],
+                    mode='lines',
+                    name=category,
+                    stackgroup='one',
+                    line=dict(color=category_colors.get(category, COLORS['primary']))
+                ))
+
+        # Add total line
+        total_category = daily_category_df[list(special_categories.keys())].sum(axis=1)
+        fig_category.add_trace(go.Scatter(
+            x=daily_category_df['date'],
+            y=total_category,
+            mode='lines',
+            name='Total',
+            line=dict(color='#222222', width=2, dash='dash')
+        ))
+
+        fig_category.update_layout(
+            title='Active Memberships Over Time by Special Category',
+            plot_bgcolor=COLORS['background'],
+            paper_bgcolor=COLORS['background'],
+            font_color=COLORS['text'],
+            height=600,
+            xaxis_title='Date',
+            yaxis_title='Number of Active Memberships',
+            hovermode='x unified'
+        )
+
+        st.plotly_chart(fig_category, use_container_width=True)
+    else:
+        st.info('No memberships match the selected filters')
+
     # 90 for 90 Conversion
     st.subheader('90 for 90 Conversion Summary')
 
@@ -678,6 +930,134 @@ with tab2:
         st.plotly_chart(fig_90, use_container_width=True)
     else:
         st.info('No 90 for 90 memberships found')
+
+    # New Members & Attrition
+    st.subheader('New Memberships & Attrition Over Time')
+
+    # Calculate new memberships and attrition by month
+    df_memberships_dates = df_memberships.copy()
+    df_memberships_dates['start_date'] = pd.to_datetime(df_memberships_dates['start_date'], errors='coerce')
+    df_memberships_dates['end_date'] = pd.to_datetime(df_memberships_dates['end_date'], errors='coerce')
+
+    # Remove rows with invalid dates
+    df_memberships_dates = df_memberships_dates[df_memberships_dates['start_date'].notna()]
+
+    # Get date range
+    min_date = df_memberships_dates['start_date'].min()
+    max_date = pd.Timestamp.now()
+
+    # Create monthly periods
+    month_range = pd.period_range(start=min_date.to_period('M'), end=max_date.to_period('M'), freq='M')
+
+    monthly_data = []
+    for month in month_range:
+        month_start = month.to_timestamp()
+        month_end = (month + 1).to_timestamp()
+
+        # Count new memberships that started in this month
+        new_members = len(df_memberships_dates[
+            (df_memberships_dates['start_date'] >= month_start) &
+            (df_memberships_dates['start_date'] < month_end)
+        ])
+
+        # Count memberships that ended in this month (attrition)
+        # ONLY count memberships with status='END' to avoid counting active memberships' billing dates
+        attrited = len(df_memberships_dates[
+            (df_memberships_dates['status'] == 'END') &
+            (df_memberships_dates['end_date'] >= month_start) &
+            (df_memberships_dates['end_date'] < month_end)
+        ])
+
+        # Net change
+        net_change = new_members - attrited
+
+        monthly_data.append({
+            'month': month.to_timestamp(),
+            'New Memberships': new_members,
+            'Attrition': attrited,
+            'Net Change': net_change
+        })
+
+    df_monthly = pd.DataFrame(monthly_data)
+
+    if not df_monthly.empty:
+        # Create figure with secondary y-axis
+        fig_attrition = go.Figure()
+
+        # Add new memberships bars
+        fig_attrition.add_trace(go.Bar(
+            x=df_monthly['month'],
+            y=df_monthly['New Memberships'],
+            name='New Memberships',
+            marker_color=COLORS['secondary'],
+            text=df_monthly['New Memberships'],
+            textposition='outside',
+            textfont=dict(size=10)
+        ))
+
+        # Add attrition bars (negative values for visual effect)
+        fig_attrition.add_trace(go.Bar(
+            x=df_monthly['month'],
+            y=-df_monthly['Attrition'],  # Negative to show below axis
+            name='Attrition',
+            marker_color=COLORS['primary'],
+            text=df_monthly['Attrition'],
+            textposition='outside',
+            textfont=dict(size=10)
+        ))
+
+        # Add net change line
+        fig_attrition.add_trace(go.Scatter(
+            x=df_monthly['month'],
+            y=df_monthly['Net Change'],
+            name='Net Change',
+            mode='lines+markers',
+            line=dict(color=COLORS['quaternary'], width=3),
+            marker=dict(size=8),
+            yaxis='y2'
+        ))
+
+        fig_attrition.update_layout(
+            title='Monthly New Memberships & Attrition',
+            plot_bgcolor=COLORS['background'],
+            paper_bgcolor=COLORS['background'],
+            font_color=COLORS['text'],
+            height=500,
+            xaxis_title='Month',
+            yaxis_title='Count',
+            yaxis2=dict(
+                title='Net Change',
+                overlaying='y',
+                side='right',
+                showgrid=False
+            ),
+            hovermode='x unified',
+            barmode='relative',
+            legend=dict(
+                orientation='h',
+                yanchor='bottom',
+                y=1.02,
+                xanchor='right',
+                x=1
+            )
+        )
+
+        # Add horizontal line at y=0
+        fig_attrition.add_hline(y=0, line_dash='dash', line_color='gray', opacity=0.5)
+
+        st.plotly_chart(fig_attrition, use_container_width=True)
+
+        # Summary metrics
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric('Total New Memberships', df_monthly['New Memberships'].sum())
+        with col2:
+            st.metric('Total Attrition', df_monthly['Attrition'].sum())
+        with col3:
+            net_total = df_monthly['Net Change'].sum()
+            st.metric('Net Growth', net_total, delta=None)
+    else:
+        st.info('No membership data available for attrition analysis')
 
     # At-Risk Members Table
     st.subheader('At-Risk Members')
