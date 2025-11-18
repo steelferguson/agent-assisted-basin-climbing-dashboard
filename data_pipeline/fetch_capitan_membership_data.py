@@ -30,33 +30,57 @@ class CapitanDataFetcher:
 
     def get_results_from_api(self, url: str) -> dict:
         """
-        Make API request and handle response.
+        Make API request and handle response with pagination.
+        Fetches all pages and combines results.
         """
-        url = self.base_url + url + "/?page=1&page_size=10000000000"
-        print(f"Fetching data from {url}")
-        try:
-            response = requests.get(url, headers=self.headers)
-            print(f"trying using headers: {self.headers}")
-            if response.status_code == 200:
-                print("Successful response from " + url)
-            else:
-                print(f"Failed to retrieve data. Status code: {response.status_code}")
-                return None
+        all_results = []
+        page = 1
+        page_size = 1000  # API can't handle larger page sizes (502/timeout)
 
-            json_data = response.json()
+        print(f"Fetching data from {self.base_url}{url}")
 
-            # Determine which type of data we're saving based on the URL
-            if "customer-memberships" in url:
-                filename = "capitan_customer_memberships"
-            elif "payments" in url:
-                filename = "capitan_payments"
-            else:
-                filename = "capitan_response"
+        while True:
+            paginated_url = f"{self.base_url}{url}/?page={page}&page_size={page_size}"
 
-            return json_data
-        except requests.exceptions.RequestException as e:
-            print(f"Error making API request: {e}")
-            return None
+            try:
+                response = requests.get(paginated_url, headers=self.headers, timeout=30)
+
+                if response.status_code != 200:
+                    print(f"Failed to retrieve data. Status code: {response.status_code}")
+                    if page == 1:
+                        # First page failed, return None
+                        return None
+                    else:
+                        # Subsequent page failed, return what we have
+                        break
+
+                json_data = response.json()
+                results = json_data.get('results', [])
+
+                if not results:
+                    # No more results
+                    break
+
+                all_results.extend(results)
+                print(f"  Page {page}: Retrieved {len(results)} records (total so far: {len(all_results)})")
+
+                # Check if there are more pages
+                if not json_data.get('next'):
+                    break
+
+                page += 1
+
+            except requests.exceptions.RequestException as e:
+                print(f"Error making API request: {e}")
+                if page == 1:
+                    return None
+                else:
+                    break
+
+        print(f"Successfully fetched {len(all_results)} total records from {url}")
+
+        # Return in the same format as before
+        return {'results': all_results, 'count': len(all_results)}
 
     def extract_membership_features(self, membership: dict) -> dict:
         """
