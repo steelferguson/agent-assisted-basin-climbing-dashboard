@@ -35,7 +35,7 @@ class CapitanDataFetcher:
         """
         all_results = []
         page = 1
-        page_size = 1000  # API can't handle larger page sizes (502/timeout)
+        page_size = 100  # API can't handle larger page sizes (502/timeout)
 
         print(f"Fetching data from {self.base_url}{url}")
 
