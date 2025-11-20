@@ -58,6 +58,8 @@ s3_path_capitan_association_members_snapshot = "capitan/snapshots/association_me
 s3_path_capitan_events_snapshot = "capitan/snapshots/events.csv"
 s3_path_at_risk_members = "capitan/at_risk_members.csv"
 s3_path_at_risk_members_snapshot = "capitan/snapshots/at_risk_members.csv"
+s3_path_failed_payments = "stripe/failed_membership_payments.csv"
+s3_path_failed_payments_snapshot = "stripe/snapshots/failed_membership_payments.csv"
 snapshot_day_of_month = 1
 s3_path_text_and_metadata = "agent/text_and_metadata"
 

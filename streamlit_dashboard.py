@@ -64,13 +64,14 @@ def load_data():
     df_checkins = load_df(config.aws_bucket_name, config.s3_path_capitan_checkins)
     df_instagram = load_df(config.aws_bucket_name, config.s3_path_instagram_posts)
     df_mailchimp = load_df(config.aws_bucket_name, config.s3_path_mailchimp_campaigns)
+    df_failed_payments = load_df(config.aws_bucket_name, config.s3_path_failed_payments)
 
-    return df_transactions, df_memberships, df_members, df_projection, df_at_risk, df_facebook_ads, df_events, df_checkins, df_instagram, df_mailchimp
+    return df_transactions, df_memberships, df_members, df_projection, df_at_risk, df_facebook_ads, df_events, df_checkins, df_instagram, df_mailchimp, df_failed_payments
 
 
 # Load data
 with st.spinner('Loading data from S3...'):
-    df_transactions, df_memberships, df_members, df_projection, df_at_risk, df_facebook_ads, df_events, df_checkins, df_instagram, df_mailchimp = load_data()
+    df_transactions, df_memberships, df_members, df_projection, df_at_risk, df_facebook_ads, df_events, df_checkins, df_instagram, df_mailchimp, df_failed_payments = load_data()
 
 # Prepare at-risk members data
 if not df_at_risk.empty:
@@ -452,6 +453,141 @@ with tab1:
     )
 
     st.plotly_chart(fig_projection, use_container_width=True)
+
+    # Payment Failure Rates
+    st.subheader('Payment Failure Rates by Membership Type')
+    st.markdown('Analysis of failed membership payments over the last 180 days')
+
+    if not df_failed_payments.empty and not df_memberships.empty:
+        from data_pipeline.process_failed_payments import calculate_failure_rates_by_type
+
+        # Calculate failure rates
+        df_failure_rates = calculate_failure_rates_by_type(df_failed_payments, df_memberships)
+
+        # Filter to show only categories with >0% failure rate
+        df_failure_rates_display = df_failure_rates[df_failure_rates['failure_rate_pct'] > 0].copy()
+
+        if not df_failure_rates_display.empty:
+            # Create two columns for metrics
+            col1, col2 = st.columns(2)
+
+            with col1:
+                st.metric(
+                    "Total Failed Payments",
+                    len(df_failed_payments),
+                    help="Failed membership payment attempts in last 180 days"
+                )
+
+            with col2:
+                insufficient_funds_count = len(df_failed_payments[df_failed_payments['decline_code'] == 'insufficient_funds'])
+                insufficient_funds_pct = (insufficient_funds_count / len(df_failed_payments) * 100) if len(df_failed_payments) > 0 else 0
+                st.metric(
+                    "Due to Insufficient Funds",
+                    f"{insufficient_funds_count} ({insufficient_funds_pct:.1f}%)",
+                    help="Failures specifically due to insufficient funds"
+                )
+
+            # Create bar chart showing failure rates
+            fig_failures = go.Figure()
+
+            # Sort by insufficient funds rate descending
+            df_failure_rates_display = df_failure_rates_display.sort_values('insufficient_funds_rate_pct', ascending=True)
+
+            # Create hover text with detailed info
+            df_failure_rates_display['hover_text'] = df_failure_rates_display.apply(
+                lambda row: (
+                    f"<b>{row['membership_type']}</b><br>" +
+                    f"Active Members: {row['active_memberships']}<br>" +
+                    f"Failed Payments: {row['total_failures']}<br>" +
+                    f"Insufficient Funds: {row['insufficient_funds_failures']}<br>" +
+                    f"Failure Rate: {row['failure_rate_pct']:.1f}%"
+                ),
+                axis=1
+            )
+
+            # Add insufficient funds rate
+            fig_failures.add_trace(go.Bar(
+                name='Insufficient Funds',
+                y=df_failure_rates_display['membership_type'],
+                x=df_failure_rates_display['insufficient_funds_rate_pct'],
+                orientation='h',
+                marker_color=COLORS['primary'],
+                text=df_failure_rates_display.apply(
+                    lambda row: f'{row["insufficient_funds_rate_pct"]:.1f}% ({row["insufficient_funds_failures"]} fails)',
+                    axis=1
+                ),
+                textposition='auto',
+                hovertext=df_failure_rates_display['hover_text'],
+                hoverinfo='text',
+            ))
+
+            # Add other failures rate
+            df_failure_rates_display['other_failure_rate'] = (
+                df_failure_rates_display['failure_rate_pct'] - df_failure_rates_display['insufficient_funds_rate_pct']
+            )
+            df_failure_rates_display['other_failures_count'] = (
+                df_failure_rates_display['total_failures'] - df_failure_rates_display['insufficient_funds_failures']
+            )
+
+            fig_failures.add_trace(go.Bar(
+                name='Other Failures',
+                y=df_failure_rates_display['membership_type'],
+                x=df_failure_rates_display['other_failure_rate'],
+                orientation='h',
+                marker_color=COLORS['secondary'],
+                text=df_failure_rates_display.apply(
+                    lambda row: f'{row["other_failure_rate"]:.1f}% ({row["other_failures_count"]} fails)' if row['other_failure_rate'] > 0 else '',
+                    axis=1
+                ),
+                textposition='auto',
+                hovertext=df_failure_rates_display['hover_text'],
+                hoverinfo='text',
+            ))
+
+            fig_failures.update_layout(
+                barmode='stack',
+                plot_bgcolor=COLORS['background'],
+                paper_bgcolor=COLORS['background'],
+                font_color=COLORS['text'],
+                xaxis_title='Failure Rate (%)',
+                yaxis_title='Membership Type',
+                legend_title='Failure Reason',
+                showlegend=True,
+                height=400
+            )
+
+            st.plotly_chart(fig_failures, use_container_width=True)
+
+            # Show detailed table
+            with st.expander("📊 View Detailed Failure Rates"):
+                df_failure_rates_table = df_failure_rates_display[[
+                    'membership_type', 'active_memberships', 'unique_with_failures',
+                    'insufficient_funds_failures', 'failure_rate_pct', 'insufficient_funds_rate_pct'
+                ]].copy()
+
+                df_failure_rates_table.columns = [
+                    'Membership Type', 'Active Members', 'Members with Failures',
+                    'Insufficient Funds Count', 'Total Failure Rate (%)', 'Insufficient Funds Rate (%)'
+                ]
+
+                st.dataframe(df_failure_rates_table, use_container_width=True, hide_index=True)
+
+                # Key insights
+                st.markdown("**Key Insights:**")
+                highest_insuff = df_failure_rates_display.iloc[-1]  # Last row (highest after sorting)
+                st.markdown(f"- **{highest_insuff['membership_type']}** has the highest insufficient funds rate at **{highest_insuff['insufficient_funds_rate_pct']:.1f}%**")
+
+                total_unique_failures = df_failure_rates_display['unique_with_failures'].sum()
+                st.markdown(f"- **{total_unique_failures}** unique memberships have experienced payment failures")
+
+                if insufficient_funds_count > 0:
+                    st.markdown(f"- **{insufficient_funds_pct:.1f}%** of all payment failures are due to insufficient funds")
+
+        else:
+            st.info("No payment failures in the last 180 days!")
+
+    else:
+        st.info("Payment failure data not available")
 
 # ============================================================================
 # TAB 2: MEMBERSHIP

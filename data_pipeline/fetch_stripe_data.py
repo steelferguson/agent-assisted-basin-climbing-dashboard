@@ -420,6 +420,90 @@ class StripeFetcher:
             'refund_count': len(refunds)
         }
 
+    def pull_failed_membership_payments(
+        self,
+        stripe_key: str,
+        start_date: datetime.datetime,
+        end_date: datetime.datetime
+    ) -> pd.DataFrame:
+        """
+        Fetch failed/incomplete payment intents for membership payments.
+
+        This helps track payment failures by membership type, especially
+        useful for identifying issues with specific membership categories
+        (e.g., college memberships with insufficient funds).
+
+        Returns DataFrame with columns:
+        - payment_intent_id: Stripe Payment Intent ID
+        - membership_id: Capitan membership ID (extracted from description)
+        - description: Payment description
+        - amount: Payment amount
+        - created: Payment creation date
+        - status: Payment status (requires_payment_method, canceled, etc.)
+        - decline_code: Reason for failure (insufficient_funds, do_not_honor, etc.)
+        - failure_message: Detailed error message
+        - customer_id: Stripe customer ID if available
+        """
+        print(f"Fetching failed membership payments from {start_date.date()} to {end_date.date()}")
+        stripe.api_key = stripe_key
+
+        # Fetch all payment intents (including failed ones)
+        payment_intents = stripe.PaymentIntent.list(
+            created={
+                "gte": int(start_date.timestamp()),
+                "lte": int(end_date.timestamp()),
+            },
+            limit=1000,
+        )
+
+        all_pis = list(payment_intents.auto_paging_iter())
+        print(f"Retrieved {len(all_pis)} total Payment Intents")
+
+        # Filter to failed/incomplete statuses
+        failed_statuses = ['requires_payment_method', 'payment_failed', 'canceled']
+        failed_pis = [pi for pi in all_pis if pi.status in failed_statuses]
+        print(f"Found {len(failed_pis)} failed/incomplete payments")
+
+        # Extract membership payment failures
+        membership_failures = []
+
+        for pi in failed_pis:
+            desc = pi.description or ""
+
+            # Check if it's a membership payment
+            is_membership = any(word in desc.lower() for word in ['membership', 'renewal', 'initial payment'])
+
+            if is_membership:
+                # Extract membership ID from description like "Capitan membership #180227 renewal payment"
+                membership_id = None
+                match = re.search(r'membership #(\d+)', desc.lower())
+                if match:
+                    membership_id = int(match.group(1))
+
+                # Get failure reason
+                decline_code = None
+                failure_message = None
+                if pi.last_payment_error:
+                    decline_code = pi.last_payment_error.get('decline_code')
+                    failure_message = pi.last_payment_error.get('message')
+
+                membership_failures.append({
+                    'payment_intent_id': pi.id,
+                    'membership_id': membership_id,
+                    'description': desc,
+                    'amount': pi.amount / 100,
+                    'created': datetime.datetime.fromtimestamp(pi.created),
+                    'status': pi.status,
+                    'decline_code': decline_code,
+                    'failure_message': failure_message,
+                    'customer_id': pi.customer,
+                })
+
+        df_failures = pd.DataFrame(membership_failures)
+        print(f"Found {len(df_failures)} membership payment failures")
+
+        return df_failures
+
 
 if __name__ == "__main__":
     end_date = datetime.datetime.now()

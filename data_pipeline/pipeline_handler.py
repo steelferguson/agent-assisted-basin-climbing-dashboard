@@ -368,6 +368,75 @@ def upload_new_capitan_membership_data(save_local=False):
         )
 
 
+def upload_failed_membership_payments(save_local=False, days_back=90):
+    """
+    Fetches failed membership payment data from Stripe and uploads to S3.
+
+    Tracks payment failures by membership type to identify issues like
+    insufficient funds failures in college memberships.
+
+    Args:
+        save_local: Whether to save CSV files locally
+        days_back: Number of days of failed payments to fetch (default: 90)
+
+    Returns:
+        DataFrame of failed membership payments
+    """
+    print("=" * 60)
+    print("Fetching Failed Membership Payments from Stripe")
+    print("=" * 60)
+
+    # Initialize fetcher
+    stripe_fetcher = fetch_stripe_data.StripeFetcher(stripe_key=config.stripe_key)
+    uploader = upload_data.DataUploader()
+
+    # Calculate date range
+    end_date = datetime.datetime.now()
+    start_date = end_date - datetime.timedelta(days=days_back)
+
+    # Fetch failed payments
+    df_failed_payments = stripe_fetcher.pull_failed_membership_payments(
+        config.stripe_key,
+        start_date,
+        end_date
+    )
+
+    print(f"Retrieved {len(df_failed_payments)} failed membership payments")
+
+    if len(df_failed_payments) > 0:
+        # Show summary
+        print(f"\nFailure breakdown:")
+        if 'decline_code' in df_failed_payments.columns:
+            failure_counts = df_failed_payments['decline_code'].value_counts()
+            for code, count in failure_counts.items():
+                print(f"  {code}: {count}")
+
+    # Save locally if requested
+    if save_local:
+        df_failed_payments.to_csv('data/outputs/failed_membership_payments.csv', index=False)
+        print("Saved locally to: data/outputs/failed_membership_payments.csv")
+
+    # Upload to S3
+    uploader.upload_to_s3(
+        df_failed_payments,
+        config.aws_bucket_name,
+        config.s3_path_failed_payments,
+    )
+    print(f"✅ Uploaded failed payments to S3: {config.s3_path_failed_payments}")
+
+    # Create snapshot on first of month
+    today = datetime.datetime.now()
+    if today.day == config.snapshot_day_of_month:
+        uploader.upload_to_s3(
+            df_failed_payments,
+            config.aws_bucket_name,
+            config.s3_path_failed_payments_snapshot + f'_{today.strftime("%Y-%m-%d")}',
+        )
+        print(f"📸 Created snapshot: {config.s3_path_failed_payments_snapshot}_{today.strftime('%Y-%m-%d')}")
+
+    return df_failed_payments
+
+
 def upload_new_instagram_data(save_local=False, enable_vision_analysis=True, days_to_fetch=30):
     """
     Fetches Instagram posts and comments from the last N days, merges with existing data,
