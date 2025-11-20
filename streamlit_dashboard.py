@@ -73,7 +73,7 @@ def load_data():
 
 # Load data
 with st.spinner('Loading data from S3...'):
-    df_transactions, df_memberships, df_members, df_projection, df_at_risk, df_facebook_ads, df_events, df_checkins, df_instagram, df_mailchimp, df_failed_payments = load_data()
+    df_transactions, df_memberships, df_members, df_projection, df_at_risk, df_facebook_ads, df_events, df_checkins, df_instagram, df_mailchimp, df_failed_payments, df_expenses = load_data()
 
 # Prepare at-risk members data
 if not df_at_risk.empty:
@@ -92,13 +92,14 @@ st.title('🧗 Basin Climbing & Fitness Dashboard')
 st.markdown('---')
 
 # Create tabs
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "📊 Revenue",
     "👥 Membership",
     "🎟️ Day Passes & Check-ins",
     "🎉 Rentals",
     "💪 Programming",
-    "📱 Marketing"
+    "📱 Marketing",
+    "💰 Expenses"
 ])
 
 # ============================================================================
@@ -2308,6 +2309,153 @@ with tab6:
 
     else:
         st.info('No email campaign data available')
+
+# ============================================================================
+# TAB 7: EXPENSES
+# ============================================================================
+with tab7:
+    st.header('Expense Analysis')
+    st.markdown('Payroll and Marketing expenses from QuickBooks (2025 YTD)')
+
+    if not df_expenses.empty:
+        # Add expense categories
+        df_expenses_categorized = categorize_expenses.add_expense_categories(df_expenses)
+
+        # Filter to only Payroll and Marketing
+        df_display = df_expenses_categorized[df_expenses_categorized['category_group'].isin(['Payroll', 'Marketing'])].copy()
+
+        if not df_display.empty:
+            # Ensure date is datetime
+            df_display['date'] = pd.to_datetime(df_display['date'])
+
+            # Calculate summary metrics
+            total_payroll = df_display[df_display['category_group'] == 'Payroll']['amount'].sum()
+            total_marketing = df_display[df_display['category_group'] == 'Marketing']['amount'].sum()
+            total_expenses = total_payroll + total_marketing
+
+            # Summary metrics
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric(
+                    "Total Payroll & Marketing",
+                    f"${total_expenses:,.0f}",
+                    help="Combined Payroll and Marketing expenses for 2025 YTD"
+                )
+            with col2:
+                st.metric(
+                    "Payroll Expenses",
+                    f"${total_payroll:,.0f}",
+                    help="Salaries, payroll taxes, and employee benefits"
+                )
+            with col3:
+                st.metric(
+                    "Marketing Expenses",
+                    f"${total_marketing:,.0f}",
+                    help="Google Ads, social media, website ads, and listing fees"
+                )
+
+            # Monthly expense trend
+            st.subheader('Monthly Expense Trends')
+
+            df_display['year_month'] = df_display['date'].dt.to_period('M').astype(str)
+            monthly_expenses = df_display.groupby(['year_month', 'category_group'])['amount'].sum().reset_index()
+
+            # Create line chart
+            fig_monthly = go.Figure()
+
+            for category in ['Payroll', 'Marketing']:
+                df_cat = monthly_expenses[monthly_expenses['category_group'] == category]
+                color = COLORS['primary'] if category == 'Payroll' else COLORS['secondary']
+
+                fig_monthly.add_trace(go.Scatter(
+                    x=df_cat['year_month'],
+                    y=df_cat['amount'],
+                    name=category,
+                    mode='lines+markers',
+                    line=dict(color=color, width=3),
+                    marker=dict(size=8),
+                    hovertemplate='%{x}<br>$%{y:,.0f}<extra></extra>'
+                ))
+
+            fig_monthly.update_layout(
+                plot_bgcolor=COLORS['background'],
+                paper_bgcolor=COLORS['background'],
+                font_color=COLORS['text'],
+                xaxis_title='Month',
+                yaxis_title='Expense Amount ($)',
+                hovermode='x unified',
+                showlegend=True,
+                legend=dict(
+                    orientation="h",
+                    yanchor="bottom",
+                    y=1.02,
+                    xanchor="right",
+                    x=1
+                )
+            )
+
+            st.plotly_chart(fig_monthly, use_container_width=True)
+
+            # Category breakdown
+            st.subheader('Expense Breakdown')
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                # Pie chart
+                summary = categorize_expenses.get_category_summary(df_display)
+
+                fig_pie = go.Figure(data=[go.Pie(
+                    labels=summary['category_group'],
+                    values=summary['total_amount'],
+                    marker=dict(colors=[COLORS['primary'], COLORS['secondary']]),
+                    textinfo='label+percent',
+                    hovertemplate='%{label}<br>$%{value:,.0f}<br>%{percent}<extra></extra>'
+                )])
+
+                fig_pie.update_layout(
+                    plot_bgcolor=COLORS['background'],
+                    paper_bgcolor=COLORS['background'],
+                    font_color=COLORS['text'],
+                    showlegend=False
+                )
+
+                st.plotly_chart(fig_pie, use_container_width=True)
+
+            with col2:
+                # Summary table
+                st.markdown("**Category Summary**")
+
+                summary_display = summary.copy()
+                summary_display['total_amount'] = summary_display['total_amount'].apply(lambda x: f"${x:,.0f}")
+                summary_display['avg_amount'] = summary_display['avg_amount'].apply(lambda x: f"${x:,.0f}")
+                summary_display.columns = ['Category', 'Total Amount', 'Transactions', 'Avg Amount']
+
+                st.dataframe(summary_display, use_container_width=True, hide_index=True)
+
+                # Key insights
+                st.markdown("**Key Insights:**")
+                payroll_pct = (total_payroll / total_expenses * 100) if total_expenses > 0 else 0
+                st.markdown(f"- Payroll represents **{payroll_pct:.1f}%** of tracked expenses")
+                st.markdown(f"- Average payroll transaction: **${summary[summary['category_group'] == 'Payroll']['avg_amount'].values[0]:,.0f}**")
+                if len(summary[summary['category_group'] == 'Marketing']) > 0:
+                    st.markdown(f"- Average marketing transaction: **${summary[summary['category_group'] == 'Marketing']['avg_amount'].values[0]:,.0f}**")
+
+            # Detailed transactions table
+            with st.expander("📋 View Detailed Transactions"):
+                df_table = df_display[['date', 'category_group', 'expense_category', 'vendor', 'description', 'amount']].copy()
+                df_table = df_table.sort_values('date', ascending=False)
+                df_table['date'] = df_table['date'].dt.strftime('%Y-%m-%d')
+                df_table['amount'] = df_table['amount'].apply(lambda x: f"${x:,.2f}")
+                df_table.columns = ['Date', 'Category', 'Expense Type', 'Vendor', 'Description', 'Amount']
+
+                st.dataframe(df_table, use_container_width=True, hide_index=True, height=400)
+
+        else:
+            st.info('No Payroll or Marketing expense data available')
+
+    else:
+        st.info('No expense data available. Run the QuickBooks pipeline to fetch data.')
 
 # Footer
 st.markdown('---')
