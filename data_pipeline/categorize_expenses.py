@@ -23,7 +23,8 @@ EXPENSE_CATEGORY_MAPPINGS = {
         "Health Reimbursements",
         "Health Reimbursement",
         "Payments to partners",
-        "Reimbursement",
+        "Reimbursement",  # Employee reimbursements
+        "Insurance",  # Worker's comp and other employee insurance
     ],
 
     "Marketing": [
