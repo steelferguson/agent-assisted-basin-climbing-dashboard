@@ -12,6 +12,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from data_pipeline import upload_data
 from data_pipeline import config
+from data_pipeline import categorize_expenses
 import os
 
 # Page config
@@ -65,8 +66,9 @@ def load_data():
     df_instagram = load_df(config.aws_bucket_name, config.s3_path_instagram_posts)
     df_mailchimp = load_df(config.aws_bucket_name, config.s3_path_mailchimp_campaigns)
     df_failed_payments = load_df(config.aws_bucket_name, config.s3_path_failed_payments)
+    df_expenses = load_df(config.aws_bucket_name, config.s3_path_quickbooks_expenses)
 
-    return df_transactions, df_memberships, df_members, df_projection, df_at_risk, df_facebook_ads, df_events, df_checkins, df_instagram, df_mailchimp, df_failed_payments
+    return df_transactions, df_memberships, df_members, df_projection, df_at_risk, df_facebook_ads, df_events, df_checkins, df_instagram, df_mailchimp, df_failed_payments, df_expenses
 
 
 # Load data

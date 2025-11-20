@@ -6,6 +6,7 @@ from data_pipeline import fetch_facebook_ads_data
 from data_pipeline import fetch_capitan_checkin_data
 from data_pipeline import fetch_mailchimp_data
 from data_pipeline import fetch_capitan_associations_events
+from data_pipeline import fetch_quickbooks_data
 from data_pipeline import identify_at_risk_members
 from data_pipeline import upload_data as upload_data
 import datetime
@@ -435,6 +436,118 @@ def upload_failed_membership_payments(save_local=False, days_back=90):
         print(f"📸 Created snapshot: {config.s3_path_failed_payments_snapshot}_{today.strftime('%Y-%m-%d')}")
 
     return df_failed_payments
+
+
+def upload_quickbooks_data(save_local=False, year=2025):
+    """
+    Fetches QuickBooks expense and revenue data and uploads to S3.
+
+    Fetches all data for specified year (default: 2025) to match operational period.
+    Stores raw granular data in S3 for dashboard processing and categorization.
+
+    Args:
+        save_local: Whether to save CSV files locally
+        year: Year to fetch data for (default: 2025)
+
+    Returns:
+        Tuple of (df_expenses, df_revenue, df_accounts)
+    """
+    print("=" * 60)
+    print("Fetching QuickBooks Financial Data")
+    print("=" * 60)
+
+    # Check if we have credentials (try from env vars or file)
+    if not config.quickbooks_access_token:
+        print("⚠️  No QuickBooks credentials in environment variables")
+        print("   Attempting to load from credentials file...")
+
+        creds = fetch_quickbooks_data.load_credentials_from_file()
+        if not creds:
+            print("❌ Could not load QuickBooks credentials")
+            return None, None, None
+
+        client_id = creds['client_id']
+        client_secret = creds['client_secret']
+        realm_id = creds['realm_id']
+        access_token = creds['access_token']
+        refresh_token = creds['refresh_token']
+    else:
+        client_id = config.quickbooks_client_id
+        client_secret = config.quickbooks_client_secret
+        realm_id = config.quickbooks_realm_id
+        access_token = config.quickbooks_access_token
+        refresh_token = config.quickbooks_refresh_token
+
+    # Initialize fetcher
+    qb_fetcher = fetch_quickbooks_data.QuickBooksFetcher(
+        client_id=client_id,
+        client_secret=client_secret,
+        realm_id=realm_id,
+        access_token=access_token,
+        refresh_token=refresh_token
+    )
+
+    uploader = upload_data.DataUploader()
+
+    # Fetch expense account categories first
+    print("\n📋 Fetching expense account categories...")
+    df_accounts = qb_fetcher.fetch_expense_accounts()
+
+    # Calculate date range for specified year
+    start_date = datetime.datetime(year, 1, 1)
+    end_date = datetime.datetime.now() if year == datetime.datetime.now().year else datetime.datetime(year, 12, 31)
+
+    # Fetch purchases (expenses)
+    print(f"\n💰 Fetching expenses for {year}...")
+    df_expenses = qb_fetcher.fetch_purchases(start_date, end_date, max_results=1000)
+
+    # TODO: Add revenue fetching when needed
+    # For now, we're focusing on expenses
+    df_revenue = pd.DataFrame()  # Placeholder
+
+    # Save locally if requested
+    if save_local:
+        if not df_expenses.empty:
+            qb_fetcher.save_data(df_expenses, "quickbooks_expenses")
+        if not df_accounts.empty:
+            qb_fetcher.save_data(df_accounts, "quickbooks_expense_accounts")
+
+    # Upload expenses to S3
+    if not df_expenses.empty:
+        uploader.upload_to_s3(
+            df_expenses,
+            config.aws_bucket_name,
+            config.s3_path_quickbooks_expenses,
+        )
+        print(f"✅ Uploaded expenses to S3: {config.s3_path_quickbooks_expenses}")
+    else:
+        print("⚠️  No expense data to upload")
+
+    # Upload expense accounts to S3
+    if not df_accounts.empty:
+        uploader.upload_to_s3(
+            df_accounts,
+            config.aws_bucket_name,
+            config.s3_path_quickbooks_expense_accounts,
+        )
+        print(f"✅ Uploaded expense accounts to S3: {config.s3_path_quickbooks_expense_accounts}")
+
+    # Create snapshot on first of month
+    today = datetime.datetime.now()
+    if today.day == config.snapshot_day_of_month:
+        if not df_expenses.empty:
+            uploader.upload_to_s3(
+                df_expenses,
+                config.aws_bucket_name,
+                config.s3_path_quickbooks_expenses_snapshot + f'_{today.strftime("%Y-%m-%d")}',
+            )
+            print(f"📸 Created expenses snapshot: {config.s3_path_quickbooks_expenses_snapshot}_{today.strftime('%Y-%m-%d')}")
+
+    print("\n" + "=" * 60)
+    print("✅ QuickBooks data upload complete!")
+    print("=" * 60)
+
+    return df_expenses, df_revenue, df_accounts
 
 
 def upload_new_instagram_data(save_local=False, enable_vision_analysis=True, days_to_fetch=30):
