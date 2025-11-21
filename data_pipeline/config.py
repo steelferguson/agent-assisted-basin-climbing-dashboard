@@ -78,6 +78,8 @@ s3_path_capitan_customers = "capitan/customers.csv"
 s3_path_capitan_customers_snapshot = "capitan/snapshots/customers.csv"
 s3_path_customer_events = "customers/customer_events.csv"
 s3_path_customer_events_snapshot = "customers/snapshots/customer_events.csv"
+s3_path_customer_flags = "customers/customer_flags.csv"
+s3_path_customer_flags_snapshot = "customers/snapshots/customer_flags.csv"
 snapshot_day_of_month = 1
 s3_path_text_and_metadata = "agent/text_and_metadata"
 

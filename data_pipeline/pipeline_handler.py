@@ -723,6 +723,72 @@ def update_customer_master(save_local=False):
     return df_master, df_identifiers, df_events
 
 
+def update_customer_flags(save_local=False):
+    """
+    Evaluate customer flagging rules and upload flags to S3.
+
+    Loads customer events from S3, evaluates business rules,
+    and uploads flagged customers for outreach.
+
+    Args:
+        save_local: Whether to save CSV files locally
+
+    Returns:
+        DataFrame of customer flags
+    """
+    from data_pipeline import customer_flags_engine
+
+    print("\n" + "=" * 60)
+    print("Customer Flagging")
+    print("=" * 60)
+
+    uploader = upload_data.DataUploader()
+
+    # Load customer events from S3
+    try:
+        csv_content = uploader.download_from_s3(config.aws_bucket_name, config.s3_path_customer_events)
+        df_events = uploader.convert_csv_to_df(csv_content)
+        print(f"📥 Loaded {len(df_events)} events for {df_events['customer_id'].nunique()} customers")
+    except Exception as e:
+        print(f"❌ Could not load customer events: {e}")
+        return pd.DataFrame()
+
+    # Build flags
+    df_flags = customer_flags_engine.build_customer_flags(df_events)
+
+    # Save locally if requested
+    if save_local and not df_flags.empty:
+        df_flags.to_csv('data/outputs/customer_flags.csv', index=False)
+        print("✅ Saved customer_flags.csv locally")
+
+    # Upload to S3
+    if not df_flags.empty:
+        uploader.upload_to_s3(
+            df_flags,
+            config.aws_bucket_name,
+            config.s3_path_customer_flags,
+        )
+        print(f"✅ Uploaded customer flags to S3: {config.s3_path_customer_flags}")
+    else:
+        print("ℹ️  No flags to upload")
+
+    # Create snapshot on first of month
+    today = datetime.datetime.now()
+    if today.day == config.snapshot_day_of_month and not df_flags.empty:
+        uploader.upload_to_s3(
+            df_flags,
+            config.aws_bucket_name,
+            config.s3_path_customer_flags_snapshot + f'_{today.strftime("%Y-%m-%d")}',
+        )
+        print(f"📸 Created customer flags snapshot")
+
+    print("\n" + "=" * 60)
+    print("✅ Customer flagging complete!")
+    print("=" * 60)
+
+    return df_flags
+
+
 def upload_new_instagram_data(save_local=False, enable_vision_analysis=True, days_to_fetch=30):
     """
     Fetches Instagram posts and comments from the last N days, merges with existing data,
