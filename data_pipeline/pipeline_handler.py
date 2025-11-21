@@ -571,6 +571,112 @@ def upload_quickbooks_data(save_local=False, year=2025):
     return df_expenses, df_revenue, df_accounts
 
 
+def update_customer_master(save_local=False):
+    """
+    Fetch Capitan customer data, run identity resolution matching,
+    and upload customer master and identifiers to S3.
+
+    Args:
+        save_local: Whether to save CSV files locally
+
+    Returns:
+        (df_customers_master, df_customer_identifiers)
+    """
+    from data_pipeline.fetch_capitan_membership_data import CapitanDataFetcher
+    from data_pipeline import customer_matching
+
+    print("\n" + "=" * 60)
+    print("Customer Identity Resolution")
+    print("=" * 60)
+
+    # Fetch Capitan customer contact data
+    capitan_token = config.capitan_token
+    if not capitan_token:
+        print("⚠️  No Capitan token found")
+        return pd.DataFrame(), pd.DataFrame()
+
+    fetcher = CapitanDataFetcher(capitan_token)
+    df_capitan_customers = fetcher.fetch_customers()
+
+    if df_capitan_customers.empty:
+        print("⚠️  No Capitan customers found")
+        return pd.DataFrame(), pd.DataFrame()
+
+    # Save raw Capitan customer data to S3
+    uploader = upload_data.DataUploader()
+    if not df_capitan_customers.empty:
+        uploader.upload_to_s3(
+            df_capitan_customers,
+            config.aws_bucket_name,
+            config.s3_path_capitan_customers,
+        )
+        print(f"✅ Uploaded Capitan customers to S3: {config.s3_path_capitan_customers}")
+
+    # Run customer matching
+    matcher = customer_matching.CustomerMatcher()
+    df_transactions = pd.DataFrame()  # TODO: Add transaction customer data when available
+    df_master, df_identifiers = matcher.match_customers(df_capitan_customers, df_transactions)
+
+    # Save locally if requested
+    if save_local:
+        if not df_master.empty:
+            df_master.to_csv('data/outputs/customers_master.csv', index=False)
+            print("✅ Saved customers_master.csv locally")
+        if not df_identifiers.empty:
+            df_identifiers.to_csv('data/outputs/customer_identifiers.csv', index=False)
+            print("✅ Saved customer_identifiers.csv locally")
+
+    # Upload to S3
+    if not df_master.empty:
+        uploader.upload_to_s3(
+            df_master,
+            config.aws_bucket_name,
+            config.s3_path_customers_master,
+        )
+        print(f"✅ Uploaded customer master to S3: {config.s3_path_customers_master}")
+
+    if not df_identifiers.empty:
+        uploader.upload_to_s3(
+            df_identifiers,
+            config.aws_bucket_name,
+            config.s3_path_customer_identifiers,
+        )
+        print(f"✅ Uploaded customer identifiers to S3: {config.s3_path_customer_identifiers}")
+
+    # Create snapshots on first of month
+    today = datetime.datetime.now()
+    if today.day == config.snapshot_day_of_month:
+        if not df_capitan_customers.empty:
+            uploader.upload_to_s3(
+                df_capitan_customers,
+                config.aws_bucket_name,
+                config.s3_path_capitan_customers_snapshot + f'_{today.strftime("%Y-%m-%d")}',
+            )
+            print(f"📸 Created Capitan customers snapshot")
+
+        if not df_master.empty:
+            uploader.upload_to_s3(
+                df_master,
+                config.aws_bucket_name,
+                config.s3_path_customers_master_snapshot + f'_{today.strftime("%Y-%m-%d")}',
+            )
+            print(f"📸 Created customer master snapshot")
+
+        if not df_identifiers.empty:
+            uploader.upload_to_s3(
+                df_identifiers,
+                config.aws_bucket_name,
+                config.s3_path_customer_identifiers_snapshot + f'_{today.strftime("%Y-%m-%d")}',
+            )
+            print(f"📸 Created customer identifiers snapshot")
+
+    print("\n" + "=" * 60)
+    print("✅ Customer data upload complete!")
+    print("=" * 60)
+
+    return df_master, df_identifiers
+
+
 def upload_new_instagram_data(save_local=False, enable_vision_analysis=True, days_to_fetch=30):
     """
     Fetches Instagram posts and comments from the last N days, merges with existing data,

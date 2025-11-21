@@ -70,6 +70,12 @@ s3_path_quickbooks_revenue = "quickbooks/revenue.csv"
 s3_path_quickbooks_expense_accounts = "quickbooks/expense_accounts.csv"
 s3_path_quickbooks_expenses_snapshot = "quickbooks/snapshots/expenses.csv"
 s3_path_quickbooks_revenue_snapshot = "quickbooks/snapshots/revenue.csv"
+s3_path_customers_master = "customers/customers_master.csv"
+s3_path_customer_identifiers = "customers/customer_identifiers.csv"
+s3_path_customers_master_snapshot = "customers/snapshots/customers_master.csv"
+s3_path_customer_identifiers_snapshot = "customers/snapshots/customer_identifiers.csv"
+s3_path_capitan_customers = "capitan/customers.csv"
+s3_path_capitan_customers_snapshot = "capitan/snapshots/customers.csv"
 snapshot_day_of_month = 1
 s3_path_text_and_metadata = "agent/text_and_metadata"
 
