@@ -311,6 +311,147 @@ class QuickBooksFetcher:
 
         return df
 
+    def fetch_revenue(
+        self,
+        start_date: datetime.datetime,
+        end_date: datetime.datetime,
+        max_results: int = 1000
+    ) -> pd.DataFrame:
+        """
+        Fetch revenue transactions (Sales Receipts, Invoices, Deposits) from QuickBooks.
+
+        Combines all revenue sources into a single DataFrame for reconciliation.
+
+        Args:
+            start_date: Start date for revenue query
+            end_date: End date for revenue query
+            max_results: Maximum number of results per query
+
+        Returns:
+            DataFrame with revenue data including:
+            - transaction_id: QuickBooks transaction ID
+            - transaction_type: SalesReceipt, Invoice, or Deposit
+            - date: Transaction date
+            - amount: Total amount
+            - customer: Customer name
+            - revenue_category: Item/service category
+            - description: Transaction description
+            - payment_method: Payment method used
+        """
+        print(f"Fetching revenue transactions from {start_date.date()} to {end_date.date()}...")
+
+        # Format dates for QuickBooks query
+        start_str = start_date.strftime("%Y-%m-%d")
+        end_str = end_date.strftime("%Y-%m-%d")
+
+        all_revenue = []
+
+        # 1. Fetch Sales Receipts (immediate sales)
+        print("\n📝 Fetching Sales Receipts...")
+        query = f"SELECT * FROM SalesReceipt WHERE TxnDate >= '{start_str}' AND TxnDate <= '{end_str}' MAXRESULTS {max_results}"
+        response = self._make_api_request("/query", params={"query": query})
+
+        if response and "QueryResponse" in response:
+            sales_receipts = response["QueryResponse"].get("SalesReceipt", [])
+            print(f"   Retrieved {len(sales_receipts)} Sales Receipts")
+
+            for sr in sales_receipts:
+                customer_ref = sr.get("CustomerRef", {})
+                payment_method_ref = sr.get("PaymentMethodRef", {})
+
+                for line in sr.get("Line", []):
+                    if line.get("DetailType") == "SalesItemLineDetail":
+                        line_detail = line.get("SalesItemLineDetail", {})
+                        item_ref = line_detail.get("ItemRef", {})
+
+                        all_revenue.append({
+                            "transaction_id": sr.get("Id"),
+                            "transaction_type": "SalesReceipt",
+                            "date": sr.get("TxnDate"),
+                            "amount": line.get("Amount", 0),
+                            "customer": customer_ref.get("name") if customer_ref else None,
+                            "revenue_category": item_ref.get("name") if item_ref else "Uncategorized",
+                            "description": line.get("Description", ""),
+                            "payment_method": payment_method_ref.get("name") if payment_method_ref else None,
+                        })
+
+        # 2. Fetch Invoices (billed sales)
+        print("\n📋 Fetching Invoices...")
+        query = f"SELECT * FROM Invoice WHERE TxnDate >= '{start_str}' AND TxnDate <= '{end_str}' MAXRESULTS {max_results}"
+        response = self._make_api_request("/query", params={"query": query})
+
+        if response and "QueryResponse" in response:
+            invoices = response["QueryResponse"].get("Invoice", [])
+            print(f"   Retrieved {len(invoices)} Invoices")
+
+            for inv in invoices:
+                customer_ref = inv.get("CustomerRef", {})
+
+                for line in inv.get("Line", []):
+                    if line.get("DetailType") == "SalesItemLineDetail":
+                        line_detail = line.get("SalesItemLineDetail", {})
+                        item_ref = line_detail.get("ItemRef", {})
+
+                        all_revenue.append({
+                            "transaction_id": inv.get("Id"),
+                            "transaction_type": "Invoice",
+                            "date": inv.get("TxnDate"),
+                            "amount": line.get("Amount", 0),
+                            "customer": customer_ref.get("name") if customer_ref else None,
+                            "revenue_category": item_ref.get("name") if item_ref else "Uncategorized",
+                            "description": line.get("Description", ""),
+                            "payment_method": None,  # Invoices don't have immediate payment method
+                        })
+
+        # 3. Fetch Deposits (bank deposits)
+        print("\n💰 Fetching Deposits...")
+        query = f"SELECT * FROM Deposit WHERE TxnDate >= '{start_str}' AND TxnDate <= '{end_str}' MAXRESULTS {max_results}"
+        response = self._make_api_request("/query", params={"query": query})
+
+        if response and "QueryResponse" in response:
+            deposits = response["QueryResponse"].get("Deposit", [])
+            print(f"   Retrieved {len(deposits)} Deposits")
+
+            for dep in deposits:
+                for line in dep.get("Line", []):
+                    if line.get("DetailType") == "DepositLineDetail":
+                        line_detail = line.get("DepositLineDetail", {})
+                        entity_ref = line_detail.get("Entity", {})
+                        account_ref = line_detail.get("AccountRef", {})
+
+                        all_revenue.append({
+                            "transaction_id": dep.get("Id"),
+                            "transaction_type": "Deposit",
+                            "date": dep.get("TxnDate"),
+                            "amount": line.get("Amount", 0),
+                            "customer": entity_ref.get("name") if entity_ref else None,
+                            "revenue_category": account_ref.get("name") if account_ref else "Uncategorized",
+                            "description": line.get("Description", dep.get("PrivateNote", "")),
+                            "payment_method": None,
+                        })
+
+        df = pd.DataFrame(all_revenue)
+
+        if not df.empty:
+            # Convert date to datetime
+            df["date"] = pd.to_datetime(df["date"])
+
+            # Sort by date
+            df = df.sort_values("date", ascending=False)
+
+            print(f"\n✅ Processed {len(df)} revenue line items")
+            print(f"   Total revenue: ${df['amount'].sum():,.2f}")
+            print(f"   Date range: {df['date'].min().date()} to {df['date'].max().date()}")
+
+            # Show breakdown by transaction type
+            print("\n   Revenue by type:")
+            type_summary = df.groupby("transaction_type")["amount"].sum().sort_values(ascending=False)
+            for txn_type, amount in type_summary.items():
+                count = len(df[df["transaction_type"] == txn_type])
+                print(f"     • {txn_type}: ${amount:,.2f} ({count} items)")
+
+        return df
+
     def save_data(self, df: pd.DataFrame, file_name: str):
         """Save DataFrame to CSV in data/outputs directory."""
         os.makedirs("data/outputs", exist_ok=True)

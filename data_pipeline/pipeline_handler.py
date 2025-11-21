@@ -501,9 +501,9 @@ def upload_quickbooks_data(save_local=False, year=2025):
     print(f"\n💰 Fetching expenses for {year}...")
     df_expenses = qb_fetcher.fetch_purchases(start_date, end_date, max_results=1000)
 
-    # TODO: Add revenue fetching when needed
-    # For now, we're focusing on expenses
-    df_revenue = pd.DataFrame()  # Placeholder
+    # Fetch revenue (Sales Receipts, Invoices, Deposits)
+    print(f"\n💵 Fetching revenue for {year}...")
+    df_revenue = qb_fetcher.fetch_revenue(start_date, end_date, max_results=1000)
 
     # Save locally if requested
     if save_local:
@@ -511,6 +511,8 @@ def upload_quickbooks_data(save_local=False, year=2025):
             qb_fetcher.save_data(df_expenses, "quickbooks_expenses")
         if not df_accounts.empty:
             qb_fetcher.save_data(df_accounts, "quickbooks_expense_accounts")
+        if not df_revenue.empty:
+            qb_fetcher.save_data(df_revenue, "quickbooks_revenue")
 
     # Upload expenses to S3
     if not df_expenses.empty:
@@ -532,6 +534,17 @@ def upload_quickbooks_data(save_local=False, year=2025):
         )
         print(f"✅ Uploaded expense accounts to S3: {config.s3_path_quickbooks_expense_accounts}")
 
+    # Upload revenue to S3
+    if not df_revenue.empty:
+        uploader.upload_to_s3(
+            df_revenue,
+            config.aws_bucket_name,
+            config.s3_path_quickbooks_revenue,
+        )
+        print(f"✅ Uploaded revenue to S3: {config.s3_path_quickbooks_revenue}")
+    else:
+        print("⚠️  No revenue data to upload")
+
     # Create snapshot on first of month
     today = datetime.datetime.now()
     if today.day == config.snapshot_day_of_month:
@@ -542,6 +555,14 @@ def upload_quickbooks_data(save_local=False, year=2025):
                 config.s3_path_quickbooks_expenses_snapshot + f'_{today.strftime("%Y-%m-%d")}',
             )
             print(f"📸 Created expenses snapshot: {config.s3_path_quickbooks_expenses_snapshot}_{today.strftime('%Y-%m-%d')}")
+
+        if not df_revenue.empty:
+            uploader.upload_to_s3(
+                df_revenue,
+                config.aws_bucket_name,
+                config.s3_path_quickbooks_revenue_snapshot + f'_{today.strftime("%Y-%m-%d")}',
+            )
+            print(f"📸 Created revenue snapshot: {config.s3_path_quickbooks_revenue_snapshot}_{today.strftime('%Y-%m-%d')}")
 
     print("\n" + "=" * 60)
     print("✅ QuickBooks data upload complete!")
