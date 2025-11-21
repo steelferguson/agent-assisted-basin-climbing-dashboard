@@ -583,10 +583,10 @@ def update_customer_master(save_local=False):
         (df_customers_master, df_customer_identifiers)
     """
     from data_pipeline.fetch_capitan_membership_data import CapitanDataFetcher
-    from data_pipeline import customer_matching
+    from data_pipeline import customer_matching, customer_events_builder
 
     print("\n" + "=" * 60)
-    print("Customer Identity Resolution")
+    print("Customer Identity Resolution & Event Aggregation")
     print("=" * 60)
 
     # Fetch Capitan customer contact data
@@ -614,8 +614,26 @@ def update_customer_master(save_local=False):
 
     # Run customer matching
     matcher = customer_matching.CustomerMatcher()
-    df_transactions = pd.DataFrame()  # TODO: Add transaction customer data when available
-    df_master, df_identifiers = matcher.match_customers(df_capitan_customers, df_transactions)
+    df_transactions_for_matching = pd.DataFrame()  # TODO: Add transaction customer data when available
+    df_master, df_identifiers = matcher.match_customers(df_capitan_customers, df_transactions_for_matching)
+
+    # Load check-in data for event building
+    df_checkins = pd.DataFrame()
+    try:
+        csv_content = uploader.download_from_s3(config.aws_bucket_name, config.s3_path_capitan_checkins)
+        df_checkins = uploader.convert_csv_to_df(csv_content)
+        print(f"📥 Loaded {len(df_checkins)} check-ins for event building")
+    except Exception as e:
+        print(f"⚠️  Could not load check-ins: {e}")
+
+    # Build customer events
+    df_events = customer_events_builder.build_customer_events(
+        df_master,
+        df_identifiers,
+        df_transactions=pd.DataFrame(),  # TODO: Add transaction events
+        df_checkins=df_checkins,
+        df_mailchimp=pd.DataFrame()  # TODO: Add Mailchimp events
+    )
 
     # Save locally if requested
     if save_local:
@@ -625,6 +643,9 @@ def update_customer_master(save_local=False):
         if not df_identifiers.empty:
             df_identifiers.to_csv('data/outputs/customer_identifiers.csv', index=False)
             print("✅ Saved customer_identifiers.csv locally")
+        if not df_events.empty:
+            df_events.to_csv('data/outputs/customer_events.csv', index=False)
+            print("✅ Saved customer_events.csv locally")
 
     # Upload to S3
     if not df_master.empty:
@@ -642,6 +663,14 @@ def update_customer_master(save_local=False):
             config.s3_path_customer_identifiers,
         )
         print(f"✅ Uploaded customer identifiers to S3: {config.s3_path_customer_identifiers}")
+
+    if not df_events.empty:
+        uploader.upload_to_s3(
+            df_events,
+            config.aws_bucket_name,
+            config.s3_path_customer_events,
+        )
+        print(f"✅ Uploaded customer events to S3: {config.s3_path_customer_events}")
 
     # Create snapshots on first of month
     today = datetime.datetime.now()
@@ -670,11 +699,19 @@ def update_customer_master(save_local=False):
             )
             print(f"📸 Created customer identifiers snapshot")
 
+        if not df_events.empty:
+            uploader.upload_to_s3(
+                df_events,
+                config.aws_bucket_name,
+                config.s3_path_customer_events_snapshot + f'_{today.strftime("%Y-%m-%d")}',
+            )
+            print(f"📸 Created customer events snapshot")
+
     print("\n" + "=" * 60)
     print("✅ Customer data upload complete!")
     print("=" * 60)
 
-    return df_master, df_identifiers
+    return df_master, df_identifiers, df_events
 
 
 def upload_new_instagram_data(save_local=False, enable_vision_analysis=True, days_to_fetch=30):
