@@ -626,11 +626,20 @@ def update_customer_master(save_local=False):
     except Exception as e:
         print(f"⚠️  Could not load check-ins: {e}")
 
+    # Load transaction data for event building
+    df_transactions = pd.DataFrame()
+    try:
+        csv_content = uploader.download_from_s3(config.aws_bucket_name, config.s3_path_combined)
+        df_transactions = uploader.convert_csv_to_df(csv_content)
+        print(f"📥 Loaded {len(df_transactions)} transactions for event building")
+    except Exception as e:
+        print(f"⚠️  Could not load transactions: {e}")
+
     # Build customer events
     df_events = customer_events_builder.build_customer_events(
         df_master,
         df_identifiers,
-        df_transactions=pd.DataFrame(),  # TODO: Add transaction events
+        df_transactions=df_transactions,
         df_checkins=df_checkins,
         df_mailchimp=pd.DataFrame()  # TODO: Add Mailchimp events
     )

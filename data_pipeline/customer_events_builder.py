@@ -72,20 +72,29 @@ class CustomerEventsBuilder:
             print("⚠️  No transaction data")
             return
 
+        # Build name -> customer lookup from customers_master
+        name_to_customer = {}
+        for _, row in self.customers_master.iterrows():
+            name = row.get('primary_name')
+            if name and not pd.isna(name):
+                # Normalize name (lowercase, strip)
+                normalized = str(name).lower().strip()
+                if normalized and normalized != 'no name':
+                    name_to_customer[normalized] = row.get('customer_id')
+
         events_added = 0
+        matched = 0
+        unmatched = 0
 
         for _, row in df_transactions.iterrows():
-            # Try to match customer by email (transactions have customer emails from Name field)
-            customer_name = row.get('Name', '')
-            # TODO: Extract email from Name field or match differently
-            # For now, skip transactions without direct email match
-
             # Get event details
             date = row.get('Date')
             category = row.get('revenue_category', '')
             amount = row.get('Total Amount', 0)
             description = row.get('Description', '')
-            source = row.get('Data Source', '')
+            source = row.get('Data Source', '').lower()
+            customer_name = row.get('Name', '')
+            transaction_id = row.get('transaction_id', '')
 
             # Determine event type based on revenue category
             event_type = None
@@ -105,11 +114,39 @@ class CustomerEventsBuilder:
             if not event_type:
                 continue
 
-            # For now, we'll add events without customer_id
-            # TODO: Improve customer matching for transactions
+            # Try to match customer by name
+            customer_id = None
+            confidence = 'unmatched'
+
+            if customer_name and not pd.isna(customer_name):
+                normalized_name = str(customer_name).lower().strip()
+                if normalized_name in name_to_customer:
+                    customer_id = name_to_customer[normalized_name]
+                    confidence = 'medium'  # Name match is medium confidence
+                    matched += 1
+
+            if not customer_id:
+                # Skip events we can't match to customers
+                unmatched += 1
+                continue
+
+            self.events.append({
+                'customer_id': customer_id,
+                'event_date': date,
+                'event_type': event_type,
+                'event_source': source,
+                'source_confidence': confidence,
+                'event_details': json.dumps({
+                    'transaction_id': transaction_id,
+                    'amount': float(amount) if amount else 0,
+                    'description': description,
+                    'category': category,
+                    'customer_name': customer_name
+                })
+            })
             events_added += 1
 
-        print(f"✅ Added {events_added} transaction events")
+        print(f"✅ Added {events_added} transaction events ({matched} matched, {unmatched} unmatched)")
 
     def add_checkin_events(self, df_checkins: pd.DataFrame):
         """
