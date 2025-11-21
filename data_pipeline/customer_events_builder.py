@@ -88,7 +88,13 @@ class CustomerEventsBuilder:
 
         for _, row in df_transactions.iterrows():
             # Get event details
-            date = row.get('Date')
+            date_raw = row.get('Date')
+            # Parse date immediately to ensure consistent format
+            date = pd.to_datetime(date_raw, errors='coerce')
+
+            if pd.isna(date):
+                continue  # Skip transactions with invalid dates
+
             category = row.get('revenue_category', '')
             amount = row.get('Total Amount', 0)
             description = row.get('Description', '')
@@ -167,7 +173,13 @@ class CustomerEventsBuilder:
         for _, row in df_checkins.iterrows():
             capitan_customer_id = row.get('customer_id')
             # Use checkin_datetime which is the local time of the check-in
-            checkin_date = row.get('checkin_datetime')
+            checkin_date_raw = row.get('checkin_datetime')
+
+            # Parse date immediately to ensure consistent format
+            checkin_date = pd.to_datetime(checkin_date_raw, errors='coerce')
+
+            if pd.isna(checkin_date):
+                continue  # Skip check-ins with invalid dates
 
             # Look up unified customer_id from Capitan customer_id
             # Match via customer_identifiers where source='capitan' and source_id contains customer_id
@@ -233,8 +245,9 @@ class CustomerEventsBuilder:
 
         df = pd.DataFrame(self.events)
 
-        # Convert dates
-        df['event_date'] = pd.to_datetime(df['event_date'], errors='coerce')
+        # Dates are already parsed as datetime objects in add_*_events() methods
+        # No conversion needed - just ensure the column is datetime type
+        df['event_date'] = pd.to_datetime(df['event_date'])
 
         # Sort by customer and date
         df = df.sort_values(['customer_id', 'event_date'])
