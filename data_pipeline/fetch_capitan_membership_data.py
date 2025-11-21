@@ -388,6 +388,46 @@ class CapitanDataFetcher:
         projection = projection.sort_values("date").reset_index(drop=True)
         return projection
 
+    def fetch_customers(self) -> pd.DataFrame:
+        """
+        Fetch customer contact information from Capitan API.
+        Returns DataFrame with customer_id, email, phone, first_name, last_name, created_at.
+        """
+        print("\n📇 Fetching customer contact information...")
+
+        json_response = self.get_results_from_api("customers")
+
+        if not json_response or 'results' not in json_response:
+            print("⚠️  Failed to fetch customers")
+            return pd.DataFrame()
+
+        customers = json_response['results']
+        print(f"Retrieved {len(customers)} customers")
+
+        # Extract customer contact data
+        customer_data = []
+        for customer in customers:
+            customer_data.append({
+                'customer_id': customer.get('id'),
+                'email': customer.get('email'),
+                'phone': customer.get('phone'),
+                'first_name': customer.get('first_name'),
+                'last_name': customer.get('last_name'),
+                'created_at': customer.get('created_at'),
+            })
+
+        df = pd.DataFrame(customer_data)
+
+        # Convert dates
+        if not df.empty and 'created_at' in df.columns:
+            df['created_at'] = pd.to_datetime(df['created_at'], errors='coerce')
+
+        print(f"✅ Processed {len(df)} customer records")
+        print(f"   Customers with email: {df['email'].notna().sum()}")
+        print(f"   Customers with phone: {df['phone'].notna().sum()}")
+
+        return df
+
 
 if __name__ == "__main__":
     capitan_token = config.capitan_token
