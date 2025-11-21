@@ -166,7 +166,8 @@ class CustomerEventsBuilder:
         events_added = 0
         for _, row in df_checkins.iterrows():
             capitan_customer_id = row.get('customer_id')
-            checkin_date = row.get('created_at')
+            # Use checkin_datetime which is the local time of the check-in
+            checkin_date = row.get('checkin_datetime')
 
             # Look up unified customer_id from Capitan customer_id
             # Match via customer_identifiers where source='capitan' and source_id contains customer_id
@@ -188,7 +189,7 @@ class CustomerEventsBuilder:
                 'event_source': 'capitan',
                 'source_confidence': confidence,
                 'event_details': json.dumps({
-                    'checkin_id': row.get('id'),
+                    'checkin_id': row.get('checkin_id'),
                     'association': row.get('association_name', '')
                 })
             })
