@@ -209,14 +209,21 @@ class CustomerEventsBuilder:
 
         print(f"✅ Added {events_added} check-in events")
 
-    def add_mailchimp_events(self, df_mailchimp: pd.DataFrame):
+    def add_mailchimp_events(self, df_mailchimp: pd.DataFrame, anthropic_api_key: str = None):
         """
-        Add Mailchimp campaign events.
+        Add Mailchimp campaign events with offer tracking.
+
+        For Sprint 5: This will fetch campaign recipient data from Mailchimp API
+        and create email_sent events with offer details from template analysis.
 
         Event types:
-        - email_sent
-        - email_opened
-        - email_clicked
+        - email_sent (with offer details if campaign contains offer)
+        - email_opened (future)
+        - email_clicked (future)
+
+        Args:
+            df_mailchimp: Campaign summary data
+            anthropic_api_key: API key for Claude analysis (optional)
         """
         print(f"\n📧 Processing Mailchimp events ({len(df_mailchimp)} records)...")
 
@@ -224,10 +231,15 @@ class CustomerEventsBuilder:
             print("⚠️  No Mailchimp data")
             return
 
-        # Mailchimp campaigns don't have individual recipient data in our current export
-        # TODO: Fetch Mailchimp campaign recipient data with open/click tracking
-        print("⚠️  Mailchimp recipient-level data not yet available")
-        print("   Need to fetch campaign recipients with email addresses")
+        # Sprint 5 TODO: Implement Mailchimp recipient tracking
+        # 1. Fetch campaign recipients from Mailchimp API
+        # 2. For each campaign, get template analysis (cached)
+        # 3. Create email_sent event for each recipient with offer details
+        # 4. Track email_opened and email_clicked from Mailchimp activity data
+
+        print("⚠️  Mailchimp recipient-level tracking not yet implemented")
+        print("   This will be completed in Sprint 5")
+        print("   Will track: email_sent, email_opened, email_clicked with offer details")
 
     def build_events_dataframe(self) -> pd.DataFrame:
         """
