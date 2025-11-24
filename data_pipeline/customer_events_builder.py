@@ -209,12 +209,13 @@ class CustomerEventsBuilder:
 
         print(f"✅ Added {events_added} check-in events")
 
-    def add_mailchimp_events(self, df_mailchimp: pd.DataFrame, anthropic_api_key: str = None):
+    def add_mailchimp_events(self, mailchimp_fetcher, df_mailchimp: pd.DataFrame,
+                            anthropic_api_key: str = None):
         """
         Add Mailchimp campaign events with offer tracking.
 
-        For Sprint 5: This will fetch campaign recipient data from Mailchimp API
-        and create email_sent events with offer details from template analysis.
+        Fetches campaign recipient data from Mailchimp API and creates email_sent
+        events with offer details from template analysis.
 
         Event types:
         - email_sent (with offer details if campaign contains offer)
@@ -222,24 +223,112 @@ class CustomerEventsBuilder:
         - email_clicked (future)
 
         Args:
-            df_mailchimp: Campaign summary data
+            mailchimp_fetcher: MailchimpDataFetcher instance for API calls
+            df_mailchimp: Campaign summary data (with campaign_id, send_time, etc.)
             anthropic_api_key: API key for Claude analysis (optional)
         """
-        print(f"\n📧 Processing Mailchimp events ({len(df_mailchimp)} records)...")
+        from data_pipeline.email_templates import get_campaign_template
+
+        print(f"\n📧 Processing Mailchimp events ({len(df_mailchimp)} campaigns)...")
 
         if df_mailchimp.empty:
             print("⚠️  No Mailchimp data")
             return
 
-        # Sprint 5 TODO: Implement Mailchimp recipient tracking
-        # 1. Fetch campaign recipients from Mailchimp API
-        # 2. For each campaign, get template analysis (cached)
-        # 3. Create email_sent event for each recipient with offer details
-        # 4. Track email_opened and email_clicked from Mailchimp activity data
+        if not anthropic_api_key:
+            print("⚠️  No Anthropic API key provided - skipping offer tracking")
+            return
 
-        print("⚠️  Mailchimp recipient-level tracking not yet implemented")
-        print("   This will be completed in Sprint 5")
-        print("   Will track: email_sent, email_opened, email_clicked with offer details")
+        events_added = 0
+        campaigns_processed = 0
+        recipients_matched = 0
+        recipients_unmatched = 0
+
+        for _, campaign_row in df_mailchimp.iterrows():
+            campaign_id = campaign_row.get('campaign_id')
+            campaign_title = campaign_row.get('campaign_title', 'Untitled')
+            send_time = campaign_row.get('send_time')
+
+            # Parse send time
+            send_date = pd.to_datetime(send_time, errors='coerce')
+            if pd.isna(send_date):
+                continue
+
+            print(f"\n  Processing campaign: {campaign_title} ({campaign_id})")
+
+            # Get campaign content for template analysis
+            content = mailchimp_fetcher.get_campaign_content(campaign_id)
+            subject_line = campaign_row.get('subject_line', '')
+
+            # Analyze template with Claude (cached if seen before)
+            template_metadata = get_campaign_template(
+                campaign_id=campaign_id,
+                campaign_title=campaign_title,
+                email_subject=subject_line,
+                email_html=content.get('html', ''),
+                anthropic_api_key=anthropic_api_key
+            )
+
+            # Get recipients for this campaign
+            recipients = mailchimp_fetcher.get_campaign_recipients(campaign_id)
+
+            if not recipients:
+                print(f"    ⚠️  No recipients found")
+                continue
+
+            # Create email_sent event for each recipient
+            for recipient in recipients:
+                recipient_email = recipient.get('email_address', '').lower().strip()
+
+                if not recipient_email:
+                    continue
+
+                # Look up customer_id from email
+                customer_match = self._lookup_customer(recipient_email)
+
+                if not customer_match:
+                    recipients_unmatched += 1
+                    continue
+
+                customer_id = customer_match['customer_id']
+                confidence = customer_match['confidence']
+                recipients_matched += 1
+
+                # Build event details with template metadata
+                event_details = {
+                    'campaign_id': campaign_id,
+                    'campaign_title': campaign_title,
+                    'email_subject': subject_line,
+                    'recipient_email': recipient_email
+                }
+
+                # Add offer details if present
+                if template_metadata.get('has_offer'):
+                    event_details['has_offer'] = True
+                    event_details['offer_type'] = template_metadata.get('offer_type')
+                    event_details['offer_amount'] = template_metadata.get('offer_amount')
+                    event_details['offer_code'] = template_metadata.get('offer_code')
+                    event_details['offer_expires'] = template_metadata.get('offer_expires')
+                    event_details['offer_description'] = template_metadata.get('offer_description')
+                    event_details['email_category'] = template_metadata.get('email_category')
+                else:
+                    event_details['has_offer'] = False
+                    event_details['email_category'] = template_metadata.get('email_category')
+
+                self.events.append({
+                    'customer_id': customer_id,
+                    'event_date': send_date,
+                    'event_type': 'email_sent',
+                    'event_source': 'mailchimp',
+                    'source_confidence': confidence,
+                    'event_details': json.dumps(event_details)
+                })
+                events_added += 1
+
+            campaigns_processed += 1
+
+        print(f"\n✅ Added {events_added} email_sent events from {campaigns_processed} campaigns")
+        print(f"   Matched: {recipients_matched}, Unmatched: {recipients_unmatched}")
 
     def build_events_dataframe(self) -> pd.DataFrame:
         """
@@ -299,7 +388,9 @@ def build_customer_events(
     customer_identifiers: pd.DataFrame,
     df_transactions: pd.DataFrame = None,
     df_checkins: pd.DataFrame = None,
-    df_mailchimp: pd.DataFrame = None
+    df_mailchimp: pd.DataFrame = None,
+    mailchimp_fetcher = None,
+    anthropic_api_key: str = None
 ) -> pd.DataFrame:
     """
     Main function to build customer events from all data sources.
@@ -310,6 +401,8 @@ def build_customer_events(
         df_transactions: Stripe/Square transaction data
         df_checkins: Capitan check-in data
         df_mailchimp: Mailchimp campaign data
+        mailchimp_fetcher: MailchimpDataFetcher instance for recipient fetching
+        anthropic_api_key: API key for template analysis
 
     Returns:
         DataFrame of customer events
@@ -327,8 +420,8 @@ def build_customer_events(
     if df_checkins is not None and not df_checkins.empty:
         builder.add_checkin_events(df_checkins)
 
-    if df_mailchimp is not None and not df_mailchimp.empty:
-        builder.add_mailchimp_events(df_mailchimp)
+    if df_mailchimp is not None and not df_mailchimp.empty and mailchimp_fetcher is not None:
+        builder.add_mailchimp_events(mailchimp_fetcher, df_mailchimp, anthropic_api_key)
 
     # Build final DataFrame
     df_events = builder.build_events_dataframe()

@@ -287,6 +287,48 @@ THEMES: [comma-separated themes]"""
             print(f"Error fetching click details for campaign {campaign_id}: {error.text}")
             return []
 
+    def get_campaign_recipients(self, campaign_id: str, count: int = 1000) -> List[Dict]:
+        """
+        Fetch recipients who were sent a specific campaign.
+
+        Args:
+            campaign_id: Campaign ID
+            count: Maximum number of recipients to fetch per request
+
+        Returns:
+            List of recipient dictionaries with email addresses
+        """
+        try:
+            all_recipients = []
+            offset = 0
+            batch_size = min(count, 1000)  # API max per page
+
+            while True:
+                response = self.client.reports.get_email_activity_for_campaign(
+                    campaign_id,
+                    count=batch_size,
+                    offset=offset
+                )
+
+                recipients = response.get('emails', [])
+                if not recipients:
+                    break
+
+                all_recipients.extend(recipients)
+                offset += len(recipients)
+
+                # Check if we've fetched all recipients
+                total_items = response.get('total_items', 0)
+                if offset >= total_items:
+                    break
+
+            print(f"  Fetched {len(all_recipients)} recipients")
+            return all_recipients
+
+        except ApiClientError as error:
+            print(f"Error fetching recipients for campaign {campaign_id}: {error.text}")
+            return []
+
     def fetch_all_campaign_data(self, since: Optional[datetime] = None,
                                  enable_content_analysis: bool = True,
                                  existing_campaigns_df: Optional[pd.DataFrame] = None) -> tuple:

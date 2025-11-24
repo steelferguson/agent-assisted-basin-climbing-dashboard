@@ -635,13 +635,39 @@ def update_customer_master(save_local=False):
     except Exception as e:
         print(f"⚠️  Could not load transactions: {e}")
 
+    # Load Mailchimp campaign data for email event tracking
+    df_mailchimp = pd.DataFrame()
+    mailchimp_fetcher = None
+    try:
+        from data_pipeline.fetch_mailchimp_data import MailchimpDataFetcher
+
+        csv_content = uploader.download_from_s3(config.aws_bucket_name, config.s3_path_mailchimp_campaigns)
+        df_mailchimp = uploader.convert_csv_to_df(csv_content)
+        print(f"📥 Loaded {len(df_mailchimp)} Mailchimp campaigns for event building")
+
+        # Initialize Mailchimp fetcher for recipient-level data
+        if config.mailchimp_api_key and config.mailchimp_server_prefix:
+            mailchimp_fetcher = MailchimpDataFetcher(
+                api_key=config.mailchimp_api_key,
+                server_prefix=config.mailchimp_server_prefix,
+                anthropic_api_key=config.anthropic_api_key
+            )
+            print("✅ Mailchimp fetcher initialized for recipient tracking")
+        else:
+            print("⚠️  Mailchimp API credentials not configured - skipping email events")
+
+    except Exception as e:
+        print(f"⚠️  Could not load Mailchimp data: {e}")
+
     # Build customer events
     df_events = customer_events_builder.build_customer_events(
         df_master,
         df_identifiers,
         df_transactions=df_transactions,
         df_checkins=df_checkins,
-        df_mailchimp=pd.DataFrame()  # TODO: Add Mailchimp events
+        df_mailchimp=df_mailchimp,
+        mailchimp_fetcher=mailchimp_fetcher,
+        anthropic_api_key=config.anthropic_api_key
     )
 
     # Save locally if requested
