@@ -330,6 +330,84 @@ class CustomerEventsBuilder:
         print(f"\n✅ Added {events_added} email_sent events from {campaigns_processed} campaigns")
         print(f"   Matched: {recipients_matched}, Unmatched: {recipients_unmatched}")
 
+    def add_pass_sharing_events(self, df_transfers: pd.DataFrame):
+        """
+        Add pass sharing events from transfer data.
+
+        Event types:
+        - shared_pass: Customer shared their pass with someone
+        - received_shared_pass: Customer received a pass from someone
+
+        Args:
+            df_transfers: Pass transfers data with purchaser_customer_id and user_customer_id
+        """
+        print(f"\n🎫 Processing pass sharing events ({len(df_transfers)} transfers)...")
+
+        if df_transfers.empty:
+            print("⚠️  No transfer data")
+            return
+
+        events_added = 0
+        shared_count = 0
+        received_count = 0
+
+        for _, row in df_transfers.iterrows():
+            purchaser_id = row.get('purchaser_customer_id')
+            user_id = row.get('user_customer_id')
+            date_raw = row.get('checkin_datetime')
+            pass_type = row.get('pass_type', '')
+            remaining = row.get('remaining_count')
+
+            # Skip if missing required data
+            if pd.isna(purchaser_id) or pd.isna(user_id) or pd.isna(date_raw):
+                continue
+
+            # Skip self-transfers (person using their own pass)
+            if str(purchaser_id) == str(user_id):
+                continue
+
+            # Parse date
+            date = pd.to_datetime(date_raw, errors='coerce')
+            if pd.isna(date):
+                continue
+
+            # Event 1: Purchaser shared their pass
+            self.events.append({
+                'customer_id': str(int(purchaser_id)),
+                'event_date': date,
+                'event_type': 'shared_pass',
+                'event_source': 'capitan_transfers',
+                'source_confidence': 'direct',
+                'event_details': json.dumps({
+                    'checkin_id': int(row.get('checkin_id', 0)),
+                    'pass_type': pass_type,
+                    'shared_with_customer_id': str(int(user_id)),
+                    'shared_with_name': f"{row.get('user_first_name', '')} {row.get('user_last_name', '')}".strip(),
+                    'remaining_count': int(remaining) if pd.notna(remaining) else None
+                })
+            })
+            shared_count += 1
+
+            # Event 2: User received a pass
+            self.events.append({
+                'customer_id': str(int(user_id)),
+                'event_date': date,
+                'event_type': 'received_shared_pass',
+                'event_source': 'capitan_transfers',
+                'source_confidence': 'direct',
+                'event_details': json.dumps({
+                    'checkin_id': int(row.get('checkin_id', 0)),
+                    'pass_type': pass_type,
+                    'received_from_customer_id': str(int(purchaser_id)),
+                    'received_from_name': row.get('purchaser_name', ''),
+                    'remaining_count': int(remaining) if pd.notna(remaining) else None
+                })
+            })
+            received_count += 1
+            events_added += 2
+
+        print(f"✅ Added {events_added} pass sharing events ({shared_count} shared, {received_count} received)")
+
     def build_events_dataframe(self) -> pd.DataFrame:
         """
         Build final customer events DataFrame.
@@ -388,6 +466,7 @@ def build_customer_events(
     customer_identifiers: pd.DataFrame,
     df_transactions: pd.DataFrame = None,
     df_checkins: pd.DataFrame = None,
+    df_transfers: pd.DataFrame = None,
     df_mailchimp: pd.DataFrame = None,
     mailchimp_fetcher = None,
     anthropic_api_key: str = None
@@ -400,6 +479,7 @@ def build_customer_events(
         customer_identifiers: Customer identifiers with confidence
         df_transactions: Stripe/Square transaction data
         df_checkins: Capitan check-in data
+        df_transfers: Pass transfer data (with purchaser_customer_id)
         df_mailchimp: Mailchimp campaign data
         mailchimp_fetcher: MailchimpDataFetcher instance for recipient fetching
         anthropic_api_key: API key for template analysis
@@ -419,6 +499,9 @@ def build_customer_events(
 
     if df_checkins is not None and not df_checkins.empty:
         builder.add_checkin_events(df_checkins)
+
+    if df_transfers is not None and not df_transfers.empty:
+        builder.add_pass_sharing_events(df_transfers)
 
     if df_mailchimp is not None and not df_mailchimp.empty and mailchimp_fetcher is not None:
         builder.add_mailchimp_events(mailchimp_fetcher, df_mailchimp, anthropic_api_key)

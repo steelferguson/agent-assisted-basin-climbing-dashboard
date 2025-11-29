@@ -22,7 +22,10 @@ from data_pipeline.pipeline_handler import (
     upload_new_capitan_checkins,
     upload_new_instagram_data,
     upload_new_mailchimp_data,
-    upload_new_capitan_associations_events
+    upload_new_capitan_associations_events,
+    upload_new_pass_transfers,
+    upload_new_customer_interactions,
+    upload_new_customer_connections
 )
 import datetime
 
@@ -91,6 +94,38 @@ def run_daily_pipeline():
         print("✅ Capitan associations & events updated successfully\n")
     except Exception as e:
         print(f"❌ Error updating Capitan associations & events: {e}\n")
+
+    # 7. Parse and upload pass transfers (last 7 days)
+    print("7. Parsing pass transfers from check-ins (last 7 days)...")
+    try:
+        upload_new_pass_transfers(
+            save_local=False,
+            days_back=7
+        )
+        print("✅ Pass transfers updated successfully\n")
+    except Exception as e:
+        print(f"❌ Error updating pass transfers: {e}\n")
+
+    # 8. Build and upload customer interactions (last 7 days)
+    print("8. Building customer interactions (last 7 days)...")
+    try:
+        upload_new_customer_interactions(
+            save_local=False,
+            days_back=7
+        )
+        print("✅ Customer interactions updated successfully\n")
+    except Exception as e:
+        print(f"❌ Error updating customer interactions: {e}\n")
+
+    # 9. Rebuild and upload customer connections summary
+    print("9. Rebuilding customer connections summary...")
+    try:
+        upload_new_customer_connections(
+            save_local=False
+        )
+        print("✅ Customer connections updated successfully\n")
+    except Exception as e:
+        print(f"❌ Error updating customer connections: {e}\n")
 
     print(f"{'='*80}")
     print(f"PIPELINE COMPLETE - {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")

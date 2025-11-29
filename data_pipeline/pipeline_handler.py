@@ -9,6 +9,7 @@ from data_pipeline import fetch_capitan_associations_events
 from data_pipeline import fetch_quickbooks_data
 from data_pipeline import identify_at_risk_members
 from data_pipeline import upload_data as upload_data
+from data_pipeline import upload_pass_transfers
 import datetime
 import os
 import pandas as pd
@@ -1485,6 +1486,74 @@ def upload_new_capitan_associations_events(save_local=False, events_days_back=No
     members_count = len(data.get('association_members', pd.DataFrame()))
     events_count = len(data.get('events', pd.DataFrame()))
     print(f"Associations: {associations_count} | Members: {members_count} | Events: {events_count}")
+
+
+def upload_new_pass_transfers(save_local=False, days_back=7):
+    """
+    Parse and upload pass transfers from recent check-ins.
+
+    Extracts transfer data (entry passes and guest passes) from check-ins
+    and maintains a deduplicated table in S3.
+
+    Args:
+        save_local: Whether to save a local copy (default False)
+        days_back: Number of days to process (default 7)
+
+    Returns:
+        DataFrame of all transfers
+    """
+    print(f"\n=== Uploading Pass Transfers (last {days_back} days) ===")
+
+    transfers_df = upload_pass_transfers.upload_pass_transfers_to_s3(
+        days_back=days_back,
+        save_local=save_local
+    )
+
+    print(f"=== Pass Transfers Upload Complete ===\n")
+
+    return transfers_df
+
+
+def upload_new_customer_interactions(save_local=False, days_back=7):
+    """
+    Build and upload customer interactions from recent data.
+
+    Creates interaction records from pass transfers, check-ins, and memberships.
+    Appends to existing interactions table with deduplication.
+
+    Args:
+        save_local: Whether to save a local copy (default False)
+        days_back: Number of days to process (default 7)
+    """
+    print(f"\n=== Uploading Customer Interactions (last {days_back} days) ===")
+
+    from data_pipeline import upload_customer_interactions
+    upload_customer_interactions.upload_customer_interactions_to_s3(
+        days_back=days_back,
+        save_local=save_local
+    )
+
+    print(f"=== Customer Interactions Upload Complete ===\n")
+
+
+def upload_new_customer_connections(save_local=False):
+    """
+    Rebuild and upload customer connections summary.
+
+    Aggregates all interactions into connection summary with strength scores.
+    Full rebuild daily.
+
+    Args:
+        save_local: Whether to save a local copy (default False)
+    """
+    print(f"\n=== Rebuilding Customer Connections Summary ===")
+
+    from data_pipeline import upload_customer_connections
+    upload_customer_connections.upload_customer_connections_to_s3(
+        save_local=save_local
+    )
+
+    print(f"=== Customer Connections Upload Complete ===\n")
 
 
 if __name__ == "__main__":
