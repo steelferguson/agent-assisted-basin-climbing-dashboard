@@ -1,3 +1,10 @@
+# Load environment variables first
+try:
+    from dotenv import load_dotenv
+    load_dotenv('.env')
+except ImportError:
+    pass
+
 from data_pipeline import fetch_stripe_data
 from data_pipeline import fetch_square_data
 from data_pipeline import fetch_capitan_membership_data
@@ -1656,8 +1663,10 @@ def upload_new_ga4_data(save_local=False, days_back=7):
             merged_df = data['page_views']
 
         uploader.upload_to_s3(
-            merged_df, config.aws_bucket_name, config.s3_path_ga4_page_views, save_local
+            merged_df, config.aws_bucket_name, config.s3_path_ga4_page_views
         )
+        if save_local:
+            merged_df.to_csv('data/outputs/ga4_page_views.csv', index=False)
     else:
         print("No page view data to upload (no traffic yet)")
 
@@ -1681,8 +1690,10 @@ def upload_new_ga4_data(save_local=False, days_back=7):
             merged_df = data['events']
 
         uploader.upload_to_s3(
-            merged_df, config.aws_bucket_name, config.s3_path_ga4_events, save_local
+            merged_df, config.aws_bucket_name, config.s3_path_ga4_events
         )
+        if save_local:
+            merged_df.to_csv('data/outputs/ga4_events.csv', index=False)
     else:
         print("No event data to upload (no traffic yet)")
 
@@ -1706,8 +1717,10 @@ def upload_new_ga4_data(save_local=False, days_back=7):
             merged_df = data['user_activity']
 
         uploader.upload_to_s3(
-            merged_df, config.aws_bucket_name, config.s3_path_ga4_user_activity, save_local
+            merged_df, config.aws_bucket_name, config.s3_path_ga4_user_activity
         )
+        if save_local:
+            merged_df.to_csv('data/outputs/ga4_user_activity.csv', index=False)
     else:
         print("No user activity data to upload (no traffic yet)")
 
@@ -1731,8 +1744,10 @@ def upload_new_ga4_data(save_local=False, days_back=7):
             merged_df = data['product_views']
 
         uploader.upload_to_s3(
-            merged_df, config.aws_bucket_name, config.s3_path_ga4_product_views, save_local
+            merged_df, config.aws_bucket_name, config.s3_path_ga4_product_views
         )
+        if save_local:
+            merged_df.to_csv('data/outputs/ga4_product_views.csv', index=False)
     else:
         print("No product view data to upload (no traffic yet)")
 
