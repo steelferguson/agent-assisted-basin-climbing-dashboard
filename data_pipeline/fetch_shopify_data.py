@@ -32,6 +32,13 @@ class ShopifyDataFetcher:
     """
 
     def __init__(self):
+        # Load environment variables
+        try:
+            from dotenv import load_dotenv
+            load_dotenv('.env')
+        except ImportError:
+            pass
+
         # Shopify credentials
         self.store_domain = os.getenv("SHOPIFY_STORE_DOMAIN")
         self.admin_token = os.getenv("SHOPIFY_ADMIN_TOKEN")
