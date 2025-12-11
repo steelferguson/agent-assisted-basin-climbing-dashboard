@@ -96,7 +96,59 @@ def load_data_frames():
         print(f"Warning: Could not load Mailchimp data: {e}")
         df_mailchimp = pd.DataFrame()
 
-    return df_transactions, df_memberships, df_members, df_instagram_posts, df_instagram_comments, df_facebook_ads, df_checkins, df_mailchimp
+    # Shopify Orders data
+    try:
+        csv_content = uploader.download_from_s3(config.aws_bucket_name, config.s3_path_shopify_orders)
+        df_shopify = uploader.convert_csv_to_df(csv_content)
+        df_shopify['created_at'] = pd.to_datetime(df_shopify['created_at'], errors='coerce')
+        df_shopify['processed_at'] = pd.to_datetime(df_shopify['processed_at'], errors='coerce')
+        df_shopify['transaction_date'] = pd.to_datetime(df_shopify['transaction_date'], errors='coerce')
+    except Exception as e:
+        print(f"Warning: Could not load Shopify data: {e}")
+        df_shopify = pd.DataFrame()
+
+    return df_transactions, df_memberships, df_members, df_instagram_posts, df_instagram_comments, df_facebook_ads, df_checkins, df_mailchimp, df_shopify
+
+
+def convert_shopify_to_transactions(df_shopify: pd.DataFrame) -> pd.DataFrame:
+    """
+    Convert Shopify orders to transactions dataframe format.
+
+    Maps Shopify columns to match the transaction dataframe schema used by revenue tools.
+    """
+    if df_shopify.empty:
+        return pd.DataFrame()
+
+    # Create transactions dataframe from Shopify orders
+    shopify_transactions = pd.DataFrame({
+        'transaction_id': df_shopify['line_item_id'].astype(str),
+        'Description': df_shopify['product_title'],
+        'Pre-Tax Amount': df_shopify['price'] - (df_shopify['total_tax'] / df_shopify['quantity']),  # Approximate per-item tax
+        'Tax Amount': df_shopify['total_tax'] / df_shopify['quantity'],  # Approximate per-item tax
+        'Total Amount': df_shopify['price'],
+        'Discount Amount': df_shopify['total_discounts'] / df_shopify['quantity'],  # Approximate per-item discount
+        'Name': df_shopify['customer_first_name'].fillna('') + ' ' + df_shopify['customer_last_name'].fillna(''),
+        'Date': df_shopify['transaction_date'],
+        'payment_intent_status': 'succeeded',  # Shopify orders are completed
+        'revenue_category': df_shopify['category'],  # Already categorized: Day Pass, Birthday Party, Other
+        'membership_size': None,
+        'membership_freq': None,
+        'is_founder': False,
+        'is_free_membership': False,
+        'sub_category': df_shopify['variant_title'],
+        'sub_category_detail': df_shopify['product_title'],
+        'date_': df_shopify['transaction_date'],
+        'Data Source': 'Shopify',
+        'Day Pass Count': df_shopify['quantity'].where(df_shopify['category'] == 'Day Pass', 0),
+        'base_price_amount': df_shopify['price'],
+        'status': df_shopify['financial_status'],
+        'payment_id': df_shopify['order_id'].astype(str),
+        'order_id': df_shopify['order_id'].astype(str),
+        'quantity': df_shopify['quantity'],
+        'fitness_amount': 0.0
+    })
+
+    return shopify_transactions
 
 
 # ============================================================================
@@ -2483,7 +2535,7 @@ def create_generic_chart_tool():
 def create_all_tools():
     """Create all analytical tools with loaded data."""
     print("Loading data from S3...")
-    df_transactions, df_memberships, df_members, df_instagram_posts, df_instagram_comments, df_facebook_ads, df_checkins, df_mailchimp = load_data_frames()
+    df_transactions, df_memberships, df_members, df_instagram_posts, df_instagram_comments, df_facebook_ads, df_checkins, df_mailchimp, df_shopify = load_data_frames()
     print(f"Loaded {len(df_transactions)} transactions, {len(df_memberships)} memberships, {len(df_members)} members")
 
     if not df_instagram_posts.empty:
@@ -2491,6 +2543,14 @@ def create_all_tools():
 
     if not df_facebook_ads.empty:
         print(f"Loaded {len(df_facebook_ads)} Facebook Ads records")
+
+    if not df_shopify.empty:
+        print(f"Loaded {len(df_shopify)} Shopify orders")
+        # Convert Shopify orders to transaction format and combine
+        shopify_transactions = convert_shopify_to_transactions(df_shopify)
+        df_transactions = pd.concat([df_transactions, shopify_transactions], ignore_index=True)
+        df_transactions = df_transactions.sort_values('Date', ascending=False)
+        print(f"Combined with Shopify: {len(df_transactions)} total transactions")
 
     if not df_checkins.empty:
         print(f"Loaded {len(df_checkins)} check-in records from {df_checkins['customer_id'].nunique()} unique customers")
