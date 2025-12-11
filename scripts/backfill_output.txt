@@ -1,0 +1,76 @@
+
+================================================================================
+BACKFILLING PASS TRANSFERS WITH PURCHASER CUSTOMER IDS
+================================================================================
+
+1. Loading data from S3...
+   ✓ Loaded 37659 check-ins
+   ✓ Loaded 11235 customers
+   ✓ Loaded 23316 transactions
+
+2. Parsing transfers from check-ins...
+   ✓ Found 1892 transfers
+
+3. Enriching with purchaser customer IDs...
+
+Enriching 1892 transfers with purchaser customer IDs...
+  ✓ Matched 1884/1892 transfers (99.6%)
+    - name_match: 1884
+    - no_match: 8
+  Average confidence: 99.6
+
+4. Summary:
+================================================================================
+  total_transfers: 1892
+  entry_pass_transfers: 1293
+  guest_pass_transfers: 599
+  punch_pass_transfers: 77
+  youth_pass_transfers: 713
+  unique_purchasers: 897
+  unique_users: 1625
+  date_range: 2024-08-06 17:45:19.583854 to 2025-11-04 15:19:40.770261
+
+Purchaser Matching:
+  Matched: 1884/1892 (99.6%)
+
+By method:
+match_method
+name_match    1884
+no_match         8
+
+Average confidence: 99.6
+
+5. Uploading to S3...
+   ✓ Uploaded to s3://basin-climbing-data-prod/capitan/pass_transfers.csv
+
+6. Saving local copy...
+   ✓ Saved to data/pass_transfers.csv
+
+7. Sample enriched records:
+================================================================================
+     purchaser_name purchaser_customer_id  user_customer_id user_first_name user_last_name match_method  match_confidence
+     Taylor Jackson               1685953           1688706          Emmett        Jackson   name_match               100
+     Rachel Kincaid               1446919           3257631          Dennis        Kincaid   name_match               100
+        Ellis Geyer               1643689           3256981          Kymani         Bowlin   name_match               100
+        Maddox Ware               1730994           1731369            Evan         Peters   name_match               100
+ Townes Latendresse               1794519           1705219         Matthew        Shirley   name_match               100
+      John Sulpizio               3256626           3256628          Jediah           King   name_match               100
+      John Sulpizio               3256626           3256627           Boden           King   name_match               100
+Alejandro Jaramillo               1720144           1720143           Elisa      Jaramillo   name_match               100
+Alejandro Jaramillo               1720144           3256532            Cory         Miller   name_match               100
+         Beau Davis               2502539           2502541           James       Pattillo   name_match               100
+        Kelly Mulay               2469182           2469183         Quentin        Korenek   name_match               100
+        Trevor Rowe               2642425           3223052          Sophia         Nukuto   name_match               100
+       Aron Hawkins               1552071           3256077            Jane        Hawkins   name_match               100
+   Caleb Scarbrough               1551384           3256056            Kyle          Kimel   name_match               100
+     Titan Eberling               1691832           3217774         Phoenix        Collins   name_match               100
+       Bella Martin               1868306           3255996         Trenton        Ketchum   name_match               100
+     Alex Inocencio               1868310           3255974         Lillith         Martin   name_match               100
+   Jonatan Niemelae               2470629           3255100           Trent       Macnelly   name_match               100
+    Isabel Gallegos               1792760           2431878            Ryan       Reynolds   name_match               100
+      Trae Kendrick               3254939           2473649          Brazos       Kendrick   name_match               100
+
+================================================================================
+BACKFILL COMPLETE
+================================================================================
+
