@@ -137,6 +137,36 @@ def run_daily_pipeline():
     except Exception as e:
         print(f"❌ Error generating team report: {e}\n")
 
+    # 11. Fetch Twilio messages
+    print("11. Fetching Twilio SMS messages...")
+    try:
+        from data_pipeline.fetch_twilio_messages import TwilioMessageFetcher
+        twilio_fetcher = TwilioMessageFetcher()
+        twilio_fetcher.fetch_and_save(days_back=7, save_local=False)
+        print("✅ Twilio messages updated successfully\n")
+    except Exception as e:
+        print(f"❌ Error fetching Twilio messages: {e}\n")
+
+    # 12. Run customer flag engine
+    print("12. Evaluating customer flags...")
+    try:
+        from data_pipeline.customer_flag_engine import CustomerFlagEngine
+        flag_engine = CustomerFlagEngine()
+        flag_engine.run()
+        print("✅ Customer flags evaluated successfully\n")
+    except Exception as e:
+        print(f"❌ Error evaluating customer flags: {e}\n")
+
+    # 13. Sync flags to Shopify
+    print("13. Syncing customer flags to Shopify...")
+    try:
+        from data_pipeline.sync_flags_to_shopify import ShopifyFlagSyncer
+        shopify_syncer = ShopifyFlagSyncer()
+        shopify_syncer.sync_flags_to_shopify(dry_run=False)
+        print("✅ Flags synced to Shopify successfully\n")
+    except Exception as e:
+        print(f"❌ Error syncing flags to Shopify: {e}\n")
+
     print(f"{'='*80}")
     print(f"PIPELINE COMPLETE - {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"{'='*80}\n")
