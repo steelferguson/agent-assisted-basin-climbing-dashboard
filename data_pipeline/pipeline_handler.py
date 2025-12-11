@@ -1739,6 +1739,26 @@ def upload_new_ga4_data(save_local=False, days_back=7):
     print(f"\n=== GA4 Data Upload Complete ===\n")
 
 
+def upload_new_shopify_data(save_local=False, days_back=7):
+    """
+    Fetch Shopify orders and upload to S3.
+
+    Args:
+        save_local: Whether to save a local copy
+        days_back: Number of days to fetch (default: 7)
+    """
+    from data_pipeline import fetch_shopify_data
+
+    print(f"\n=== Fetching Shopify Orders (last {days_back} days) ===\n")
+
+    fetcher = fetch_shopify_data.ShopifyDataFetcher()
+    orders = fetcher.fetch_and_save(days_back=days_back, save_local=save_local)
+
+    print(f"\n=== Shopify Data Upload Complete ===\n")
+
+    return orders
+
+
 if __name__ == "__main__":
     # Example: Upload 90 days of ads data
     upload_new_facebook_ads_data(save_local=True, days_back=90)
