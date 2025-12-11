@@ -91,3 +91,4 @@ mailchimp-marketing==3.0.80
 beautifulsoup4==4.12.3
 python-pptx==0.6.23
 kaleido==0.2.1  # For plotly static image export
+google-analytics-data==0.19.0  # For GA4 API access

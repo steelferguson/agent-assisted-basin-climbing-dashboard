@@ -391,7 +391,8 @@ class CapitanDataFetcher:
     def fetch_customers(self) -> pd.DataFrame:
         """
         Fetch customer contact information from Capitan API.
-        Returns DataFrame with customer_id, email, phone, first_name, last_name, created_at.
+        Returns DataFrame with customer_id, email, phone, first_name, last_name, created_at,
+        plus waiver and profile information.
         """
         print("\n📇 Fetching customer contact information...")
 
@@ -410,9 +411,17 @@ class CapitanDataFetcher:
             customer_data.append({
                 'customer_id': customer.get('id'),
                 'email': customer.get('email'),
-                'phone': customer.get('phone'),
+                'phone': customer.get('telephone'),  # FIXED: was 'phone', should be 'telephone'
                 'first_name': customer.get('first_name'),
                 'last_name': customer.get('last_name'),
+                'preferred_name': customer.get('preferred_name'),
+                'birthday': customer.get('birthday'),
+                'has_opted_in_to_marketing': customer.get('has_opted_in_to_marketing'),
+                'has_active_membership': customer.get('has_active_membership'),
+                'active_waiver_exists': customer.get('active_waiver_exists'),
+                'latest_waiver_expiration_date': customer.get('latest_waiver_expiration_date'),
+                'relations_url': customer.get('relations_url'),
+                'emergency_contacts_url': customer.get('emergency_contacts_url'),
                 'created_at': customer.get('created_at'),
             })
 

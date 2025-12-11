@@ -127,6 +127,16 @@ def run_daily_pipeline():
     except Exception as e:
         print(f"❌ Error updating customer connections: {e}\n")
 
+    # 10. Generate team membership reconciliation report
+    print("10. Generating team membership reconciliation report...")
+    try:
+        from data_pipeline.fix_team_member_matching import find_team_member_memberships
+        team_df = find_team_member_memberships()
+        team_df.to_csv('data/outputs/team_membership_report.csv', index=False)
+        print(f"✅ Team report updated: {len(team_df)} team members tracked\n")
+    except Exception as e:
+        print(f"❌ Error generating team report: {e}\n")
+
     print(f"{'='*80}")
     print(f"PIPELINE COMPLETE - {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"{'='*80}\n")

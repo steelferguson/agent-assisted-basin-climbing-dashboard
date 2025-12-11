@@ -945,9 +945,54 @@ def upload_new_instagram_data(save_local=False, enable_vision_analysis=True, day
     print(f"Posts: {len(combined_posts_df)} | Comments: {len(combined_comments_df)}")
 
 
+def sync_twilio_opt_ins(save_local=False):
+    """
+    Sync Twilio SMS opt-ins and opt-outs from message history.
+
+    Fetches latest Twilio messages, extracts opt-in/opt-out actions,
+    and maintains two tables in S3:
+    - History table: All opt-in/opt-out actions (audit trail)
+    - Status table: Current opt-in status per phone number
+
+    Args:
+        save_local: Whether to save CSV files locally (default False)
+    """
+    print(f"\n=== Syncing Twilio SMS Opt-Ins ===")
+
+    from data_pipeline.sync_twilio_opt_ins import TwilioOptInTracker
+
+    try:
+        tracker = TwilioOptInTracker()
+        results = tracker.sync(message_limit=1000)
+
+        status_df = results['status']
+        history_df = results['history']
+
+        opted_in_count = len(status_df[status_df['current_status'] == 'opted_in'])
+        opted_out_count = len(status_df[status_df['current_status'] == 'opted_out'])
+
+        print(f"✓ Synced Twilio opt-ins:")
+        print(f"  - {len(history_df)} total actions in history")
+        print(f"  - {opted_in_count} currently opted in")
+        print(f"  - {opted_out_count} currently opted out")
+
+        if save_local:
+            os.makedirs("data/outputs", exist_ok=True)
+            status_df.to_csv("data/outputs/twilio_opt_in_status.csv", index=False)
+            history_df.to_csv("data/outputs/twilio_opt_in_history.csv", index=False)
+            print("✓ Saved locally to data/outputs/")
+
+        print("✓ Twilio opt-in sync complete!")
+
+    except Exception as e:
+        print(f"⚠️  Error syncing Twilio opt-ins: {e}")
+        print("   (Skipping Twilio sync - may be missing credentials)")
+
+
 if __name__ == "__main__":
     add_new_transactions_to_combined_df()
     upload_new_capitan_membership_data()
+    sync_twilio_opt_ins()
     # upload_new_instagram_data(save_local=False, enable_vision_analysis=True, days_to_fetch=30)
 
     # df = fetch_stripe_and_square_and_combine(days=147)
@@ -1554,6 +1599,144 @@ def upload_new_customer_connections(save_local=False):
     )
 
     print(f"=== Customer Connections Upload Complete ===\n")
+
+
+def upload_new_ga4_data(save_local=False, days_back=7):
+    """
+    Fetches GA4 (Google Analytics 4) page view and event data.
+
+    Args:
+        save_local: Whether to save CSV files locally
+        days_back: Number of days of history to fetch (default: 7)
+    """
+    print(f"\n=== Fetching GA4 Data (last {days_back} days) ===")
+
+    # Initialize fetcher
+    from data_pipeline import fetch_ga4_data
+
+    if not config.ga4_property_id:
+        print("Error: GA4_PROPERTY_ID not found in environment")
+        return
+
+    if not config.ga4_credentials_path and not config.ga4_credentials_json:
+        print("Error: Must provide either GA4_CREDENTIALS_PATH or GA4_CREDENTIALS_JSON")
+        return
+
+    # Support both local (file path) and CI/CD (JSON string) modes
+    fetcher = fetch_ga4_data.GA4DataFetcher(
+        property_id=config.ga4_property_id,
+        credentials_path=config.ga4_credentials_path,
+        credentials_json=config.ga4_credentials_json
+    )
+
+    # Fetch all GA4 data
+    data = fetcher.fetch_all_data(days_back=days_back)
+
+    # Upload each dataset
+    uploader = upload_data.DataUploader()
+
+    # 1. Page Views
+    if not data['page_views'].empty:
+        print(f"\nUploading {len(data['page_views'])} page view records...")
+
+        # Merge with existing data
+        try:
+            existing_csv = uploader.download_from_s3(
+                config.aws_bucket_name, config.s3_path_ga4_page_views
+            )
+            existing_df = uploader.convert_csv_to_df(existing_csv)
+
+            # Merge on date + page_path + page_title
+            merged_df = pd.concat([existing_df, data['page_views']]).drop_duplicates(
+                subset=['date', 'page_path', 'page_title'], keep='last'
+            )
+            print(f"  → Merged with existing: {len(merged_df)} total records")
+        except Exception as e:
+            print(f"  → No existing data found (first upload?): {e}")
+            merged_df = data['page_views']
+
+        uploader.upload_to_s3(
+            merged_df, config.aws_bucket_name, config.s3_path_ga4_page_views, save_local
+        )
+    else:
+        print("No page view data to upload (no traffic yet)")
+
+    # 2. Events
+    if not data['events'].empty:
+        print(f"\nUploading {len(data['events'])} event records...")
+
+        try:
+            existing_csv = uploader.download_from_s3(
+                config.aws_bucket_name, config.s3_path_ga4_events
+            )
+            existing_df = uploader.convert_csv_to_df(existing_csv)
+
+            # Merge on date + event_name
+            merged_df = pd.concat([existing_df, data['events']]).drop_duplicates(
+                subset=['date', 'event_name'], keep='last'
+            )
+            print(f"  → Merged with existing: {len(merged_df)} total records")
+        except Exception as e:
+            print(f"  → No existing data found (first upload?): {e}")
+            merged_df = data['events']
+
+        uploader.upload_to_s3(
+            merged_df, config.aws_bucket_name, config.s3_path_ga4_events, save_local
+        )
+    else:
+        print("No event data to upload (no traffic yet)")
+
+    # 3. User Activity
+    if not data['user_activity'].empty:
+        print(f"\nUploading {len(data['user_activity'])} user activity records...")
+
+        try:
+            existing_csv = uploader.download_from_s3(
+                config.aws_bucket_name, config.s3_path_ga4_user_activity
+            )
+            existing_df = uploader.convert_csv_to_df(existing_csv)
+
+            # Merge on date
+            merged_df = pd.concat([existing_df, data['user_activity']]).drop_duplicates(
+                subset=['date'], keep='last'
+            )
+            print(f"  → Merged with existing: {len(merged_df)} total records")
+        except Exception as e:
+            print(f"  → No existing data found (first upload?): {e}")
+            merged_df = data['user_activity']
+
+        uploader.upload_to_s3(
+            merged_df, config.aws_bucket_name, config.s3_path_ga4_user_activity, save_local
+        )
+    else:
+        print("No user activity data to upload (no traffic yet)")
+
+    # 4. Product Views
+    if not data['product_views'].empty:
+        print(f"\nUploading {len(data['product_views'])} product view records...")
+
+        try:
+            existing_csv = uploader.download_from_s3(
+                config.aws_bucket_name, config.s3_path_ga4_product_views
+            )
+            existing_df = uploader.convert_csv_to_df(existing_csv)
+
+            # Merge on date + item_name
+            merged_df = pd.concat([existing_df, data['product_views']]).drop_duplicates(
+                subset=['date', 'item_name'], keep='last'
+            )
+            print(f"  → Merged with existing: {len(merged_df)} total records")
+        except Exception as e:
+            print(f"  → No existing data found (first upload?): {e}")
+            merged_df = data['product_views']
+
+        uploader.upload_to_s3(
+            merged_df, config.aws_bucket_name, config.s3_path_ga4_product_views, save_local
+        )
+    else:
+        print("No product view data to upload (no traffic yet)")
+
+    print(f"\n=== GA4 Data Upload Complete ===\n")
 
 
 if __name__ == "__main__":
