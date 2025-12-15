@@ -251,6 +251,12 @@ def create_dashboard(app):
                 style={"color": "#213B3F", "marginTop": "30px"},
             ),
             dcc.Graph(id="membership-attrition-new-chart"),
+            # New vs Existing Memberships chart section
+            html.H1(
+                children="Active Memberships: New vs Existing",
+                style={"color": "#213B3F", "marginTop": "30px"},
+            ),
+            dcc.Graph(id="membership-new-vs-existing-chart"),
             # Youth Teams section
             html.H1(
                 children="Youth Teams Membership",
@@ -1167,6 +1173,132 @@ def create_dashboard(app):
             height=500,
             xaxis_title="Period",
             yaxis_title="Number of Memberships",
+            hovermode="x unified",
+            plot_bgcolor=chart_colors["background"],
+            paper_bgcolor=chart_colors["background"],
+            font_color=chart_colors["text"],
+        )
+
+        return fig
+
+    # Callback for New vs Existing Memberships chart
+    @app.callback(
+        Output("membership-new-vs-existing-chart", "figure"),
+        [Input("timeframe-toggle", "value")],
+    )
+    def update_membership_new_vs_existing_chart(selected_timeframe):
+        """
+        Show stacked area chart of active memberships split by:
+        - New that month (started in that period)
+        - Existing (started before that period)
+        """
+        # Load the membership data
+        df = df_memberships.copy()
+
+        # Convert dates to datetime
+        df["start_date"] = pd.to_datetime(df["start_date"], errors="coerce")
+        df["start_date"] = df["start_date"].dt.tz_localize(None)
+        df["end_date"] = pd.to_datetime(df["end_date"], errors="coerce")
+        df["end_date"] = df["end_date"].dt.tz_localize(None)
+
+        # Filter to only include dates up to today
+        today = pd.Timestamp.now().normalize()
+
+        # Get all periods from first membership start to today
+        min_date = df["start_date"].min()
+        if pd.isna(min_date):
+            # No data, return empty chart
+            fig = go.Figure()
+            fig.update_layout(title="No membership data available")
+            return fig
+
+        # Create a range of periods from min_date to today
+        if selected_timeframe == "M":
+            periods = pd.date_range(start=min_date, end=today, freq="MS")
+        elif selected_timeframe == "W":
+            periods = pd.date_range(start=min_date, end=today, freq="W-MON")
+        elif selected_timeframe == "Q":
+            periods = pd.date_range(start=min_date, end=today, freq="QS")
+        else:  # Year
+            periods = pd.date_range(start=min_date, end=today, freq="YS")
+
+        # For each period, count active memberships split by new vs existing
+        results = []
+        for period_start in periods:
+            # Calculate period end based on timeframe
+            if selected_timeframe == "M":
+                period_end = period_start + pd.DateOffset(months=1) - pd.Timedelta(days=1)
+            elif selected_timeframe == "W":
+                period_end = period_start + pd.Timedelta(days=6)
+            elif selected_timeframe == "Q":
+                period_end = period_start + pd.DateOffset(months=3) - pd.Timedelta(days=1)
+            else:  # Year
+                period_end = period_start + pd.DateOffset(years=1) - pd.Timedelta(days=1)
+
+            # Don't go beyond today
+            period_end = min(period_end, today)
+
+            # Find active memberships during this period
+            # Active = started before or during period AND (no end date OR ended after period start)
+            active_mask = (
+                (df["start_date"] <= period_end) &
+                ((df["end_date"].isna()) | (df["end_date"] >= period_start))
+            )
+            active_members = df[active_mask]
+
+            # Split into new (started during this period) vs existing (started before)
+            new_mask = (
+                (active_members["start_date"] >= period_start) &
+                (active_members["start_date"] <= period_end)
+            )
+            new_count = new_mask.sum()
+            existing_count = len(active_members) - new_count
+
+            results.append({
+                "period": period_start,
+                "new_count": new_count,
+                "existing_count": existing_count,
+                "total_count": len(active_members)
+            })
+
+        results_df = pd.DataFrame(results)
+
+        # Create stacked area chart
+        fig = go.Figure()
+
+        # Add existing memberships (bottom layer)
+        fig.add_trace(
+            go.Scatter(
+                x=results_df["period"],
+                y=results_df["existing_count"],
+                mode="lines",
+                name="Existing Memberships",
+                line=dict(width=0.5, color=chart_colors["primary"]),  # Rust
+                stackgroup="one",
+                fillcolor=chart_colors["primary"]
+            )
+        )
+
+        # Add new memberships (top layer)
+        fig.add_trace(
+            go.Scatter(
+                x=results_df["period"],
+                y=results_df["new_count"],
+                mode="lines",
+                name="New That Period",
+                line=dict(width=0.5, color=chart_colors["secondary"]),  # Gold
+                stackgroup="one",
+                fillcolor=chart_colors["secondary"]
+            )
+        )
+
+        # Update layout
+        fig.update_layout(
+            title="Active Memberships: New vs Existing",
+            showlegend=True,
+            height=500,
+            xaxis_title="Period",
+            yaxis_title="Number of Active Memberships",
             hovermode="x unified",
             plot_bgcolor=chart_colors["background"],
             paper_bgcolor=chart_colors["background"],
