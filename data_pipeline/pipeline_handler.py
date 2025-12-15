@@ -15,6 +15,7 @@ from data_pipeline import fetch_mailchimp_data
 from data_pipeline import fetch_capitan_associations_events
 from data_pipeline import fetch_quickbooks_data
 from data_pipeline import identify_at_risk_members
+from data_pipeline import identify_new_members
 from data_pipeline import upload_data as upload_data
 from data_pipeline import upload_pass_transfers
 import datetime
@@ -1213,6 +1214,80 @@ def upload_at_risk_members(save_local=False):
 
     except Exception as e:
         print(f"Error uploading at-risk members data: {e}")
+        raise
+
+
+def upload_new_members_report(save_local=False, days_back=28):
+    """
+    Generates new members report (members who joined in last N days) and uploads to S3.
+
+    Args:
+        save_local: Whether to save CSV file locally
+        days_back: Number of days to look back (default: 28)
+    """
+    print(f"\n=== Generating New Members Report (Last {days_back} Days) ===")
+
+    # Load data from S3
+    try:
+        data = identify_new_members.load_data_from_s3(
+            aws_access_key_id=config.aws_access_key_id,
+            aws_secret_access_key=config.aws_secret_access_key,
+            bucket_name=config.aws_bucket_name
+        )
+    except Exception as e:
+        print(f"Error loading data from S3: {e}")
+        return
+
+    # Initialize identifier
+    identifier = identify_new_members.NewMemberIdentifier(
+        df_checkins=data['checkins'],
+        df_members=data['members'],
+        df_memberships=data['memberships']
+    )
+
+    # Generate report
+    new_members_df = identifier.generate_report(days_back=days_back)
+
+    if new_members_df.empty:
+        print("No new members found in the specified period")
+        return
+
+    print(f"Identified {len(new_members_df)} new members")
+
+    # Upload to S3
+    uploader = upload_data.DataUploader()
+
+    try:
+        # Upload to S3
+        uploader.upload_to_s3(
+            new_members_df,
+            config.aws_bucket_name,
+            config.s3_path_new_members
+        )
+        print(f"✓ Uploaded to S3: {config.s3_path_new_members}")
+
+        # Save locally if requested
+        if save_local:
+            local_path = "data/outputs/new_members.csv"
+            os.makedirs(os.path.dirname(local_path), exist_ok=True)
+            new_members_df.to_csv(local_path, index=False)
+            print(f"✓ Saved locally: {local_path}")
+
+        # Monthly snapshots
+        today = datetime.datetime.now()
+        if today.day == config.snapshot_day_of_month:
+            print("\nCreating monthly new members snapshot (1st of month)...")
+            uploader.upload_to_s3(
+                new_members_df,
+                config.aws_bucket_name,
+                config.s3_path_new_members_snapshot + f'_{today.strftime("%Y-%m-%d")}'
+            )
+            print("✓ Monthly snapshot saved")
+
+        print("✓ New members report upload complete!")
+
+    except Exception as e:
+        print(f"Error uploading new members data: {e}")
         raise
 
 

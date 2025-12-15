@@ -27,7 +27,9 @@ from data_pipeline.pipeline_handler import (
     upload_new_customer_interactions,
     upload_new_customer_connections,
     upload_new_ga4_data,
-    upload_new_shopify_data
+    upload_new_shopify_data,
+    upload_at_risk_members,
+    upload_new_members_report
 )
 import datetime
 
@@ -184,6 +186,22 @@ def run_daily_pipeline():
         print("✅ Flags synced to Shopify successfully\n")
     except Exception as e:
         print(f"❌ Error syncing flags to Shopify: {e}\n")
+
+    # 14. Generate at-risk members report
+    print("16. Generating at-risk members report...")
+    try:
+        upload_at_risk_members(save_local=False)
+        print("✅ At-risk members report generated successfully\n")
+    except Exception as e:
+        print(f"❌ Error generating at-risk members report: {e}\n")
+
+    # 15. Generate new members report (last 28 days)
+    print("17. Generating new members report (last 28 days)...")
+    try:
+        upload_new_members_report(save_local=False, days_back=28)
+        print("✅ New members report generated successfully\n")
+    except Exception as e:
+        print(f"❌ Error generating new members report: {e}\n")
 
     print(f"{'='*80}")
     print(f"PIPELINE COMPLETE - {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
