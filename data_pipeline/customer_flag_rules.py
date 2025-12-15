@@ -57,7 +57,7 @@ CUSTOMER_FLAG_RULES: List[Dict[str, Any]] = [
             "set_shopify_metafield": {
                 "enabled": True,
                 "namespace": "custom",
-                "key": "second_visit_offer_eligible",
+                "key": "second_visit_offer_eligible_flag",
                 "value": "true",
                 "value_type": "boolean"
             },
