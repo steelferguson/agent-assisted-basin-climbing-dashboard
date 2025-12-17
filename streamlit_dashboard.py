@@ -60,6 +60,7 @@ def load_data():
     df_members = load_df(config.aws_bucket_name, config.s3_path_capitan_members)
     df_projection = load_df(config.aws_bucket_name, config.s3_path_capitan_membership_revenue_projection)
     df_at_risk = load_df(config.aws_bucket_name, config.s3_path_at_risk_members)
+    df_new_members = load_df(config.aws_bucket_name, config.s3_path_new_members)
     df_facebook_ads = load_df(config.aws_bucket_name, config.s3_path_facebook_ads)
     df_events = load_df(config.aws_bucket_name, config.s3_path_capitan_events)
     df_checkins = load_df(config.aws_bucket_name, config.s3_path_capitan_checkins)
@@ -68,12 +69,12 @@ def load_data():
     df_failed_payments = load_df(config.aws_bucket_name, config.s3_path_failed_payments)
     df_expenses = load_df(config.aws_bucket_name, config.s3_path_quickbooks_expenses)
 
-    return df_transactions, df_memberships, df_members, df_projection, df_at_risk, df_facebook_ads, df_events, df_checkins, df_instagram, df_mailchimp, df_failed_payments, df_expenses
+    return df_transactions, df_memberships, df_members, df_projection, df_at_risk, df_new_members, df_facebook_ads, df_events, df_checkins, df_instagram, df_mailchimp, df_failed_payments, df_expenses
 
 
 # Load data
 with st.spinner('Loading data from S3...'):
-    df_transactions, df_memberships, df_members, df_projection, df_at_risk, df_facebook_ads, df_events, df_checkins, df_instagram, df_mailchimp, df_failed_payments, df_expenses = load_data()
+    df_transactions, df_memberships, df_members, df_projection, df_at_risk, df_new_members, df_facebook_ads, df_events, df_checkins, df_instagram, df_mailchimp, df_failed_payments, df_expenses = load_data()
 
 # Prepare at-risk members data
 if not df_at_risk.empty:
@@ -119,8 +120,8 @@ with tab1:
     # Data source selector
     data_sources = st.multiselect(
         'Data Sources',
-        options=['Stripe', 'Square'],
-        default=['Stripe', 'Square']
+        options=['Stripe', 'Square', 'Shopify'],
+        default=['Stripe', 'Square', 'Shopify']
     )
 
     # Filter data
@@ -1323,6 +1324,63 @@ with tab2:
         )
 
         st.caption(f'Total at-risk members: {len(df_at_risk_filtered)}')
+
+    # New Members Table
+    st.subheader('New Members (Last 28 Days)')
+    st.markdown('Members who joined in the last 28 days, sorted by most recent first')
+
+    if not df_new_members.empty:
+        # Prepare display dataframe
+        df_new_members_display = df_new_members.copy()
+
+        # Format dates
+        if 'start_date' in df_new_members_display.columns:
+            df_new_members_display['start_date'] = pd.to_datetime(df_new_members_display['start_date']).dt.strftime('%Y-%m-%d')
+
+        # Select and rename columns for display
+        display_columns = {
+            'customer_id': 'Customer ID',
+            'first_name': 'First Name',
+            'last_name': 'Last Name',
+            'age': 'Age',
+            'membership_type': 'Membership Type',
+            'start_date': 'Start Date',
+            'days_since_joining': 'Days Since Joining',
+            'total_checkins': 'Total Check-ins',
+            'capitan_link': 'Capitan Link'
+        }
+
+        # Filter to only columns that exist
+        available_columns = {k: v for k, v in display_columns.items() if k in df_new_members_display.columns}
+        df_new_members_display = df_new_members_display[list(available_columns.keys())]
+        df_new_members_display.columns = list(available_columns.values())
+
+        st.dataframe(
+            df_new_members_display,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                'Capitan Link': st.column_config.LinkColumn('Capitan Link')
+            }
+        )
+
+        # Summary metrics
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric('Total New Members', len(df_new_members))
+        with col2:
+            avg_checkins = df_new_members['total_checkins'].mean() if 'total_checkins' in df_new_members.columns else 0
+            st.metric('Avg Check-ins per New Member', f"{avg_checkins:.1f}")
+        with col3:
+            # Count by membership type
+            if 'membership_type' in df_new_members.columns:
+                top_type = df_new_members['membership_type'].value_counts().index[0]
+                top_count = df_new_members['membership_type'].value_counts().iloc[0]
+                st.metric('Most Common Type', f"{top_type} ({top_count})")
+
+        st.caption(f'Generated: {df_new_members["generated_at"].iloc[0] if "generated_at" in df_new_members.columns else "N/A"}')
+    else:
+        st.info('No new members found in the last 28 days')
 
     # Recently Attrited Members
     st.subheader('Recently Attrited Members (Last 60 Days)')
