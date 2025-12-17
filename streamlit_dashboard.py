@@ -1198,6 +1198,107 @@ with tab2:
     else:
         st.info('No membership data available for attrition analysis')
 
+    # New vs Existing Memberships Chart
+    st.subheader('Active Memberships: New vs Existing')
+    st.markdown('Shows the composition of active memberships: new members (joined that month) vs existing members')
+
+    # Calculate active memberships split by new vs existing for each month
+    if not df_memberships_dates.empty:
+        results = []
+        for month in month_range:
+            month_start = month.to_timestamp()
+            month_end = (month + 1).to_timestamp()
+
+            # Find active memberships during this month
+            # Active = started before or during month AND (no end date OR ended after month start)
+            active_mask = (
+                (df_memberships_dates['start_date'] <= month_end) &
+                ((df_memberships_dates['end_date'].isna()) | (df_memberships_dates['end_date'] >= month_start))
+            )
+            active_members = df_memberships_dates[active_mask]
+
+            # Split into new (started during this month) vs existing (started before)
+            new_mask = (
+                (active_members['start_date'] >= month_start) &
+                (active_members['start_date'] < month_end)
+            )
+            new_count = new_mask.sum()
+            existing_count = len(active_members) - new_count
+
+            results.append({
+                'month': month_start,
+                'New That Month': new_count,
+                'Existing': existing_count,
+                'Total': len(active_members)
+            })
+
+        df_composition = pd.DataFrame(results)
+
+        # Create stacked area chart
+        fig_composition = go.Figure()
+
+        # Add existing memberships (bottom layer)
+        fig_composition.add_trace(
+            go.Scatter(
+                x=df_composition['month'],
+                y=df_composition['Existing'],
+                mode='lines',
+                name='Existing Members',
+                line=dict(width=0.5, color=COLORS['primary']),  # Rust
+                stackgroup='one',
+                fillcolor=COLORS['primary'],
+                hovertemplate='<b>Existing:</b> %{y}<extra></extra>'
+            )
+        )
+
+        # Add new memberships (top layer)
+        fig_composition.add_trace(
+            go.Scatter(
+                x=df_composition['month'],
+                y=df_composition['New That Month'],
+                mode='lines',
+                name='New That Month',
+                line=dict(width=0.5, color=COLORS['secondary']),  # Gold
+                stackgroup='one',
+                fillcolor=COLORS['secondary'],
+                hovertemplate='<b>New:</b> %{y}<extra></extra>'
+            )
+        )
+
+        fig_composition.update_layout(
+            title='Active Memberships Composition: New vs Existing',
+            plot_bgcolor=COLORS['background'],
+            paper_bgcolor=COLORS['background'],
+            font_color=COLORS['text'],
+            height=500,
+            xaxis_title='Month',
+            yaxis_title='Number of Active Memberships',
+            hovermode='x unified',
+            legend=dict(
+                orientation='h',
+                yanchor='bottom',
+                y=1.02,
+                xanchor='right',
+                x=1
+            )
+        )
+
+        st.plotly_chart(fig_composition, use_container_width=True)
+
+        # Summary metrics
+        if not df_composition.empty:
+            latest_month = df_composition.iloc[-1]
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric('Current Total Active', int(latest_month['Total']))
+            with col2:
+                st.metric('New This Month', int(latest_month['New That Month']))
+            with col3:
+                pct_new = (latest_month['New That Month'] / latest_month['Total'] * 100) if latest_month['Total'] > 0 else 0
+                st.metric('% New This Month', f"{pct_new:.1f}%")
+    else:
+        st.info('No membership data available for composition analysis')
+
     # At-Risk Members Table
     st.subheader('At-Risk Members')
 
