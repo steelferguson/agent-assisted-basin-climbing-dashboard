@@ -1924,15 +1924,15 @@ def upload_new_sendgrid_data(save_local=False, days_back=7):
         try:
             csv_content = uploader.download_from_s3(
                 config.aws_bucket_name,
-                'sendgrid/emails_sent.csv'
+                'sendgrid/email_stats.csv'
             )
             existing_df = uploader.convert_csv_to_df(csv_content)
-            existing_df['last_event_time'] = pd.to_datetime(existing_df['last_event_time'])
+            existing_df['date'] = pd.to_datetime(existing_df['date'])
 
-            # Combine and de-duplicate by msg_id
+            # Combine and de-duplicate by date
             combined_df = pd.concat([existing_df, df_activity], ignore_index=True)
-            combined_df = combined_df.drop_duplicates(subset=['msg_id'], keep='last')
-            combined_df = combined_df.sort_values('last_event_time')
+            combined_df = combined_df.drop_duplicates(subset=['date'], keep='last')
+            combined_df = combined_df.sort_values('date')
 
             print(f"Merged with existing data: {len(combined_df)} total records")
             df_to_upload = combined_df
@@ -1944,13 +1944,13 @@ def upload_new_sendgrid_data(save_local=False, days_back=7):
         uploader.upload_to_s3(
             df_to_upload,
             config.aws_bucket_name,
-            'sendgrid/emails_sent.csv'
+            'sendgrid/email_stats.csv'
         )
-        print(f"✓ Uploaded to S3: sendgrid/emails_sent.csv")
+        print(f"✓ Uploaded to S3: sendgrid/email_stats.csv")
 
         # Save locally if requested
         if save_local:
-            local_path = "data/sendgrid/emails_sent.csv"
+            local_path = "data/sendgrid/email_stats.csv"
             os.makedirs(os.path.dirname(local_path), exist_ok=True)
             df_to_upload.to_csv(local_path, index=False)
             print(f"✓ Saved locally: {local_path}")

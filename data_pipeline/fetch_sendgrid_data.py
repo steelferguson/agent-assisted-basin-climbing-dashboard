@@ -42,78 +42,23 @@ class SendGridDataFetcher:
         limit: int = 1000
     ) -> pd.DataFrame:
         """
-        Fetch email activity events from SendGrid.
+        Fetch email activity events from SendGrid Stats API.
+
+        Note: The Email Activity Feed API requires additional permissions.
+        Using Stats API for aggregate daily metrics instead.
 
         Args:
-            days_back: Number of days to fetch (default 7, max 30 on free tier)
-            limit: Max events to fetch per request (default 1000, max 1000)
+            days_back: Number of days to fetch (default 7)
+            limit: Not used for Stats API (kept for compatibility)
 
         Returns:
-            DataFrame with email activity events
+            DataFrame with daily email statistics
         """
-        print(f"\n📧 Fetching SendGrid email activity (last {days_back} days)...")
+        print(f"\n📧 Fetching SendGrid email statistics (last {days_back} days)...")
 
-        # Calculate date range
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=days_back)
-
-        # Format dates for API (Unix timestamp)
-        start_timestamp = int(start_date.timestamp())
-        end_timestamp = int(end_date.timestamp())
-
-        # API endpoint - Email Activity Feed
-        url = f"{self.base_url}/messages"
-
-        params = {
-            "limit": limit,
-            "query": f"last_event_time BETWEEN TIMESTAMP \"{start_date.isoformat()}\" AND TIMESTAMP \"{end_date.isoformat()}\""
-        }
-
-        try:
-            response = requests.get(url, headers=self.headers, params=params, timeout=30)
-            response.raise_for_status()
-
-            data = response.json()
-            messages = data.get('messages', [])
-
-            if not messages:
-                print("   No email activity found")
-                return pd.DataFrame()
-
-            # Parse messages into DataFrame
-            rows = []
-            for msg in messages:
-                row = {
-                    'msg_id': msg.get('msg_id'),
-                    'from_email': msg.get('from_email'),
-                    'to_email': msg.get('to_email'),
-                    'subject': msg.get('subject'),
-                    'status': msg.get('status'),  # processed, delivered, opened, clicked, etc.
-                    'template_id': msg.get('template_id'),
-                    'template_name': msg.get('template_name'),
-                    'last_event_time': msg.get('last_event_time'),
-                    'opens_count': msg.get('opens_count', 0),
-                    'clicks_count': msg.get('clicks_count', 0),
-                }
-                rows.append(row)
-
-            df = pd.DataFrame(rows)
-
-            # Convert timestamp to datetime
-            df['last_event_time'] = pd.to_datetime(df['last_event_time'])
-
-            print(f"   ✅ Fetched {len(df)} email activity events")
-            return df
-
-        except requests.exceptions.HTTPError as e:
-            if e.response.status_code == 401:
-                print(f"   ❌ Authentication failed - check SENDGRID_API_KEY")
-            else:
-                print(f"   ❌ HTTP error: {e}")
-            return pd.DataFrame()
-        except Exception as e:
-            print(f"   ❌ Error fetching SendGrid data: {e}")
-            return pd.DataFrame()
+        # Use the stats API instead of email activity feed
+        # The activity feed requires special permissions
+        return self.fetch_stats(days_back=days_back)
 
     def fetch_stats(self, days_back: int = 30) -> pd.DataFrame:
         """
@@ -181,7 +126,7 @@ class SendGridDataFetcher:
         days_back: int = 7
     ):
         """
-        Fetch email activity and save to local + S3.
+        Fetch email statistics and save to local + S3.
 
         Args:
             save_local: Whether to save locally (default True)
@@ -190,30 +135,30 @@ class SendGridDataFetcher:
         df = self.fetch_email_activity(days_back=days_back)
 
         if df.empty:
-            print("   ⚠️  No email activity to save")
+            print("   ⚠️  No email statistics to save")
             return
 
         # Save locally
         if save_local:
-            output_path = "data/sendgrid/emails_sent.csv"
+            output_path = "data/sendgrid/email_stats.csv"
             os.makedirs("data/sendgrid", exist_ok=True)
 
             # Load existing data if it exists
             try:
                 existing_df = pd.read_csv(output_path)
-                existing_df['last_event_time'] = pd.to_datetime(existing_df['last_event_time'])
+                existing_df['date'] = pd.to_datetime(existing_df['date'])
 
-                # Merge with new data (de-duplicate by msg_id)
+                # Merge with new data (de-duplicate by date)
                 combined_df = pd.concat([existing_df, df])
-                combined_df = combined_df.drop_duplicates(subset=['msg_id'], keep='last')
-                combined_df = combined_df.sort_values('last_event_time')
+                combined_df = combined_df.drop_duplicates(subset=['date'], keep='last')
+                combined_df = combined_df.sort_values('date')
 
                 df = combined_df
             except FileNotFoundError:
                 pass
 
             df.to_csv(output_path, index=False)
-            print(f"   ✅ Saved {len(df)} email activity records locally")
+            print(f"   ✅ Saved {len(df)} email statistics records locally")
 
         # Save to S3
         try:
@@ -232,10 +177,10 @@ class SendGridDataFetcher:
 
                 s3_client.put_object(
                     Bucket='basin-climbing-data-prod',
-                    Key='sendgrid/emails_sent.csv',
+                    Key='sendgrid/email_stats.csv',
                     Body=csv_buffer.getvalue()
                 )
-                print(f"   ✅ Uploaded email activity to S3")
+                print(f"   ✅ Uploaded email statistics to S3")
         except Exception as e:
             print(f"   ⚠️  Could not upload to S3: {e}")
 
