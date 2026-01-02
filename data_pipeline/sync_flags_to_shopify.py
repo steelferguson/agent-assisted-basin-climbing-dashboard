@@ -407,9 +407,75 @@ class ShopifyFlagSyncer:
             print(f"      Not found in Shopify: {not_found}")
             print(f"      Errors: {errors}")
 
+        # Clean up stale tags (tags that exist in Shopify but not in current flags)
+        print(f"\n🧹 Cleaning up stale tags...")
+        self.cleanup_stale_tags(flags_with_contact, dry_run=dry_run)
+
         print("\n" + "="*80)
         print("✅ SYNC COMPLETE")
         print("="*80)
+
+    def cleanup_stale_tags(self, active_flags_df: pd.DataFrame, dry_run: bool = False):
+        """
+        Remove flag tags from Shopify customers who no longer have active flags.
+
+        Args:
+            active_flags_df: DataFrame of currently active flags
+            dry_run: If True, only print what would be done
+        """
+        # Get list of flag tag prefixes to look for
+        flag_tag_prefixes = [
+            'flag-ready-for-membership',
+            'flag-first-time-day-pass-2wk-offer',
+            'flag-second-visit-offer-eligible',
+            'flag-second-visit-2wk-offer'
+        ]
+
+        # Create set of customers with active flags
+        active_customer_ids = set(active_flags_df['customer_id'].unique())
+
+        # Load all customers to check their Shopify tags
+        customers_df = self.load_customers_from_s3()
+
+        removed_count = 0
+        checked_count = 0
+
+        for _, customer in customers_df.iterrows():
+            customer_id = customer['customer_id']
+            email = customer.get('email')
+            phone = customer.get('phone')
+
+            # Skip if customer has active flags
+            if customer_id in active_customer_ids:
+                continue
+
+            # Search for customer in Shopify
+            shopify_id = self.search_shopify_customer(email=email, phone=phone)
+            if not shopify_id:
+                continue
+
+            checked_count += 1
+
+            # Get customer's current tags
+            current_tags = self.get_customer_tags(shopify_id)
+
+            # Check if customer has any flag tags
+            flag_tags_to_remove = [tag for tag in current_tags if any(tag.startswith(prefix) for prefix in flag_tag_prefixes)]
+
+            if flag_tags_to_remove:
+                for tag in flag_tags_to_remove:
+                    if not dry_run:
+                        success = self.remove_customer_tag(shopify_id, tag)
+                        if success:
+                            removed_count += 1
+                            print(f"   🗑️  Removed stale tag '{tag}' from customer {customer_id}")
+                    else:
+                        removed_count += 1
+                        print(f"   [DRY RUN] Would remove stale tag '{tag}' from customer {customer_id}")
+
+        print(f"\n   Cleanup summary:")
+        print(f"      Customers checked: {checked_count}")
+        print(f"      Stale tags removed: {removed_count}")
 
 
 def main():

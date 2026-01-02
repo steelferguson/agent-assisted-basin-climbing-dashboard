@@ -227,6 +227,47 @@ class CustomerFlagsEngine:
             priority = df_flags[df_flags['flag_type'] == flag_type]['priority'].iloc[0]
             print(f"  {flag_type:30} {count:4} customers ({priority} priority)")
 
+        # Remove expired flags (older than 14 days)
+        print(f"\n🗑️  Removing expired flags (older than 14 days)...")
+        df_flags = self.remove_expired_flags(df_flags, today, days_until_expiration=14)
+
+        return df_flags
+
+    def remove_expired_flags(
+        self,
+        df_flags: pd.DataFrame,
+        today: datetime,
+        days_until_expiration: int = 14
+    ) -> pd.DataFrame:
+        """
+        Remove flags that are older than the expiration period.
+
+        Args:
+            df_flags: DataFrame of flags
+            today: Current date
+            days_until_expiration: Number of days until a flag expires (default: 14)
+
+        Returns:
+            DataFrame with expired flags removed
+        """
+        if df_flags.empty:
+            return df_flags
+
+        initial_count = len(df_flags)
+
+        # Calculate expiration date
+        from datetime import timedelta
+        expiration_date = today - timedelta(days=days_until_expiration)
+
+        # Filter out expired flags
+        df_flags = df_flags[df_flags['triggered_date'] >= expiration_date].copy()
+
+        expired_count = initial_count - len(df_flags)
+        if expired_count > 0:
+            print(f"   Removed {expired_count} expired flags")
+        else:
+            print(f"   No expired flags found")
+
         return df_flags
 
 
