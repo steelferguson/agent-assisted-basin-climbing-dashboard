@@ -1000,7 +1000,16 @@ def sync_twilio_opt_ins(save_local=False):
 if __name__ == "__main__":
     add_new_transactions_to_combined_df()
     upload_new_capitan_membership_data()
+    upload_new_capitan_associations_events(save_local=False, events_days_back=None, fetch_activity_log=False)
     sync_twilio_opt_ins()
+    upload_new_facebook_ads_data(save_local=False, days_back=90)
+    upload_new_shopify_data(save_local=False, days_back=7)
+
+    # Customer data pipeline: events → flags → Shopify sync
+    update_customer_master(save_local=False)  # Build customer events from all sources
+    update_customer_flags(save_local=False)    # Generate flags from events
+    sync_shopify_customer_flags()              # Sync flags to Shopify tags
+
     # upload_new_instagram_data(save_local=False, enable_vision_analysis=True, days_to_fetch=30)
 
     # df = fetch_stripe_and_square_and_combine(days=147)
@@ -1847,6 +1856,110 @@ def upload_new_shopify_data(save_local=False, days_back=7):
     print(f"\n=== Shopify Data Upload Complete ===\n")
 
     return orders
+
+
+def sync_shopify_customer_flags(dry_run=False):
+    """
+    Sync customer flags from S3 to Shopify customer tags.
+
+    Reads customer flags from S3 and creates corresponding tags in Shopify
+    for automation triggers (e.g., Shopify Flow).
+
+    Args:
+        dry_run: If True, only print what would be done without making changes
+    """
+    from data_pipeline import sync_flags_to_shopify
+
+    print(f"\n=== Syncing Customer Flags to Shopify ===\n")
+
+    try:
+        syncer = sync_flags_to_shopify.ShopifyFlagSyncer()
+        syncer.sync_flags_to_shopify(dry_run=dry_run)
+        print(f"\n✅ Shopify flag sync complete!")
+    except Exception as e:
+        print(f"⚠️  Error syncing flags to Shopify: {e}")
+        print("   (Skipping Shopify sync - may be missing credentials or no flags to sync)")
+
+    print(f"\n=== Shopify Flag Sync Complete ===\n")
+
+
+def upload_new_sendgrid_data(save_local=False, days_back=7):
+    """
+    Fetch SendGrid email activity data and upload to S3.
+
+    Tracks emails sent, delivered, opened, and clicked for AB test
+    conversion funnel analysis.
+
+    Args:
+        save_local: Whether to save CSV files locally
+        days_back: Number of days of email activity to fetch (default: 7)
+    """
+    print(f"\n=== Fetching SendGrid Email Activity (last {days_back} days) ===")
+
+    from data_pipeline import fetch_sendgrid_data
+
+    # Check if API key is configured
+    sendgrid_api_key = os.getenv("SENDGRID_API_KEY")
+    if not sendgrid_api_key:
+        print("⚠️  SENDGRID_API_KEY not found in environment")
+        print("   Skipping SendGrid data fetch")
+        return
+
+    try:
+        fetcher = fetch_sendgrid_data.SendGridDataFetcher(api_key=sendgrid_api_key)
+
+        # Fetch email activity
+        df_activity = fetcher.fetch_email_activity(days_back=days_back)
+
+        if df_activity.empty:
+            print("No email activity found")
+            return
+
+        print(f"Fetched {len(df_activity)} email activity records")
+
+        # Upload to S3
+        uploader = upload_data.DataUploader()
+
+        # Merge with existing data
+        try:
+            csv_content = uploader.download_from_s3(
+                config.aws_bucket_name,
+                'sendgrid/emails_sent.csv'
+            )
+            existing_df = uploader.convert_csv_to_df(csv_content)
+            existing_df['last_event_time'] = pd.to_datetime(existing_df['last_event_time'])
+
+            # Combine and de-duplicate by msg_id
+            combined_df = pd.concat([existing_df, df_activity], ignore_index=True)
+            combined_df = combined_df.drop_duplicates(subset=['msg_id'], keep='last')
+            combined_df = combined_df.sort_values('last_event_time')
+
+            print(f"Merged with existing data: {len(combined_df)} total records")
+            df_to_upload = combined_df
+        except Exception as e:
+            print(f"No existing data found (first upload?): {e}")
+            df_to_upload = df_activity
+
+        # Upload to S3
+        uploader.upload_to_s3(
+            df_to_upload,
+            config.aws_bucket_name,
+            'sendgrid/emails_sent.csv'
+        )
+        print(f"✓ Uploaded to S3: sendgrid/emails_sent.csv")
+
+        # Save locally if requested
+        if save_local:
+            local_path = "data/sendgrid/emails_sent.csv"
+            os.makedirs(os.path.dirname(local_path), exist_ok=True)
+            df_to_upload.to_csv(local_path, index=False)
+            print(f"✓ Saved locally: {local_path}")
+
+        print("✓ SendGrid data upload complete!")
+
+    except Exception as e:
+        print(f"⚠️  Error fetching SendGrid data: {e}")
+        print("   (Skipping SendGrid - may be authentication issue or API limit)")
 
 
 if __name__ == "__main__":

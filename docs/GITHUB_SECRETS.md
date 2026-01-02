@@ -27,20 +27,55 @@ These secrets are configured in the GitHub repository settings for use by GitHub
    - Purpose: Fetch Instagram posts, comments, and insights
    - Type: Facebook Graph API long-lived token (60-day expiration)
    - Expires: ~December 31, 2025
-   - Used by: `data_pipeline/fetch_instagram_data.py`
+   - Used by: `data_pipeline/fetch_instagram_data.py`, `data_pipeline/fetch_facebook_ads_data.py`
    - **Note:** Needs manual refresh every 60 days (see `INSTAGRAM_CREDENTIALS.md`)
+   - **Note:** Same token used for Facebook Ads data
 
-5. **`MAILCHIMP_API_KEY`**
+5. **`FACEBOOK_AD_ACCOUNT_ID`**
+   - Purpose: Fetch Facebook/Instagram Ads performance data
+   - Format: Numeric ID (e.g., `272120788771569`)
+   - Used by: `data_pipeline/fetch_facebook_ads_data.py`
+   - **Note:** Uses same access token as Instagram
+
+6. **`MAILCHIMP_API_KEY`**
    - Purpose: Fetch email campaign data, automations, landing pages, and audience growth
    - Format: `{api_key}-{server_prefix}` (e.g., `xxxxx-us9`)
    - Used by: `data_pipeline/fetch_mailchimp_data.py`
 
+### E-commerce
+7. **`SHOPIFY_STORE_DOMAIN`**
+   - Purpose: Fetch Shopify orders and manage customer tags
+   - Format: Store domain (e.g., `basin-climbing.myshopify.com`)
+   - Used by: `data_pipeline/fetch_shopify_data.py`, `data_pipeline/sync_flags_to_shopify.py`
+
+8. **`SHOPIFY_ADMIN_TOKEN`**
+   - Purpose: Shopify Admin API authentication
+   - Used by: `data_pipeline/fetch_shopify_data.py`, `data_pipeline/sync_flags_to_shopify.py`
+
+### Messaging
+9. **`TWILIO_ACCOUNT_SID`**
+   - Purpose: Fetch SMS message data for waiver tracking
+   - Used by: `data_pipeline/sync_twilio_opt_ins.py`
+
+10. **`TWILIO_AUTH_TOKEN`**
+    - Purpose: Twilio API authentication
+    - Used by: `data_pipeline/sync_twilio_opt_ins.py`
+
+11. **`TWILIO_PHONE_NUMBER`**
+    - Purpose: Identify Basin's phone number in Twilio data
+    - Used by: `data_pipeline/sync_twilio_opt_ins.py`
+
+12. **`SENDGRID_API_KEY`**
+    - Purpose: Fetch email activity data for AB test experiment tracking
+    - Used by: `data_pipeline/fetch_sendgrid_data.py`
+    - **Note:** Tracks emails sent, delivered, opened, and clicked for conversion funnels
+
 ### Cloud Storage
-6. **`AWS_ACCESS_KEY_ID`**
+13. **`AWS_ACCESS_KEY_ID`**
    - Purpose: Access AWS S3 for data storage and retrieval
    - Used by: All pipeline scripts and Streamlit dashboard
 
-7. **`AWS_SECRET_ACCESS_KEY`**
+14. **`AWS_SECRET_ACCESS_KEY`**
    - Purpose: AWS authentication secret key
    - Used by: All pipeline scripts and Streamlit dashboard
 
@@ -49,7 +84,6 @@ These secrets are configured in the GitHub repository settings for use by GitHub
 These have default values in `config.py` but can be overridden:
 
 - `INSTAGRAM_BUSINESS_ACCOUNT_ID` (default: `17841455043408233`)
-- `FACEBOOK_AD_ACCOUNT_ID` (default: `272120788771569`)
 - `MAILCHIMP_SERVER_PREFIX` (default: `us9`)
 - `MAILCHIMP_AUDIENCE_ID` (default: `6113b6f2ca`)
 - `OPENAI_API_KEY` (for AI content analysis - optional)

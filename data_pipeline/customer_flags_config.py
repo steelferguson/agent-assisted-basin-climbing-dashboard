@@ -6,7 +6,73 @@ Rules are evaluated daily to identify customers who need outreach.
 """
 
 from datetime import datetime, timedelta
-from typing import Dict, Any
+from typing import Dict, Any, Literal, Optional
+import hashlib
+
+
+def get_customer_ab_group(customer_id: str, email: Optional[str] = None, phone: Optional[str] = None) -> Literal["A", "B"]:
+    """
+    Assign customer to AB test group based on email or phone (for household consistency).
+
+    Group assignment priority:
+    1. If email provided: Hash email and use last digit
+    2. If phone provided: Hash phone and use last digit (for kids without email → same group as parents)
+    3. Otherwise: Fall back to customer_id last digit
+
+    Group A (0-4): Hash/ID last digit is 0, 1, 2, 3, or 4
+    Group B (5-9): Hash/ID last digit is 5, 6, 7, 8, or 9
+
+    Args:
+        customer_id: Capitan customer ID (string or int)
+        email: Customer email address (optional, priority 1 for household grouping)
+        phone: Customer phone number (optional, priority 2 for household grouping)
+
+    Returns:
+        "A" or "B"
+
+    Examples:
+        >>> get_customer_ab_group("2475982", email="parent@example.com")  # Uses email hash
+        'A'
+        >>> get_customer_ab_group("2475983", phone="2547211895")  # Kid without email, uses family phone
+        'B'
+        >>> get_customer_ab_group("2466865")  # Falls back to customer_id
+        'B'
+    """
+    # Priority 1: Use email hash if available
+    if email and str(email).strip() and str(email).lower() not in ['nan', 'none', '']:
+        # Hash the email to get a deterministic number
+        email_hash = hashlib.md5(email.lower().strip().encode()).hexdigest()
+        # Use last character of hash (hex digit 0-9, a-f)
+        last_char = email_hash[-1]
+        # Convert hex to int (0-15), then mod 10 to get 0-9
+        last_digit = int(last_char, 16) % 10
+
+    # Priority 2: Use phone hash if email not available (for kids → same group as parents)
+    elif phone and str(phone).strip() and str(phone).lower() not in ['nan', 'none', '']:
+        # Normalize phone (remove non-digits)
+        phone_digits = ''.join(filter(str.isdigit, str(phone)))
+        if phone_digits:
+            # Hash the phone to get a deterministic number
+            phone_hash = hashlib.md5(phone_digits.encode()).hexdigest()
+            # Use last character of hash
+            last_char = phone_hash[-1]
+            # Convert hex to int (0-15), then mod 10 to get 0-9
+            last_digit = int(last_char, 16) % 10
+        else:
+            # Phone has no digits, fall back to customer_id
+            customer_id_str = str(customer_id)
+            last_digit = int(customer_id_str[-1])
+
+    # Priority 3: Fall back to customer_id last digit
+    else:
+        customer_id_str = str(customer_id)
+        last_digit = int(customer_id_str[-1])
+
+    # Split into groups based on last digit
+    if last_digit <= 4:
+        return "A"
+    else:
+        return "B"
 
 
 class FlagRule:
@@ -105,9 +171,331 @@ class ReadyForMembershipFlag(FlagRule):
         return None
 
 
+class FirstTimeDayPass2WeekOfferFlag(FlagRule):
+    """
+    Flag customers for direct 2-week membership offer.
+
+    ** AB TEST GROUP A (customer_id last digit 0-4) **
+
+    Business logic:
+    - Customer is in Group A (customer_id last digit 0-4)
+    - Has at least one day pass purchase (recent)
+    - Had NO day pass purchases in the 2 months BEFORE the recent one (new or returning after break)
+    - NOT currently an active member
+    - Hasn't been flagged for this offer in the last 180 days
+    """
+
+    def __init__(self):
+        super().__init__(
+            flag_type="first_time_day_pass_2wk_offer",
+            description="[Group A] Customer eligible for 2-week membership offer (first-time or returning after 2+ month break)",
+            priority="high"
+        )
+
+    def evaluate(self, customer_id: str, events: list, today: datetime, email: str = None, phone: str = None) -> Dict[str, Any]:
+        """
+        Check if customer is eligible for direct 2-week membership offer.
+        """
+        # Criteria 0: Must be in Group A (email/phone hash last digit 0-4)
+        ab_group = get_customer_ab_group(customer_id, email=email, phone=phone)
+        if ab_group != "A":
+            return None  # Group B customers use different flag
+
+        # Get all day pass purchases
+        day_pass_purchases = [
+            e for e in events
+            if e['event_type'] == 'day_pass_purchase'
+        ]
+
+        # Criteria 1: Must have at least one day pass purchase
+        if not day_pass_purchases:
+            return None
+
+        # Sort purchases by date
+        day_pass_purchases_sorted = sorted(day_pass_purchases, key=lambda e: e['event_date'])
+        most_recent_purchase = day_pass_purchases_sorted[-1]
+
+        # Criteria 2: Must have had NO day pass purchases in the 2 months BEFORE the most recent one
+        two_months_ago = most_recent_purchase['event_date'] - timedelta(days=60)
+
+        prior_purchases = [
+            e for e in day_pass_purchases_sorted
+            if e['event_date'] < most_recent_purchase['event_date']
+            and e['event_date'] >= two_months_ago
+        ]
+
+        # If they had purchases in the previous 2 months, they're not new/returning
+        if prior_purchases:
+            return None
+
+        # Criteria 3: Must NOT be an active member (check most recent membership status)
+        membership_events = [
+            e for e in events
+            if e['event_type'] in ['membership_purchase', 'membership_renewal', 'membership_cancelled']
+        ]
+
+        is_active_member = False
+        if membership_events:
+            most_recent_membership = max(membership_events, key=lambda e: e['event_date'])
+            # If most recent membership event is NOT a cancellation, they're active
+            if most_recent_membership['event_type'] != 'membership_cancelled':
+                is_active_member = True
+
+        if is_active_member:
+            return None
+
+        # Criteria 4: Must not have been flagged in last 180 days
+        lookback_start = today - timedelta(days=180)
+        recent_flags = [
+            e for e in events
+            if e['event_type'] == 'flag_set'
+            and e.get('event_data', {}).get('flag_type') == self.flag_type
+            and e['event_date'] >= lookback_start
+            and e['event_date'] <= today
+        ]
+
+        if recent_flags:
+            return None
+
+        # All criteria met - flag this customer
+        # Calculate days since their previous purchase (if any)
+        days_since_previous_purchase = None
+        if len(day_pass_purchases_sorted) > 1:
+            previous_purchase = day_pass_purchases_sorted[-2]
+            days_since_previous_purchase = (most_recent_purchase['event_date'] - previous_purchase['event_date']).days
+
+        return {
+            'customer_id': customer_id,
+            'flag_type': self.flag_type,
+            'triggered_date': today,
+            'flag_data': {
+                'ab_group': 'A',
+                'experiment_id': 'day_pass_conversion_2026_01',
+                'most_recent_purchase_date': most_recent_purchase['event_date'].isoformat(),
+                'days_since_purchase': (today - most_recent_purchase['event_date']).days,
+                'total_day_pass_purchases': len(day_pass_purchases),
+                'days_since_previous_purchase': days_since_previous_purchase,
+                'returning_after_break': days_since_previous_purchase is None or days_since_previous_purchase >= 60,
+                'description': self.description
+            },
+            'priority': self.priority
+        }
+
+
+class SecondVisitOfferEligibleFlag(FlagRule):
+    """
+    Flag customers eligible for half-price second visit offer.
+
+    ** AB TEST GROUP B (customer_id last digit 5-9) **
+
+    Business logic:
+    - Customer is in Group B (customer_id last digit 5-9)
+    - Has at least one day pass purchase (recent)
+    - Had NO day pass purchases in the 2 months BEFORE the recent one (returning after break)
+    - NOT currently an active member
+    - Hasn't been flagged for this offer in the last 180 days
+    """
+
+    def __init__(self):
+        super().__init__(
+            flag_type="second_visit_offer_eligible",
+            description="[Group B] Customer eligible for half-price second visit offer (returning after 2+ month break)",
+            priority="high"
+        )
+
+    def evaluate(self, customer_id: str, events: list, today: datetime, email: str = None, phone: str = None) -> Dict[str, Any]:
+        """
+        Check if customer is eligible for second visit offer.
+        """
+        # Criteria 0: Must be in Group B (email/phone hash last digit 5-9)
+        ab_group = get_customer_ab_group(customer_id, email=email, phone=phone)
+        if ab_group != "B":
+            return None  # Group A customers use different flag
+
+        # Get all day pass purchases
+        day_pass_purchases = [
+            e for e in events
+            if e['event_type'] == 'day_pass_purchase'
+        ]
+
+        # Criteria 1: Must have at least one day pass purchase
+        if not day_pass_purchases:
+            return None
+
+        # Sort purchases by date
+        day_pass_purchases_sorted = sorted(day_pass_purchases, key=lambda e: e['event_date'])
+        most_recent_purchase = day_pass_purchases_sorted[-1]
+
+        # Criteria 2: Must have had NO day pass purchases in the 2 months BEFORE the most recent one
+        two_months_ago = most_recent_purchase['event_date'] - timedelta(days=60)
+
+        prior_purchases = [
+            e for e in day_pass_purchases_sorted
+            if e['event_date'] < most_recent_purchase['event_date']
+            and e['event_date'] >= two_months_ago
+        ]
+
+        # If they had purchases in the previous 2 months, they're not returning after a break
+        if prior_purchases:
+            return None
+
+        # Criteria 3: Must NOT be an active member (check most recent membership status)
+        membership_events = [
+            e for e in events
+            if e['event_type'] in ['membership_purchase', 'membership_renewal', 'membership_cancelled']
+        ]
+
+        is_active_member = False
+        if membership_events:
+            most_recent_membership = max(membership_events, key=lambda e: e['event_date'])
+            # If most recent membership event is NOT a cancellation, they're active
+            if most_recent_membership['event_type'] != 'membership_cancelled':
+                is_active_member = True
+
+        if is_active_member:
+            return None
+
+        # Criteria 4: Must not have been flagged in last 180 days
+        lookback_start = today - timedelta(days=180)
+        recent_flags = [
+            e for e in events
+            if e['event_type'] == 'flag_set'
+            and e.get('event_data', {}).get('flag_type') == self.flag_type
+            and e['event_date'] >= lookback_start
+            and e['event_date'] <= today
+        ]
+
+        if recent_flags:
+            return None
+
+        # All criteria met - flag this customer
+        # Calculate days since their previous purchase (if any)
+        days_since_previous_purchase = None
+        if len(day_pass_purchases_sorted) > 1:
+            previous_purchase = day_pass_purchases_sorted[-2]
+            days_since_previous_purchase = (most_recent_purchase['event_date'] - previous_purchase['event_date']).days
+
+        return {
+            'customer_id': customer_id,
+            'flag_type': self.flag_type,
+            'triggered_date': today,
+            'flag_data': {
+                'ab_group': 'B',
+                'experiment_id': 'day_pass_conversion_2026_01',
+                'most_recent_purchase_date': most_recent_purchase['event_date'].isoformat(),
+                'days_since_purchase': (today - most_recent_purchase['event_date']).days,
+                'total_day_pass_purchases': len(day_pass_purchases),
+                'days_since_previous_purchase': days_since_previous_purchase,
+                'returning_after_break': days_since_previous_purchase is None or days_since_previous_purchase >= 60,
+                'description': self.description
+            },
+            'priority': self.priority
+        }
+
+
+class SecondVisit2WeekOfferFlag(FlagRule):
+    """
+    Flag Group B customers for 2-week membership offer AFTER they return for 2nd visit.
+
+    ** AB TEST GROUP B - STEP 2 **
+
+    Business logic:
+    - Customer has 'second_visit_offer_eligible' flag in their history
+    - Customer has checked in AFTER the flag was set (they came back!)
+    - NOT currently an active member
+    - Hasn't been flagged for 2-week offer in the last 180 days
+    """
+
+    def __init__(self):
+        super().__init__(
+            flag_type="second_visit_2wk_offer",
+            description="[Group B - Step 2] Customer returned after 2nd pass offer, eligible for 2-week membership",
+            priority="high"
+        )
+
+    def evaluate(self, customer_id: str, events: list, today: datetime) -> Dict[str, Any]:
+        """
+        Check if Group B customer has returned and is eligible for 2-week offer.
+        """
+        # Criteria 1: Must have 'second_visit_offer_eligible' flag in history
+        second_pass_flags = [
+            e for e in events
+            if e['event_type'] == 'flag_set'
+            and e.get('event_data', {}).get('flag_type') == 'second_visit_offer_eligible'
+        ]
+
+        if not second_pass_flags:
+            return None  # Never got the 2nd pass offer
+
+        # Get the most recent 2nd pass flag date
+        most_recent_flag = max(second_pass_flags, key=lambda e: e['event_date'])
+        flag_date = most_recent_flag['event_date']
+
+        # Criteria 2: Must have checked in AFTER the flag was set
+        checkins_after_flag = [
+            e for e in events
+            if e['event_type'] == 'checkin'
+            and e['event_date'] > flag_date
+        ]
+
+        if not checkins_after_flag:
+            return None  # Haven't returned yet
+
+        # Get the first checkin after flag (the "return visit")
+        first_return_checkin = min(checkins_after_flag, key=lambda e: e['event_date'])
+
+        # Criteria 3: Must NOT be an active member
+        membership_events = [
+            e for e in events
+            if e['event_type'] in ['membership_purchase', 'membership_renewal', 'membership_cancelled']
+        ]
+
+        is_active_member = False
+        if membership_events:
+            most_recent_membership = max(membership_events, key=lambda e: e['event_date'])
+            if most_recent_membership['event_type'] != 'membership_cancelled':
+                is_active_member = True
+
+        if is_active_member:
+            return None
+
+        # Criteria 4: Must not have been flagged for 2-week offer in last 180 days
+        lookback_start = today - timedelta(days=180)
+        recent_2wk_flags = [
+            e for e in events
+            if e['event_type'] == 'flag_set'
+            and e.get('event_data', {}).get('flag_type') == self.flag_type
+            and e['event_date'] >= lookback_start
+            and e['event_date'] <= today
+        ]
+
+        if recent_2wk_flags:
+            return None
+
+        # All criteria met - customer returned, trigger 2-week offer!
+        return {
+            'customer_id': customer_id,
+            'flag_type': self.flag_type,
+            'triggered_date': today,
+            'flag_data': {
+                'ab_group': 'B',
+                'experiment_id': 'day_pass_conversion_2026_01',
+                'second_pass_flag_date': flag_date.isoformat(),
+                'return_visit_date': first_return_checkin['event_date'].isoformat(),
+                'days_to_return': (first_return_checkin['event_date'] - flag_date).days,
+                'total_checkins_after_flag': len(checkins_after_flag),
+                'description': self.description
+            },
+            'priority': self.priority
+        }
+
+
 # List of all active rules
 ACTIVE_RULES = [
     ReadyForMembershipFlag(),
+    FirstTimeDayPass2WeekOfferFlag(),      # Group A: Direct 2-week offer
+    SecondVisitOfferEligibleFlag(),        # Group B Step 1: 2nd pass offer
+    SecondVisit2WeekOfferFlag(),           # Group B Step 2: 2-week offer after return
 ]
 
 

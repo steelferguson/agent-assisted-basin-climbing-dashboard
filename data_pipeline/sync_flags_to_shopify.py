@@ -219,15 +219,123 @@ class ShopifyFlagSyncer:
 
         return None
 
+    def get_customer_tags(self, shopify_customer_id: str) -> List[str]:
+        """
+        Get all tags for a Shopify customer.
+
+        Args:
+            shopify_customer_id: Shopify customer ID
+
+        Returns:
+            List of tag strings
+        """
+        url = f"{self.base_url}/customers/{shopify_customer_id}.json"
+
+        try:
+            response = requests.get(url, headers=self.headers, timeout=10)
+            if response.status_code == 200:
+                customer = response.json().get('customer', {})
+                tags_str = customer.get('tags', '')
+                # Tags are comma-separated
+                return [tag.strip() for tag in tags_str.split(',') if tag.strip()]
+        except Exception as e:
+            print(f"   ⚠️  Error getting customer tags: {e}")
+
+        return []
+
+    def add_customer_tag(self, shopify_customer_id: str, tag: str) -> bool:
+        """
+        Add a tag to a Shopify customer.
+
+        Args:
+            shopify_customer_id: Shopify customer ID
+            tag: Tag to add
+
+        Returns:
+            True if successful, False otherwise
+        """
+        # Get current tags
+        current_tags = self.get_customer_tags(shopify_customer_id)
+
+        # Check if tag already exists
+        if tag in current_tags:
+            return True  # Already has tag, no need to add
+
+        # Add new tag
+        current_tags.append(tag)
+        tags_str = ', '.join(current_tags)
+
+        url = f"{self.base_url}/customers/{shopify_customer_id}.json"
+
+        payload = {
+            "customer": {
+                "id": int(shopify_customer_id),
+                "tags": tags_str
+            }
+        }
+
+        try:
+            response = requests.put(url, headers=self.headers, json=payload, timeout=10)
+            if response.status_code == 200:
+                return True
+            else:
+                print(f"   ⚠️  Failed to add tag: {response.status_code} - {response.text}")
+                return False
+        except Exception as e:
+            print(f"   ⚠️  Error adding tag: {e}")
+            return False
+
+    def remove_customer_tag(self, shopify_customer_id: str, tag: str) -> bool:
+        """
+        Remove a tag from a Shopify customer.
+
+        Args:
+            shopify_customer_id: Shopify customer ID
+            tag: Tag to remove
+
+        Returns:
+            True if successful, False otherwise
+        """
+        # Get current tags
+        current_tags = self.get_customer_tags(shopify_customer_id)
+
+        # Check if tag exists
+        if tag not in current_tags:
+            return True  # Tag doesn't exist, nothing to remove
+
+        # Remove tag
+        current_tags.remove(tag)
+        tags_str = ', '.join(current_tags)
+
+        url = f"{self.base_url}/customers/{shopify_customer_id}.json"
+
+        payload = {
+            "customer": {
+                "id": int(shopify_customer_id),
+                "tags": tags_str
+            }
+        }
+
+        try:
+            response = requests.put(url, headers=self.headers, json=payload, timeout=10)
+            if response.status_code == 200:
+                return True
+            else:
+                print(f"   ⚠️  Failed to remove tag: {response.status_code} - {response.text}")
+                return False
+        except Exception as e:
+            print(f"   ⚠️  Error removing tag: {e}")
+            return False
+
     def sync_flags_to_shopify(self, dry_run: bool = False):
         """
-        Main sync function: Read flags from S3 and update Shopify metafields.
+        Main sync function: Read flags from S3 and update Shopify customer tags.
 
         Args:
             dry_run: If True, only print what would be done without making changes
         """
         print("\n" + "="*80)
-        print("SYNC CUSTOMER FLAGS TO SHOPIFY")
+        print("SYNC CUSTOMER FLAGS TO SHOPIFY TAGS")
         print("="*80)
 
         if dry_run:
@@ -257,6 +365,9 @@ class ShopifyFlagSyncer:
             print(f"\n🏁 Syncing flag: {flag_name}")
             flag_subset = flags_with_contact[flags_with_contact['flag_name'] == flag_name]
 
+            # Convert flag name to tag format (replace underscores with hyphens)
+            tag_name = flag_name.replace('_', '-')
+
             synced = 0
             not_found = 0
             errors = 0
@@ -276,25 +387,22 @@ class ShopifyFlagSyncer:
                     print(f"   ⚠️  Customer {capitan_id} ({first_name} {last_name}) not found in Shopify")
                     continue
 
-                # Set metafield
+                # Add tag
                 if not dry_run:
-                    success = self.set_customer_metafield(
+                    success = self.add_customer_tag(
                         shopify_customer_id=shopify_id,
-                        namespace="custom",
-                        key=flag_name,
-                        value="true",
-                        value_type="boolean"
+                        tag=tag_name
                     )
                     if success:
                         synced += 1
-                        print(f"   ✅ Set {flag_name} for customer {capitan_id} (Shopify ID: {shopify_id})")
+                        print(f"   ✅ Added tag '{tag_name}' to customer {capitan_id} (Shopify ID: {shopify_id})")
                     else:
                         errors += 1
                 else:
                     synced += 1
-                    print(f"   [DRY RUN] Would set {flag_name} for customer {capitan_id} (Shopify ID: {shopify_id})")
+                    print(f"   [DRY RUN] Would add tag '{tag_name}' to customer {capitan_id} (Shopify ID: {shopify_id})")
 
-            print(f"\n   Summary for {flag_name}:")
+            print(f"\n   Summary for {flag_name} -> tag '{tag_name}':")
             print(f"      Synced: {synced}")
             print(f"      Not found in Shopify: {not_found}")
             print(f"      Errors: {errors}")

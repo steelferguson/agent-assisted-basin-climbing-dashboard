@@ -100,6 +100,10 @@ s3_path_ga4_product_views_snapshot = "ga4/snapshots/product_views.csv"
 s3_path_shopify_orders = "shopify/orders.csv"
 s3_path_shopify_orders_snapshot = "shopify/snapshots/orders.csv"
 
+# Twilio paths
+s3_path_twilio_messages = "twilio/messages.csv"
+s3_path_twilio_messages_snapshot = "twilio/snapshots/messages.csv"
+
 snapshot_day_of_month = 1
 s3_path_text_and_metadata = "agent/text_and_metadata"
 

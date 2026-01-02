@@ -46,6 +46,47 @@ REVENUE_CATEGORY_COLORS = {
 }
 
 
+def convert_shopify_to_transactions(df_shopify: pd.DataFrame) -> pd.DataFrame:
+    """
+    Convert Shopify orders to transactions dataframe format.
+
+    Maps Shopify columns to match the transaction dataframe schema used by revenue tools.
+    """
+    if df_shopify.empty:
+        return pd.DataFrame()
+
+    # Create transactions dataframe from Shopify orders
+    shopify_transactions = pd.DataFrame({
+        'transaction_id': df_shopify['line_item_id'].astype(str),
+        'Description': df_shopify['product_title'],
+        'Pre-Tax Amount': df_shopify['price'] - (df_shopify['total_tax'] / df_shopify['quantity']),  # Approximate per-item tax
+        'Tax Amount': df_shopify['total_tax'] / df_shopify['quantity'],  # Approximate per-item tax
+        'Total Amount': df_shopify['price'],
+        'Discount Amount': df_shopify['total_discounts'] / df_shopify['quantity'],  # Approximate per-item discount
+        'Name': df_shopify['customer_first_name'].fillna('') + ' ' + df_shopify['customer_last_name'].fillna(''),
+        'Date': df_shopify['transaction_date'],
+        'payment_intent_status': 'succeeded',  # Shopify orders are completed
+        'revenue_category': df_shopify['category'],  # Already categorized: Day Pass, Birthday Party, Other
+        'membership_size': None,
+        'membership_freq': None,
+        'is_founder': False,
+        'is_free_membership': False,
+        'sub_category': df_shopify['variant_title'],
+        'sub_category_detail': df_shopify['product_title'],
+        'date_': df_shopify['transaction_date'],
+        'Data Source': 'Shopify',
+        'Day Pass Count': df_shopify['quantity'].where(df_shopify['category'] == 'Day Pass', 0),
+        'base_price_amount': df_shopify['price'],
+        'status': df_shopify['financial_status'],
+        'payment_id': df_shopify['order_id'].astype(str),
+        'order_id': df_shopify['order_id'].astype(str),
+        'quantity': df_shopify['quantity'],
+        'fitness_amount': 0.0
+    })
+
+    return shopify_transactions
+
+
 @st.cache_data(ttl=300)  # Cache for 5 minutes
 def load_data():
     """Load all data from S3 with caching."""
@@ -68,13 +109,22 @@ def load_data():
     df_mailchimp = load_df(config.aws_bucket_name, config.s3_path_mailchimp_campaigns)
     df_failed_payments = load_df(config.aws_bucket_name, config.s3_path_failed_payments)
     df_expenses = load_df(config.aws_bucket_name, config.s3_path_quickbooks_expenses)
+    df_twilio_messages = load_df(config.aws_bucket_name, config.s3_path_twilio_messages)
 
-    return df_transactions, df_memberships, df_members, df_projection, df_at_risk, df_new_members, df_facebook_ads, df_events, df_checkins, df_instagram, df_mailchimp, df_failed_payments, df_expenses
+    # Load Shopify orders and convert to transaction format
+    df_shopify = load_df(config.aws_bucket_name, config.s3_path_shopify_orders)
+    if not df_shopify.empty:
+        # Convert Shopify to transaction format
+        shopify_transactions = convert_shopify_to_transactions(df_shopify)
+        # Merge with existing transactions
+        df_transactions = pd.concat([df_transactions, shopify_transactions], ignore_index=True)
+
+    return df_transactions, df_memberships, df_members, df_projection, df_at_risk, df_new_members, df_facebook_ads, df_events, df_checkins, df_instagram, df_mailchimp, df_failed_payments, df_expenses, df_twilio_messages
 
 
 # Load data
 with st.spinner('Loading data from S3...'):
-    df_transactions, df_memberships, df_members, df_projection, df_at_risk, df_new_members, df_facebook_ads, df_events, df_checkins, df_instagram, df_mailchimp, df_failed_payments, df_expenses = load_data()
+    df_transactions, df_memberships, df_members, df_projection, df_at_risk, df_new_members, df_facebook_ads, df_events, df_checkins, df_instagram, df_mailchimp, df_failed_payments, df_expenses, df_twilio_messages = load_data()
 
 # Prepare at-risk members data
 if not df_at_risk.empty:
@@ -649,14 +699,18 @@ with tab2:
         format_func=lambda x: category_options[x]
     )
 
-    # Filter memberships
+    # Filter memberships - Status, Frequency, Size
     df_memberships_filtered = df_memberships[df_memberships['status'].isin(status_filter)].copy()
-    df_memberships_filtered = df_memberships_filtered[df_memberships_filtered['frequency'].isin(frequency_filter)]
-    df_memberships_filtered = df_memberships_filtered[df_memberships_filtered['size'].isin(size_filter)]
 
-    # Apply category filters
-    if 'include_bcf' not in category_filter:
-        df_memberships_filtered = df_memberships_filtered[~df_memberships_filtered['is_bcf']]
+    # Only apply frequency filter if something is selected
+    if frequency_filter:
+        df_memberships_filtered = df_memberships_filtered[df_memberships_filtered['frequency'].isin(frequency_filter)]
+
+    # Only apply size filter if something is selected
+    if size_filter:
+        df_memberships_filtered = df_memberships_filtered[df_memberships_filtered['size'].isin(size_filter)]
+
+    # Apply category filters - only exclude if NOT selected
     if 'founder' not in category_filter:
         df_memberships_filtered = df_memberships_filtered[~df_memberships_filtered['is_founder']]
     if 'college' not in category_filter:
@@ -676,7 +730,6 @@ with tab2:
     if 'not_special' not in category_filter:
         # Exclude members NOT in any special category (i.e., only show special category members)
         special_mask = (
-            df_memberships_filtered['is_bcf'] |
             df_memberships_filtered['is_founder'] |
             df_memberships_filtered['is_college'] |
             df_memberships_filtered['is_corporate'] |
@@ -762,12 +815,16 @@ with tab2:
 
     # Use same filters as above but work with df_members
     df_members_filtered = df_members[df_members['status'].isin(status_filter)].copy()
-    df_members_filtered = df_members_filtered[df_members_filtered['frequency'].isin(frequency_filter)]
-    df_members_filtered = df_members_filtered[df_members_filtered['size'].isin(size_filter)]
 
-    # Apply category filters
-    if 'include_bcf' not in category_filter:
-        df_members_filtered = df_members_filtered[~df_members_filtered['is_bcf']]
+    # Only apply frequency filter if something is selected
+    if frequency_filter:
+        df_members_filtered = df_members_filtered[df_members_filtered['frequency'].isin(frequency_filter)]
+
+    # Only apply size filter if something is selected
+    if size_filter:
+        df_members_filtered = df_members_filtered[df_members_filtered['size'].isin(size_filter)]
+
+    # Apply category filters - only exclude if NOT selected
     if 'founder' not in category_filter:
         df_members_filtered = df_members_filtered[~df_members_filtered['is_founder']]
     if 'college' not in category_filter:
@@ -787,7 +844,6 @@ with tab2:
     if 'not_special' not in category_filter:
         # Exclude members NOT in any special category (i.e., only show special category members)
         special_mask = (
-            df_members_filtered['is_bcf'] |
             df_members_filtered['is_founder'] |
             df_members_filtered['is_college'] |
             df_members_filtered['is_corporate'] |
@@ -1074,12 +1130,10 @@ with tab2:
     # New Members & Attrition
     st.subheader('New Memberships & Attrition Over Time')
 
-    # Calculate new memberships and attrition by month
-    df_memberships_dates = df_memberships.copy()
-    df_memberships_dates['start_date'] = pd.to_datetime(df_memberships_dates['start_date'], errors='coerce')
-    df_memberships_dates['end_date'] = pd.to_datetime(df_memberships_dates['end_date'], errors='coerce')
+    # Calculate new memberships and attrition by month - use filtered dataframe
+    df_memberships_dates = df_memberships_filtered.copy()
 
-    # Remove rows with invalid dates
+    # Remove rows with invalid dates (dates already processed in df_memberships_filtered)
     df_memberships_dates = df_memberships_dates[df_memberships_dates['start_date'].notna()]
 
     # Get date range
@@ -2384,6 +2438,72 @@ with tab6:
 
     else:
         st.info('No Instagram data available')
+
+    # ========== SMS/TWILIO WAIVER REQUESTS SECTION ==========
+    st.subheader('SMS Waiver Requests')
+
+    if not df_twilio_messages.empty:
+        df_sms = df_twilio_messages.copy()
+        df_sms['date_sent'] = pd.to_datetime(df_sms['date_sent'], errors='coerce')
+        df_sms = df_sms[df_sms['date_sent'].notna()]
+
+        # Filter to waiver requests only
+        df_waiver = df_sms[df_sms['is_waiver_request'] == True].copy()
+
+        if not df_waiver.empty:
+            # Aggregate by time period
+            df_waiver['period'] = df_waiver['date_sent'].dt.to_period(marketing_period).dt.start_time
+
+            waiver_by_period = df_waiver.groupby('period').agg({
+                'message_sid': 'count',
+                'from_number': 'nunique'
+            }).reset_index()
+            waiver_by_period.columns = ['period', 'num_requests', 'unique_numbers']
+
+            # Create bar chart
+            fig_sms = go.Figure()
+
+            fig_sms.add_trace(
+                go.Bar(
+                    x=waiver_by_period['period'],
+                    y=waiver_by_period['unique_numbers'],
+                    name='Unique Numbers',
+                    marker_color=COLORS['primary'],
+                    text=waiver_by_period['unique_numbers'],
+                    textposition='outside',
+                    hovertemplate='<b>%{x}</b><br>Unique Numbers: %{y}<br>Total Requests: %{customdata}<extra></extra>',
+                    customdata=waiver_by_period['num_requests']
+                )
+            )
+
+            fig_sms.update_layout(
+                plot_bgcolor=COLORS['background'],
+                paper_bgcolor=COLORS['background'],
+                font_color=COLORS['text'],
+                title=f'Unique Phone Numbers Requesting Waivers by {marketing_timeframe}',
+                xaxis_title=marketing_timeframe,
+                yaxis_title='Unique Phone Numbers',
+                hovermode='x unified',
+                height=400
+            )
+
+            st.plotly_chart(fig_sms, use_container_width=True)
+
+            # Summary metrics
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric('Total Waiver Requests', len(df_waiver))
+            with col2:
+                st.metric('Unique Phone Numbers', df_waiver['from_number'].nunique())
+            with col3:
+                # Calculate most recent request
+                most_recent = df_waiver['date_sent'].max()
+                days_ago = (pd.Timestamp.now() - most_recent).days
+                st.metric('Most Recent Request', f'{days_ago} days ago')
+        else:
+            st.info('No waiver request messages found')
+    else:
+        st.info('No SMS data available')
 
     # ========== EMAIL CAMPAIGNS SECTION ==========
     st.subheader('Email Campaign Performance')

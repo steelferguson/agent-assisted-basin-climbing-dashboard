@@ -7,9 +7,13 @@ customers who need outreach or automated actions.
 
 import pandas as pd
 import json
+import os
 from datetime import datetime
 from typing import List, Dict
 from data_pipeline import customer_flags_config
+from data_pipeline import experiment_tracking
+import boto3
+from io import StringIO
 
 
 class CustomerFlagsEngine:
@@ -23,6 +27,43 @@ class CustomerFlagsEngine:
             rules: List of FlagRule objects. If None, uses all active rules from config.
         """
         self.rules = rules if rules is not None else customer_flags_config.get_active_rules()
+        self.customer_emails = {}  # Cache for customer emails
+        self.customer_phones = {}  # Cache for customer phones
+
+    def load_customer_contact_info(self):
+        """Load customer emails and phones from S3 for AB group assignment."""
+        try:
+            # Try S3 first
+            aws_access_key_id = os.getenv("AWS_ACCESS_KEY_ID")
+            aws_secret_access_key = os.getenv("AWS_SECRET_ACCESS_KEY")
+
+            if aws_access_key_id and aws_secret_access_key:
+                s3_client = boto3.client(
+                    's3',
+                    aws_access_key_id=aws_access_key_id,
+                    aws_secret_access_key=aws_secret_access_key
+                )
+
+                obj = s3_client.get_object(
+                    Bucket='basin-climbing-data-prod',
+                    Key='capitan/customers.csv'
+                )
+                df = pd.read_csv(StringIO(obj['Body'].read().decode('utf-8')))
+            else:
+                # Fall back to local file
+                df = pd.read_csv('data/outputs/capitan_customers.csv')
+
+            # Build email and phone lookup dicts
+            self.customer_emails = df.set_index('customer_id')['email'].to_dict()
+            self.customer_phones = df.set_index('customer_id')['phone'].to_dict()
+            print(f"   Loaded contact info for {len(self.customer_emails)} customers")
+            print(f"   - {sum(1 for e in self.customer_emails.values() if pd.notna(e))} with emails")
+            print(f"   - {sum(1 for p in self.customer_phones.values() if pd.notna(p))} with phones")
+
+        except Exception as e:
+            print(f"   ⚠️  Could not load customer contact info: {e}")
+            self.customer_emails = {}
+            self.customer_phones = {}
 
     def evaluate_customer(
         self,
@@ -52,10 +93,23 @@ class CustomerFlagsEngine:
         # Sort events by date
         events_sorted = sorted(events, key=lambda e: e['event_date'])
 
+        # Get customer email and phone for AB group assignment
+        email = self.customer_emails.get(customer_id)
+        phone = self.customer_phones.get(customer_id)
+
         # Evaluate each rule
         flags = []
         for rule in self.rules:
-            flag = rule.evaluate(customer_id, events_sorted, today)
+            # Pass email and phone if the rule accepts them (AB test flags)
+            try:
+                flag = rule.evaluate(customer_id, events_sorted, today, email=email, phone=phone)
+            except TypeError:
+                # Rule doesn't accept email/phone parameters (older flags)
+                try:
+                    flag = rule.evaluate(customer_id, events_sorted, today, email=email)
+                except TypeError:
+                    flag = rule.evaluate(customer_id, events_sorted, today)
+
             if flag:
                 flags.append(flag)
 
@@ -87,6 +141,10 @@ class CustomerFlagsEngine:
         for rule in self.rules:
             print(f"  - {rule.flag_type}: {rule.description}")
 
+        # Load customer contact info for AB group assignment
+        print("\n📧 Loading customer contact info for household grouping...")
+        self.load_customer_contact_info()
+
         if df_events.empty:
             print("\n⚠️  No events to evaluate")
             return pd.DataFrame(columns=[
@@ -116,6 +174,26 @@ class CustomerFlagsEngine:
             if flags:
                 all_flags.extend(flags)
                 customers_flagged += 1
+
+                # Log experiment entries for AB test flags
+                for flag in flags:
+                    flag_type = flag['flag_type']
+                    flag_data = flag['flag_data'] if isinstance(flag['flag_data'], dict) else json.loads(flag['flag_data'])
+
+                    # Check if this is an AB test flag (has experiment_id)
+                    if 'experiment_id' in flag_data and 'ab_group' in flag_data:
+                        experiment_id = flag_data['experiment_id']
+                        ab_group = flag_data['ab_group']
+
+                        # Log experiment entry
+                        experiment_tracking.log_experiment_entry(
+                            customer_id=customer_id,
+                            experiment_id=experiment_id,
+                            group=ab_group,
+                            entry_flag=flag_type,
+                            entry_date=flag['triggered_date'],
+                            save_local=True
+                        )
 
         # Build DataFrame
         if not all_flags:

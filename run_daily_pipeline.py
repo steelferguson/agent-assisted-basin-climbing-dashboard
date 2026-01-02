@@ -8,6 +8,7 @@ Runs all daily data fetching tasks:
 - Instagram posts (last 30 days with AI vision analysis)
 - Mailchimp campaigns (last 90 days with AI content analysis)
 - Capitan associations & events (all events)
+- SendGrid email activity (last 7 days for AB test tracking)
 
 Usage:
     python run_daily_pipeline.py
@@ -29,7 +30,8 @@ from data_pipeline.pipeline_handler import (
     upload_new_ga4_data,
     upload_new_shopify_data,
     upload_at_risk_members,
-    upload_new_members_report
+    upload_new_members_report,
+    upload_new_sendgrid_data
 )
 import datetime
 
@@ -167,8 +169,16 @@ def run_daily_pipeline():
     except Exception as e:
         print(f"❌ Error fetching Twilio messages: {e}\n")
 
-    # 12. Run customer flag engine
-    print("14. Evaluating customer flags...")
+    # 12. Fetch SendGrid email activity
+    print("14. Fetching SendGrid email activity (last 7 days)...")
+    try:
+        upload_new_sendgrid_data(save_local=False, days_back=7)
+        print("✅ SendGrid email activity updated successfully\n")
+    except Exception as e:
+        print(f"❌ Error fetching SendGrid data: {e}\n")
+
+    # 13. Run customer flag engine
+    print("15. Evaluating customer flags...")
     try:
         from data_pipeline.customer_flag_engine import CustomerFlagEngine
         flag_engine = CustomerFlagEngine()
@@ -177,8 +187,8 @@ def run_daily_pipeline():
     except Exception as e:
         print(f"❌ Error evaluating customer flags: {e}\n")
 
-    # 13. Sync flags to Shopify
-    print("15. Syncing customer flags to Shopify...")
+    # 14. Sync flags to Shopify
+    print("16. Syncing customer flags to Shopify...")
     try:
         from data_pipeline.sync_flags_to_shopify import ShopifyFlagSyncer
         shopify_syncer = ShopifyFlagSyncer()
@@ -187,16 +197,16 @@ def run_daily_pipeline():
     except Exception as e:
         print(f"❌ Error syncing flags to Shopify: {e}\n")
 
-    # 14. Generate at-risk members report
-    print("16. Generating at-risk members report...")
+    # 15. Generate at-risk members report
+    print("17. Generating at-risk members report...")
     try:
         upload_at_risk_members(save_local=False)
         print("✅ At-risk members report generated successfully\n")
     except Exception as e:
         print(f"❌ Error generating at-risk members report: {e}\n")
 
-    # 15. Generate new members report (last 28 days)
-    print("17. Generating new members report (last 28 days)...")
+    # 16. Generate new members report (last 28 days)
+    print("18. Generating new members report (last 28 days)...")
     try:
         upload_new_members_report(save_local=False, days_back=28)
         print("✅ New members report generated successfully\n")
