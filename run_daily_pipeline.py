@@ -169,6 +169,16 @@ def run_daily_pipeline():
     except Exception as e:
         print(f"❌ Error fetching Twilio messages: {e}\n")
 
+    # 11a. Sync Twilio opt-in/opt-out status
+    print("13a. Syncing Twilio opt-in/opt-out status...")
+    try:
+        from data_pipeline.sync_twilio_opt_ins import TwilioOptInTracker
+        opt_in_tracker = TwilioOptInTracker()
+        opt_in_tracker.sync(message_limit=1000)
+        print("✅ Twilio opt-in status synced successfully\n")
+    except Exception as e:
+        print(f"❌ Error syncing Twilio opt-ins: {e}\n")
+
     # 12. Fetch SendGrid email activity
     print("14. Fetching SendGrid email activity (last 7 days)...")
     try:

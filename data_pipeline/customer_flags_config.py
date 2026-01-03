@@ -41,7 +41,7 @@ def get_customer_ab_group(customer_id: str, email: Optional[str] = None, phone: 
     # Override for testing: Hardcoded customer IDs can be manually assigned
     # Add your customer_id here to force a specific group for testing
     AB_GROUP_OVERRIDES = {
-        # '1378427': 'B',  # Steel Ferguson - uncomment and set to 'B' to test Group B flow
+        '1378427': 'B',  # Steel Ferguson - testing Group B flow
     }
 
     # Check for override first
