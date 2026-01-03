@@ -997,25 +997,9 @@ def sync_twilio_opt_ins(save_local=False):
         print("   (Skipping Twilio sync - may be missing credentials)")
 
 
-if __name__ == "__main__":
-    add_new_transactions_to_combined_df()
-    upload_new_capitan_membership_data()
-    upload_new_capitan_associations_events(save_local=False, events_days_back=None, fetch_activity_log=False)
-    sync_twilio_opt_ins()
-    upload_new_facebook_ads_data(save_local=False, days_back=90)
-    upload_new_shopify_data(save_local=False, days_back=7)
-
-    # Customer data pipeline: events → flags → Shopify sync
-    update_customer_master(save_local=False)  # Build customer events from all sources
-    update_customer_flags(save_local=False)    # Generate flags from events
-    sync_shopify_customer_flags()              # Sync flags to Shopify tags
-
-    # upload_new_instagram_data(save_local=False, enable_vision_analysis=True, days_to_fetch=30)
-
-    # df = fetch_stripe_and_square_and_combine(days=147)
-    # df.to_csv("data/outputs/stripe_and_square_combined_data_20250527.csv", index=False)
-    # replace_transaction_df_in_s3()
-    # replace_days_in_transaction_df_in_s3(days=31)
+# NOTE: Removed duplicate if __name__ == "__main__" block that was causing NameError
+# The function definitions need to come before the if __name__ block
+# See line 1965 for the actual main execution block
 
 
 def upload_new_facebook_ads_data(save_local=False, days_back=90):
