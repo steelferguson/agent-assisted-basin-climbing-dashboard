@@ -38,6 +38,15 @@ def get_customer_ab_group(customer_id: str, email: Optional[str] = None, phone: 
         >>> get_customer_ab_group("2466865")  # Falls back to customer_id
         'B'
     """
+    # Override for testing: Hardcoded customer IDs can be manually assigned
+    # Add your customer_id here to force a specific group for testing
+    AB_GROUP_OVERRIDES = {
+        # '1378427': 'B',  # Steel Ferguson - uncomment and set to 'B' to test Group B flow
+    }
+
+    # Check for override first
+    if str(customer_id) in AB_GROUP_OVERRIDES:
+        return AB_GROUP_OVERRIDES[str(customer_id)]
     # Priority 1: Use email hash if available
     if email and str(email).strip() and str(email).lower() not in ['nan', 'none', '']:
         # Hash the email to get a deterministic number
