@@ -105,6 +105,16 @@ def run_daily_pipeline():
     except Exception as e:
         print(f"❌ Error updating Mailchimp data: {e}\n")
 
+    # 5a. Fetch Mailchimp recipient activity
+    print("7a. Fetching Mailchimp recipient activity (last 30 days)...")
+    try:
+        from data_pipeline.fetch_mailchimp_recipient_activity import MailchimpRecipientActivityFetcher
+        recipient_fetcher = MailchimpRecipientActivityFetcher()
+        recipient_fetcher.fetch_and_save(days_back=30, save_local=False)
+        print("✅ Mailchimp recipient activity updated successfully\n")
+    except Exception as e:
+        print(f"❌ Error fetching Mailchimp recipient activity: {e}\n")
+
     # 6. Update Capitan associations & events (all events)
     print("8. Fetching Capitan associations, members, and events...")
     try:

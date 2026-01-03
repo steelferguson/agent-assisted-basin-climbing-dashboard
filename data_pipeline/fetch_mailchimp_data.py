@@ -696,3 +696,83 @@ THEMES: [comma-separated themes]"""
         print(f"✅ Processed {len(growth_df)} growth history records")
 
         return growth_df
+
+    def fetch_recipient_activity(self, days_back: int = 30) -> pd.DataFrame:
+        """
+        Fetch recipient-level email activity for all recent campaigns.
+
+        Returns data suitable for adding to customer event timeline:
+        - email_address
+        - campaign_id
+        - campaign_title
+        - sent_date
+        - opened (bool)
+        - clicked (bool)
+
+        Args:
+            days_back: Number of days back to fetch campaigns (default 30)
+
+        Returns:
+            DataFrame with recipient activity
+        """
+        print("\n=== Fetching Mailchimp Recipient Activity ===")
+
+        # Get campaigns from last N days
+        since_date = datetime.now() - timedelta(days=days_back)
+        campaigns = self.get_campaigns(since=since_date, status="sent")
+
+        if not campaigns:
+            print("No campaigns found")
+            return pd.DataFrame()
+
+        print(f"Found {len(campaigns)} campaigns in last {days_back} days")
+
+        all_recipients = []
+
+        for campaign in campaigns:
+            campaign_id = campaign['id']
+            campaign_title = campaign.get('settings', {}).get('title', 'Untitled')
+            send_time = campaign.get('send_time', '')
+
+            print(f"\nProcessing: {campaign_title}")
+            print(f"  Sent: {send_time}")
+
+            # Fetch recipients for this campaign
+            recipients = self.get_campaign_recipients(campaign_id)
+
+            if not recipients:
+                continue
+
+            # Process each recipient
+            for recipient in recipients:
+                email = recipient.get('email_address', '').lower().strip()
+                if not email:
+                    continue
+
+                # Extract activity data
+                activity = recipient.get('activity', [])
+                opened = any(a.get('action') == 'open' for a in activity)
+                clicked = any(a.get('action') == 'click' for a in activity)
+
+                all_recipients.append({
+                    'email_address': email,
+                    'campaign_id': campaign_id,
+                    'campaign_title': campaign_title,
+                    'sent_date': send_time,
+                    'opened': opened,
+                    'clicked': clicked
+                })
+
+        if not all_recipients:
+            print("\n✅ No recipient activity found")
+            return pd.DataFrame()
+
+        df = pd.DataFrame(all_recipients)
+        df['sent_date'] = pd.to_datetime(df['sent_date'])
+
+        print(f"\n✅ Processed {len(df)} recipient records")
+        print(f"   Unique recipients: {df['email_address'].nunique()}")
+        print(f"   Total opens: {df['opened'].sum()}")
+        print(f"   Total clicks: {df['clicked'].sum()}")
+
+        return df
