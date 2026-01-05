@@ -499,12 +499,81 @@ class SecondVisit2WeekOfferFlag(FlagRule):
         }
 
 
+class TwoWeekPassUserFlag(FlagRule):
+    """
+    Flag customers who use a 2-week pass.
+
+    Business logic:
+    - Customer has checked in using "2-Week Climbing Pass" or "2-Week Fitness Pass"
+    - Hasn't been flagged for this in the last 14 days (prevent duplicate flags)
+    """
+
+    def __init__(self):
+        super().__init__(
+            flag_type="used_2_week_pass",
+            description="Customer used a 2-week climbing or fitness pass",
+            priority="medium"
+        )
+
+    def evaluate(self, customer_id: str, events: list, today: datetime) -> Dict[str, Any]:
+        """
+        Check if customer has used a 2-week pass.
+        """
+        # Get all checkins with 2-week passes
+        two_week_checkins = [
+            e for e in events
+            if e['event_type'] == 'checkin'
+            and e.get('event_data', {}).get('entry_method_description') in [
+                '2-Week Climbing Pass',
+                '2-Week Fitness Pass'
+            ]
+        ]
+
+        if not two_week_checkins:
+            return None  # No 2-week pass usage
+
+        # Get the most recent 2-week pass checkin
+        most_recent_checkin = max(two_week_checkins, key=lambda e: e['event_date'])
+        checkin_date = most_recent_checkin['event_date']
+
+        # Criteria: Must not have been flagged for this in last 14 days (prevent duplicates)
+        lookback_start = today - timedelta(days=14)
+        recent_flags = [
+            e for e in events
+            if e['event_type'] == 'flag_set'
+            and e.get('event_data', {}).get('flag_type') == self.flag_type
+            and e['event_date'] >= lookback_start
+            and e['event_date'] <= today
+        ]
+
+        if recent_flags:
+            return None  # Already flagged recently
+
+        # All criteria met - flag this customer
+        entry_method = most_recent_checkin.get('event_data', {}).get('entry_method_description')
+
+        return {
+            'customer_id': customer_id,
+            'flag_type': self.flag_type,
+            'triggered_date': today,
+            'flag_data': {
+                'most_recent_2wk_pass_checkin': checkin_date.isoformat(),
+                'days_since_checkin': (today - checkin_date).days,
+                'pass_type': entry_method,
+                'total_2wk_pass_checkins': len(two_week_checkins),
+                'description': self.description
+            },
+            'priority': self.priority
+        }
+
+
 # List of all active rules
 ACTIVE_RULES = [
     ReadyForMembershipFlag(),
     FirstTimeDayPass2WeekOfferFlag(),      # Group A: Direct 2-week offer
     SecondVisitOfferEligibleFlag(),        # Group B Step 1: 2nd pass offer
     SecondVisit2WeekOfferFlag(),           # Group B Step 2: 2-week offer after return
+    TwoWeekPassUserFlag(),                 # Track 2-week pass usage
 ]
 
 

@@ -424,11 +424,13 @@ class ShopifyFlagSyncer:
             dry_run: If True, only print what would be done
         """
         # Get list of flag tag prefixes to look for
+        # Note: Tags are flag names with underscores replaced by hyphens (NO "flag-" prefix)
         flag_tag_prefixes = [
-            'flag-ready-for-membership',
-            'flag-first-time-day-pass-2wk-offer',
-            'flag-second-visit-offer-eligible',
-            'flag-second-visit-2wk-offer'
+            'ready-for-membership',
+            'first-time-day-pass-2wk-offer',
+            'second-visit-offer-eligible',
+            'second-visit-2wk-offer',
+            'used-2-week-pass'
         ]
 
         # Create set of customers with active flags
