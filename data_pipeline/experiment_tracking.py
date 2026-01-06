@@ -85,7 +85,7 @@ def log_experiment_entry(
     ]
 
     if len(existing) > 0:
-        print(f"   ℹ️  Customer {customer_id} already entered experiment {experiment_id}")
+        # Silently skip - customer already in experiment (don't log to avoid spam)
         return  # Don't log duplicate entries
 
     # Append new entry
