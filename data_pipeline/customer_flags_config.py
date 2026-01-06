@@ -210,31 +210,32 @@ class FirstTimeDayPass2WeekOfferFlag(FlagRule):
         if ab_group != "A":
             return None  # Group B customers use different flag
 
-        # Get all day pass purchases
-        day_pass_purchases = [
+        # Get all day pass CHECKINS (actual usage, not just purchases)
+        day_pass_checkins = [
             e for e in events
-            if e['event_type'] == 'day_pass_purchase'
+            if e['event_type'] == 'checkin'
+            and e.get('event_data', {}).get('entry_method_description', '').lower().find('day pass') >= 0
         ]
 
-        # Criteria 1: Must have at least one day pass purchase
-        if not day_pass_purchases:
+        # Criteria 1: Must have at least one day pass checkin
+        if not day_pass_checkins:
             return None
 
-        # Sort purchases by date
-        day_pass_purchases_sorted = sorted(day_pass_purchases, key=lambda e: e['event_date'])
-        most_recent_purchase = day_pass_purchases_sorted[-1]
+        # Sort checkins by date
+        day_pass_checkins_sorted = sorted(day_pass_checkins, key=lambda e: e['event_date'])
+        most_recent_checkin = day_pass_checkins_sorted[-1]
 
-        # Criteria 2: Must have had NO day pass purchases in the 2 months BEFORE the most recent one
-        two_months_ago = most_recent_purchase['event_date'] - timedelta(days=60)
+        # Criteria 2: Must have had NO day pass checkins in the 2 months BEFORE the most recent one
+        two_months_ago = most_recent_checkin['event_date'] - timedelta(days=60)
 
-        prior_purchases = [
-            e for e in day_pass_purchases_sorted
-            if e['event_date'] < most_recent_purchase['event_date']
+        prior_checkins = [
+            e for e in day_pass_checkins_sorted
+            if e['event_date'] < most_recent_checkin['event_date']
             and e['event_date'] >= two_months_ago
         ]
 
-        # If they had purchases in the previous 2 months, they're not new/returning
-        if prior_purchases:
+        # If they had checkins in the previous 2 months, they're not new/returning
+        if prior_checkins:
             return None
 
         # Criteria 3: Must NOT be an active member (check most recent membership status)
@@ -267,11 +268,11 @@ class FirstTimeDayPass2WeekOfferFlag(FlagRule):
             return None
 
         # All criteria met - flag this customer
-        # Calculate days since their previous purchase (if any)
-        days_since_previous_purchase = None
-        if len(day_pass_purchases_sorted) > 1:
-            previous_purchase = day_pass_purchases_sorted[-2]
-            days_since_previous_purchase = (most_recent_purchase['event_date'] - previous_purchase['event_date']).days
+        # Calculate days since their previous checkin (if any)
+        days_since_previous_checkin = None
+        if len(day_pass_checkins_sorted) > 1:
+            previous_checkin = day_pass_checkins_sorted[-2]
+            days_since_previous_checkin = (most_recent_checkin['event_date'] - previous_checkin['event_date']).days
 
         return {
             'customer_id': customer_id,
@@ -280,11 +281,11 @@ class FirstTimeDayPass2WeekOfferFlag(FlagRule):
             'flag_data': {
                 'ab_group': 'A',
                 'experiment_id': 'day_pass_conversion_2026_01',
-                'most_recent_purchase_date': most_recent_purchase['event_date'].isoformat(),
-                'days_since_purchase': (today - most_recent_purchase['event_date']).days,
-                'total_day_pass_purchases': len(day_pass_purchases),
-                'days_since_previous_purchase': days_since_previous_purchase,
-                'returning_after_break': days_since_previous_purchase is None or days_since_previous_purchase >= 60,
+                'most_recent_checkin_date': most_recent_checkin['event_date'].isoformat(),
+                'days_since_checkin': (today - most_recent_checkin['event_date']).days,
+                'total_day_pass_checkins': len(day_pass_checkins),
+                'days_since_previous_checkin': days_since_previous_checkin,
+                'returning_after_break': days_since_previous_checkin is None or days_since_previous_checkin >= 60,
                 'description': self.description
             },
             'priority': self.priority
@@ -321,31 +322,32 @@ class SecondVisitOfferEligibleFlag(FlagRule):
         if ab_group != "B":
             return None  # Group A customers use different flag
 
-        # Get all day pass purchases
-        day_pass_purchases = [
+        # Get all day pass CHECKINS (actual usage, not just purchases)
+        day_pass_checkins = [
             e for e in events
-            if e['event_type'] == 'day_pass_purchase'
+            if e['event_type'] == 'checkin'
+            and e.get('event_data', {}).get('entry_method_description', '').lower().find('day pass') >= 0
         ]
 
-        # Criteria 1: Must have at least one day pass purchase
-        if not day_pass_purchases:
+        # Criteria 1: Must have at least one day pass checkin
+        if not day_pass_checkins:
             return None
 
-        # Sort purchases by date
-        day_pass_purchases_sorted = sorted(day_pass_purchases, key=lambda e: e['event_date'])
-        most_recent_purchase = day_pass_purchases_sorted[-1]
+        # Sort checkins by date
+        day_pass_checkins_sorted = sorted(day_pass_checkins, key=lambda e: e['event_date'])
+        most_recent_checkin = day_pass_checkins_sorted[-1]
 
-        # Criteria 2: Must have had NO day pass purchases in the 2 months BEFORE the most recent one
-        two_months_ago = most_recent_purchase['event_date'] - timedelta(days=60)
+        # Criteria 2: Must have had NO day pass checkins in the 2 months BEFORE the most recent one
+        two_months_ago = most_recent_checkin['event_date'] - timedelta(days=60)
 
-        prior_purchases = [
-            e for e in day_pass_purchases_sorted
-            if e['event_date'] < most_recent_purchase['event_date']
+        prior_checkins = [
+            e for e in day_pass_checkins_sorted
+            if e['event_date'] < most_recent_checkin['event_date']
             and e['event_date'] >= two_months_ago
         ]
 
-        # If they had purchases in the previous 2 months, they're not returning after a break
-        if prior_purchases:
+        # If they had checkins in the previous 2 months, they're not returning after a break
+        if prior_checkins:
             return None
 
         # Criteria 3: Must NOT be an active member (check most recent membership status)
@@ -378,11 +380,11 @@ class SecondVisitOfferEligibleFlag(FlagRule):
             return None
 
         # All criteria met - flag this customer
-        # Calculate days since their previous purchase (if any)
-        days_since_previous_purchase = None
-        if len(day_pass_purchases_sorted) > 1:
-            previous_purchase = day_pass_purchases_sorted[-2]
-            days_since_previous_purchase = (most_recent_purchase['event_date'] - previous_purchase['event_date']).days
+        # Calculate days since their previous checkin (if any)
+        days_since_previous_checkin = None
+        if len(day_pass_checkins_sorted) > 1:
+            previous_checkin = day_pass_checkins_sorted[-2]
+            days_since_previous_checkin = (most_recent_checkin['event_date'] - previous_checkin['event_date']).days
 
         return {
             'customer_id': customer_id,
@@ -391,11 +393,11 @@ class SecondVisitOfferEligibleFlag(FlagRule):
             'flag_data': {
                 'ab_group': 'B',
                 'experiment_id': 'day_pass_conversion_2026_01',
-                'most_recent_purchase_date': most_recent_purchase['event_date'].isoformat(),
-                'days_since_purchase': (today - most_recent_purchase['event_date']).days,
-                'total_day_pass_purchases': len(day_pass_purchases),
-                'days_since_previous_purchase': days_since_previous_purchase,
-                'returning_after_break': days_since_previous_purchase is None or days_since_previous_purchase >= 60,
+                'most_recent_checkin_date': most_recent_checkin['event_date'].isoformat(),
+                'days_since_checkin': (today - most_recent_checkin['event_date']).days,
+                'total_day_pass_checkins': len(day_pass_checkins),
+                'days_since_previous_checkin': days_since_previous_checkin,
+                'returning_after_break': days_since_previous_checkin is None or days_since_previous_checkin >= 60,
                 'description': self.description
             },
             'priority': self.priority

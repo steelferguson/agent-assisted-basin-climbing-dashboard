@@ -270,6 +270,117 @@ class CustomerFlagsEngine:
 
         return df_flags
 
+    def run(self):
+        """
+        Run the customer flags engine: load data, evaluate rules, and save flags to S3.
+        """
+        print("\n" + "="*80)
+        print("CUSTOMER FLAGS ENGINE")
+        print("="*80)
+
+        # Initialize S3 client
+        aws_access_key_id = os.getenv("AWS_ACCESS_KEY_ID")
+        aws_secret_access_key = os.getenv("AWS_SECRET_ACCESS_KEY")
+        bucket_name = "basin-climbing-data-prod"
+
+        if not aws_access_key_id or not aws_secret_access_key:
+            raise ValueError("AWS credentials not found in environment")
+
+        s3_client = boto3.client(
+            's3',
+            aws_access_key_id=aws_access_key_id,
+            aws_secret_access_key=aws_secret_access_key
+        )
+
+        # 1. Load customer_events.csv (has purchases, memberships, etc.)
+        print("\n📂 Loading customer events...")
+        try:
+            obj = s3_client.get_object(Bucket=bucket_name, Key='customers/customer_events.csv')
+            df_events = pd.read_csv(StringIO(obj['Body'].read().decode('utf-8')))
+            df_events['event_date'] = pd.to_datetime(df_events['event_date'])
+            print(f"   ✅ Loaded {len(df_events)} customer events")
+        except Exception as e:
+            print(f"   ❌ Error loading customer events: {e}")
+            return
+
+        # 2. Load checkins.csv and add checkin events with entry_method_description
+        print("\n📂 Loading checkins with entry methods...")
+        try:
+            obj = s3_client.get_object(Bucket=bucket_name, Key='capitan/checkins.csv')
+            df_checkins = pd.read_csv(StringIO(obj['Body'].read().decode('utf-8')))
+            df_checkins['checkin_datetime'] = pd.to_datetime(df_checkins['checkin_datetime'])
+            print(f"   ✅ Loaded {len(df_checkins)} checkins")
+
+            # Convert checkins to event format
+            checkin_events = []
+            for _, row in df_checkins.iterrows():
+                checkin_events.append({
+                    'customer_id': row['customer_id'],
+                    'event_type': 'checkin',
+                    'event_date': row['checkin_datetime'],
+                    'event_data': {
+                        'entry_method_description': row.get('entry_method_description', ''),
+                        'entry_method': row.get('entry_method', ''),
+                        'location_name': row.get('location_name', ''),
+                        'checkin_id': row.get('checkin_id', '')
+                    }
+                })
+
+            df_checkin_events = pd.DataFrame(checkin_events)
+            print(f"   ✅ Converted {len(df_checkin_events)} checkins to events")
+
+            # Merge with existing events
+            df_all_events = pd.concat([df_events, df_checkin_events], ignore_index=True)
+            df_all_events = df_all_events.sort_values(['customer_id', 'event_date'])
+            print(f"   ✅ Combined: {len(df_all_events)} total events")
+
+        except Exception as e:
+            print(f"   ⚠️  Error loading checkins: {e}")
+            print(f"   Continuing with customer_events only...")
+            df_all_events = df_events
+
+        # 3. Evaluate rules
+        df_flags = self.evaluate_all_customers(df_all_events)
+
+        # 4. Save flags to S3
+        print("\n💾 Saving flags to S3...")
+        try:
+            csv_buffer = StringIO()
+            df_flags.to_csv(csv_buffer, index=False)
+
+            s3_client.put_object(
+                Bucket=bucket_name,
+                Key='customers/customer_flags.csv',
+                Body=csv_buffer.getvalue()
+            )
+            print(f"   ✅ Saved {len(df_flags)} flags to s3://{bucket_name}/customers/customer_flags.csv")
+
+            # Also track in experiment_tracking if AB test flags exist
+            ab_flags = df_flags[df_flags['flag_type'].isin([
+                'first_time_day_pass_2wk_offer',
+                'second_visit_offer_eligible',
+                'second_visit_2wk_offer'
+            ])]
+
+            if not ab_flags.empty:
+                print(f"\n📊 Tracking {len(ab_flags)} AB test assignments...")
+                for _, flag in ab_flags.iterrows():
+                    flag_data = json.loads(flag['flag_data'])
+                    experiment_tracking.track_assignment(
+                        customer_id=flag['customer_id'],
+                        experiment_id=flag_data.get('experiment_id', 'day_pass_conversion_2026_01'),
+                        variant=flag_data.get('ab_group', 'unknown'),
+                        metadata=flag_data
+                    )
+                print(f"   ✅ Tracked experiment assignments")
+
+        except Exception as e:
+            print(f"   ❌ Error saving flags: {e}")
+
+        print("\n" + "="*80)
+        print("✅ CUSTOMER FLAGS ENGINE COMPLETE")
+        print("="*80)
+
 
 def build_customer_flags(df_events: pd.DataFrame, today: datetime = None) -> pd.DataFrame:
     """

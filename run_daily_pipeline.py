@@ -197,11 +197,11 @@ def run_daily_pipeline():
     except Exception as e:
         print(f"❌ Error fetching SendGrid data: {e}\n")
 
-    # 13. Run customer flag engine
+    # 13. Run customer flag engine (NEW engine with rules-based evaluation)
     print("15. Evaluating customer flags...")
     try:
-        from data_pipeline.customer_flag_engine import CustomerFlagEngine
-        flag_engine = CustomerFlagEngine()
+        from data_pipeline.customer_flags_engine import CustomerFlagsEngine
+        flag_engine = CustomerFlagsEngine()
         flag_engine.run()
         print("✅ Customer flags evaluated successfully\n")
     except Exception as e:
