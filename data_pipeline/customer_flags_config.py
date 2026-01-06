@@ -214,6 +214,7 @@ class FirstTimeDayPass2WeekOfferFlag(FlagRule):
         day_pass_checkins = [
             e for e in events
             if e['event_type'] == 'checkin'
+            and isinstance(e.get('event_data'), dict)
             and e.get('event_data', {}).get('entry_method_description', '').lower().find('day pass') >= 0
         ]
 
@@ -331,6 +332,7 @@ class SecondVisitOfferEligibleFlag(FlagRule):
         day_pass_checkins = [
             e for e in events
             if e['event_type'] == 'checkin'
+            and isinstance(e.get('event_data'), dict)
             and e.get('event_data', {}).get('entry_method_description', '').lower().find('day pass') >= 0
         ]
 
