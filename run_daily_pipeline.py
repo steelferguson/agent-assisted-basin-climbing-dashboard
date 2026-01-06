@@ -207,17 +207,26 @@ def run_daily_pipeline():
     except Exception as e:
         print(f"❌ Error evaluating customer flags: {e}\n")
 
-    # 14. Sync flags to Shopify
-    # TEMPORARILY DISABLED - Will re-enable tomorrow morning with time check
+    # 14. Sync flags to Shopify (only during business hours: 8 AM - 10 PM CT)
     print("16. Syncing customer flags to Shopify...")
-    print("⏸️  Shopify sync temporarily disabled - will enable tomorrow morning\n")
-    # try:
-    #     from data_pipeline.sync_flags_to_shopify import ShopifyFlagSyncer
-    #     shopify_syncer = ShopifyFlagSyncer()
-    #     shopify_syncer.sync_flags_to_shopify(dry_run=False)
-    #     print("✅ Flags synced to Shopify successfully\n")
-    # except Exception as e:
-    #     print(f"❌ Error syncing flags to Shopify: {e}\n")
+
+    # Get current hour (assumes server is in Central Time)
+    current_hour = datetime.datetime.now().hour
+
+    # Only sync between 8 AM and 10 PM Central Time
+    if 8 <= current_hour < 22:
+        print(f"   Current time: {datetime.datetime.now().strftime('%I:%M %p')} CT - proceeding with sync")
+        try:
+            from data_pipeline.sync_flags_to_shopify import ShopifyFlagSyncer
+            shopify_syncer = ShopifyFlagSyncer()
+            shopify_syncer.sync_flags_to_shopify(dry_run=False)
+            print("✅ Flags synced to Shopify successfully\n")
+        except Exception as e:
+            print(f"❌ Error syncing flags to Shopify: {e}\n")
+    else:
+        print(f"   Current time: {datetime.datetime.now().strftime('%I:%M %p')} CT")
+        print("   ⏰ Outside business hours (8 AM - 10 PM CT) - skipping Shopify sync")
+        print("   Flags are saved to S3 and will sync on next run during business hours\n")
 
     # 15. Generate at-risk members report
     print("17. Generating at-risk members report...")
