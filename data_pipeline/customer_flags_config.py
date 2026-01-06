@@ -265,6 +265,7 @@ class FirstTimeDayPass2WeekOfferFlag(FlagRule):
         recent_flags = [
             e for e in events
             if e['event_type'] == 'flag_set'
+            and isinstance(e.get('event_data'), dict)
             and e.get('event_data', {}).get('flag_type') == self.flag_type
             and e['event_date'] >= lookback_start
             and e['event_date'] <= today
@@ -383,6 +384,7 @@ class SecondVisitOfferEligibleFlag(FlagRule):
         recent_flags = [
             e for e in events
             if e['event_type'] == 'flag_set'
+            and isinstance(e.get('event_data'), dict)
             and e.get('event_data', {}).get('flag_type') == self.flag_type
             and e['event_date'] >= lookback_start
             and e['event_date'] <= today
@@ -444,6 +446,7 @@ class SecondVisit2WeekOfferFlag(FlagRule):
         second_pass_flags = [
             e for e in events
             if e['event_type'] == 'flag_set'
+            and isinstance(e.get('event_data'), dict)
             and e.get('event_data', {}).get('flag_type') == 'second_visit_offer_eligible'
         ]
 
@@ -537,6 +540,7 @@ class TwoWeekPassUserFlag(FlagRule):
         two_week_checkins = [
             e for e in events
             if e['event_type'] == 'checkin'
+            and isinstance(e.get('event_data'), dict)
             and e.get('event_data', {}).get('entry_method_description') in [
                 '2-Week Climbing Pass',
                 '2-Week Fitness Pass'
@@ -555,6 +559,7 @@ class TwoWeekPassUserFlag(FlagRule):
         recent_flags = [
             e for e in events
             if e['event_type'] == 'flag_set'
+            and isinstance(e.get('event_data'), dict)
             and e.get('event_data', {}).get('flag_type') == self.flag_type
             and e['event_date'] >= lookback_start
             and e['event_date'] <= today
@@ -564,7 +569,8 @@ class TwoWeekPassUserFlag(FlagRule):
             return None  # Already flagged recently
 
         # All criteria met - flag this customer
-        entry_method = most_recent_checkin.get('event_data', {}).get('entry_method_description')
+        event_data = most_recent_checkin.get('event_data', {})
+        entry_method = event_data.get('entry_method_description') if isinstance(event_data, dict) else None
 
         return {
             'customer_id': customer_id,
