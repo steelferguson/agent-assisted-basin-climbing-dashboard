@@ -70,6 +70,13 @@ class ShopifyFlagSyncer:
                 Key="customers/customer_flags.csv"
             )
             df = pd.read_csv(StringIO(obj['Body'].read().decode('utf-8')))
+
+            # Rename columns to match expected format
+            # New format: flag_type, triggered_date
+            # Old format: flag_name, flagged_at
+            if 'flag_type' in df.columns:
+                df = df.rename(columns={'flag_type': 'flag_name', 'triggered_date': 'flagged_at'})
+
             print(f"✅ Loaded {len(df)} flags from S3")
             return df
         except self.s3_client.exceptions.NoSuchKey:
@@ -348,6 +355,10 @@ class ShopifyFlagSyncer:
         if len(flags_df) == 0:
             print("\nℹ️  No flags to sync")
             return
+
+        # Ensure customer_id is the same type in both DataFrames (convert to string)
+        flags_df['customer_id'] = flags_df['customer_id'].astype(str)
+        customers_df['customer_id'] = customers_df['customer_id'].astype(str)
 
         # Merge flags with customer data
         flags_with_contact = flags_df.merge(
