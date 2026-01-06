@@ -201,16 +201,20 @@ class CustomerFlagsEngine:
             print("   No customers matched any rules")
             return pd.DataFrame(columns=[
                 'customer_id', 'flag_type', 'triggered_date',
-                'flag_data', 'priority'
+                'flag_data', 'priority', 'flag_added_date'
             ])
 
         df_flags = pd.DataFrame(all_flags)
+
+        # Add flag_added_date (when the flag was added to the system)
+        df_flags['flag_added_date'] = today
 
         # Convert flag_data dict to JSON string for storage
         df_flags['flag_data'] = df_flags['flag_data'].apply(json.dumps)
 
         # Convert dates
         df_flags['triggered_date'] = pd.to_datetime(df_flags['triggered_date'])
+        df_flags['flag_added_date'] = pd.to_datetime(df_flags['flag_added_date'])
 
         # Sort by priority and date
         priority_order = {'high': 0, 'medium': 1, 'low': 2}
