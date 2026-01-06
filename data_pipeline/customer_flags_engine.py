@@ -346,7 +346,53 @@ class CustomerFlagsEngine:
         # 3. Evaluate rules
         df_flags = self.evaluate_all_customers(df_all_events)
 
-        # 4. Save flags to S3
+        # 4. Log flag additions as customer events
+        print("\n📝 Logging flag additions as customer events...")
+        try:
+            # Load existing customer events
+            obj = s3_client.get_object(Bucket=bucket_name, Key='customers/customer_events.csv')
+            df_existing_events = pd.read_csv(StringIO(obj['Body'].read().decode('utf-8')))
+            df_existing_events['event_date'] = pd.to_datetime(df_existing_events['event_date'])
+
+            # Create flag_set events for each new flag
+            flag_events = []
+            for _, flag in df_flags.iterrows():
+                flag_events.append({
+                    'customer_id': flag['customer_id'],
+                    'event_type': 'flag_set',
+                    'event_date': flag['flag_added_date'],
+                    'event_data': {
+                        'flag_type': flag['flag_type'],
+                        'priority': flag['priority'],
+                        'triggered_date': flag['triggered_date'].isoformat() if hasattr(flag['triggered_date'], 'isoformat') else str(flag['triggered_date'])
+                    }
+                })
+
+            if flag_events:
+                df_flag_events = pd.DataFrame(flag_events)
+
+                # Merge with existing events and remove duplicates
+                df_all_events_updated = pd.concat([df_existing_events, df_flag_events], ignore_index=True)
+                df_all_events_updated = df_all_events_updated.drop_duplicates(
+                    subset=['customer_id', 'event_type', 'event_date'],
+                    keep='last'
+                )
+                df_all_events_updated = df_all_events_updated.sort_values(['customer_id', 'event_date'])
+
+                # Save back to S3
+                csv_buffer = StringIO()
+                df_all_events_updated.to_csv(csv_buffer, index=False)
+                s3_client.put_object(
+                    Bucket=bucket_name,
+                    Key='customers/customer_events.csv',
+                    Body=csv_buffer.getvalue()
+                )
+                print(f"   ✅ Added {len(flag_events)} flag_set events to customer_events.csv")
+
+        except Exception as e:
+            print(f"   ⚠️  Error logging flag events: {e}")
+
+        # 5. Save flags to S3
         print("\n💾 Saving flags to S3...")
         try:
             csv_buffer = StringIO()
