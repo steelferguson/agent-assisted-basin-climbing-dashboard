@@ -208,14 +208,16 @@ def run_daily_pipeline():
         print(f"❌ Error evaluating customer flags: {e}\n")
 
     # 14. Sync flags to Shopify
+    # TEMPORARILY DISABLED - Will re-enable tomorrow morning with time check
     print("16. Syncing customer flags to Shopify...")
-    try:
-        from data_pipeline.sync_flags_to_shopify import ShopifyFlagSyncer
-        shopify_syncer = ShopifyFlagSyncer()
-        shopify_syncer.sync_flags_to_shopify(dry_run=False)
-        print("✅ Flags synced to Shopify successfully\n")
-    except Exception as e:
-        print(f"❌ Error syncing flags to Shopify: {e}\n")
+    print("⏸️  Shopify sync temporarily disabled - will enable tomorrow morning\n")
+    # try:
+    #     from data_pipeline.sync_flags_to_shopify import ShopifyFlagSyncer
+    #     shopify_syncer = ShopifyFlagSyncer()
+    #     shopify_syncer.sync_flags_to_shopify(dry_run=False)
+    #     print("✅ Flags synced to Shopify successfully\n")
+    # except Exception as e:
+    #     print(f"❌ Error syncing flags to Shopify: {e}\n")
 
     # 15. Generate at-risk members report
     print("17. Generating at-risk members report...")
