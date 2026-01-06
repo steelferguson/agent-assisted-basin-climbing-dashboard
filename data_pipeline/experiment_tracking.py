@@ -47,15 +47,36 @@ def log_experiment_entry(
         'entry_flag': entry_flag
     }
 
-    # Load existing entries
+    # Load existing entries (try S3 first, then local)
     entries_path = 'data/experiments/customer_experiment_entries.csv'
 
+    # Try loading from S3 first
     try:
-        entries_df = pd.read_csv(entries_path)
-    except FileNotFoundError:
-        # Create new DataFrame with headers
-        entries_df = pd.DataFrame(columns=['customer_id', 'experiment_id', 'entry_date',
-                                          'group', 'customer_id_last_digit', 'entry_flag'])
+        aws_access_key_id = os.getenv("AWS_ACCESS_KEY_ID")
+        aws_secret_access_key = os.getenv("AWS_SECRET_ACCESS_KEY")
+
+        if aws_access_key_id and aws_secret_access_key:
+            s3_client = boto3.client(
+                's3',
+                aws_access_key_id=aws_access_key_id,
+                aws_secret_access_key=aws_secret_access_key
+            )
+
+            obj = s3_client.get_object(
+                Bucket='basin-climbing-data-prod',
+                Key='experiments/customer_experiment_entries.csv'
+            )
+            entries_df = pd.read_csv(StringIO(obj['Body'].read().decode('utf-8')))
+        else:
+            raise Exception("No S3 credentials")
+    except:
+        # Fall back to local file
+        try:
+            entries_df = pd.read_csv(entries_path)
+        except FileNotFoundError:
+            # Create new DataFrame with headers
+            entries_df = pd.DataFrame(columns=['customer_id', 'experiment_id', 'entry_date',
+                                              'group', 'customer_id_last_digit', 'entry_flag'])
 
     # Check if customer already entered this experiment
     existing = entries_df[
@@ -70,8 +91,9 @@ def log_experiment_entry(
     # Append new entry
     entries_df = pd.concat([entries_df, pd.DataFrame([new_entry])], ignore_index=True)
 
-    # Save locally
+    # Save locally (create directory if needed)
     if save_local:
+        os.makedirs(os.path.dirname(entries_path), exist_ok=True)
         entries_df.to_csv(entries_path, index=False)
         print(f"   ✅ Logged experiment entry: Customer {customer_id} → Group {group} ({entry_flag})")
 
