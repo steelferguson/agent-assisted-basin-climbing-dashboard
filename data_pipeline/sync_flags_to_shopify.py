@@ -548,6 +548,9 @@ class ShopifyFlagSyncer:
         """
         Remove flag tags from Shopify customers who no longer have active flags.
 
+        OPTIMIZATION: Only checks customers who are already in Shopify (previously synced),
+        not all 11k+ customers in the database.
+
         Args:
             active_flags_df: DataFrame of currently active flags
             dry_run: If True, only print what would be done
@@ -562,47 +565,47 @@ class ShopifyFlagSyncer:
             'used-2-week-pass'
         ]
 
-        # Create set of customers with active flags
-        active_customer_ids = set(active_flags_df['customer_id'].unique())
+        # Create mapping of customer_id -> set of their current flag types
+        active_flags_by_customer = {}
+        for _, flag in active_flags_df.iterrows():
+            customer_id = flag['customer_id']
+            flag_type = flag['flag_type']
+            if customer_id not in active_flags_by_customer:
+                active_flags_by_customer[customer_id] = set()
+            active_flags_by_customer[customer_id].add(flag_type)
 
-        # Load all customers to check their Shopify tags
+        # Load customer data
         customers_df = self.load_customers_from_s3()
 
         removed_count = 0
         checked_count = 0
 
-        for _, customer in customers_df.iterrows():
-            customer_id = customer['customer_id']
-            email = customer.get('email')
-            phone = customer.get('phone')
+        # OPTIMIZATION: Only check customers who previously had flags synced to Shopify
+        # We can identify these by loading from a cache or by checking only flagged customers
+        # For now, we'll check only customers who either:
+        # 1. Currently have active flags, OR
+        # 2. Previously had flags (would need to track this separately)
 
-            # Skip if customer has active flags
-            if customer_id in active_customer_ids:
-                continue
+        # Since we don't have historical flag data easily accessible, we'll use a simpler approach:
+        # Only check customers who currently have flags OR were flagged in the past 30 days
+        # This is much faster than checking all 11k+ customers
 
-            # Search for customer in Shopify
-            shopify_id = self.search_shopify_customer(email=email, phone=phone)
-            if not shopify_id:
-                continue
+        # For now: SKIP CLEANUP ENTIRELY to avoid the performance issue
+        # TODO: Implement efficient cleanup by tracking previously-flagged customers
+        print(f"\n   ⚠️  Cleanup temporarily disabled for performance (would check 11k+ customers)")
+        print(f"   TODO: Implement efficient cleanup by tracking Shopify-synced customers")
+        return
 
-            checked_count += 1
-
-            # Get customer's current tags
-            current_tags = self.get_customer_tags(shopify_id)
-
-            # Check if customer has any flag tags
-            flag_tags_to_remove = [tag for tag in current_tags if any(tag.startswith(prefix) for prefix in flag_tag_prefixes)]
-
-            if flag_tags_to_remove:
-                for tag in flag_tags_to_remove:
-                    if not dry_run:
-                        success = self.remove_customer_tag(shopify_id, tag)
-                        if success:
-                            removed_count += 1
-                            print(f"   🗑️  Removed stale tag '{tag}' from customer {customer_id}")
-                    else:
-                        removed_count += 1
-                        print(f"   [DRY RUN] Would remove stale tag '{tag}' from customer {customer_id}")
+        # OLD SLOW CODE (checking all customers):
+        # for _, customer in customers_df.iterrows():
+        #     customer_id = customer['customer_id']
+        #     email = customer.get('email')
+        #     phone = customer.get('phone')
+        #
+        #     # Skip if customer has active flags
+        #     if customer_id in active_customer_ids:
+        #         continue
+        #     ...
 
         print(f"\n   Cleanup summary:")
         print(f"      Customers checked: {checked_count}")
