@@ -419,7 +419,7 @@ class CustomerFlagsEngine:
             )
 
             # Remove expired flags (older than 14 days)
-            today_dt = datetime.combine(today, datetime.min.time())
+            today_dt = pd.Timestamp.now().normalize()  # Today at midnight
             df_all_flags = df_all_flags[
                 df_all_flags['flag_added_date'] >= (today_dt - pd.Timedelta(days=14))
             ]
