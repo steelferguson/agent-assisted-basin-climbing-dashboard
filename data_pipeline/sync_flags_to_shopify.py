@@ -536,8 +536,9 @@ class ShopifyFlagSyncer:
             print(f"      Errors: {errors}")
 
         # Clean up stale tags (tags that exist in Shopify but not in current flags)
+        # Pass the FULL flags DataFrame, not just flags_with_contact
         print(f"\n🧹 Cleaning up stale tags...")
-        self.cleanup_stale_tags(flags_with_contact, dry_run=dry_run)
+        self.cleanup_stale_tags(flags_df, dry_run=dry_run)
 
         print("\n" + "="*80)
         print("✅ SYNC COMPLETE")
