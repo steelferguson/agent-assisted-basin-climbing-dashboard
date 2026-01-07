@@ -18,6 +18,7 @@ import os
 import pandas as pd
 import boto3
 import requests
+import time
 from io import StringIO
 from typing import Dict, List, Optional
 from datetime import datetime
@@ -54,8 +55,26 @@ class ShopifyFlagSyncer:
             aws_secret_access_key=self.aws_secret_access_key
         )
 
+        # Rate limiting: Shopify allows 2 calls/second
+        self.min_delay_between_calls = 0.6  # 600ms between calls = ~1.6 calls/sec (safe margin)
+        self.last_api_call_time = 0
+
         print("✅ Shopify Flag Syncer initialized")
         print(f"   Store: {self.store_domain}")
+
+    def _rate_limit(self):
+        """
+        Enforce rate limiting to stay under Shopify's 2 calls/second limit.
+        Waits if necessary to ensure minimum delay between API calls.
+        """
+        current_time = time.time()
+        time_since_last_call = current_time - self.last_api_call_time
+
+        if time_since_last_call < self.min_delay_between_calls:
+            sleep_time = self.min_delay_between_calls - time_since_last_call
+            time.sleep(sleep_time)
+
+        self.last_api_call_time = time.time()
 
     def load_flags_from_s3(self) -> pd.DataFrame:
         """
@@ -117,6 +136,7 @@ class ShopifyFlagSyncer:
         if email and pd.notna(email):
             url = f"{self.base_url}/customers/search.json?query=email:{email}"
             try:
+                self._rate_limit()  # Rate limit before API call
                 response = requests.get(url, headers=self.headers, timeout=10)
                 if response.status_code == 200:
                     customers = response.json().get('customers', [])
@@ -133,6 +153,7 @@ class ShopifyFlagSyncer:
                 phone_normalized = phone_digits[-10:]  # Last 10 digits
                 url = f"{self.base_url}/customers/search.json?query=phone:+1{phone_normalized}"
                 try:
+                    self._rate_limit()  # Rate limit before API call
                     response = requests.get(url, headers=self.headers, timeout=10)
                     if response.status_code == 200:
                         customers = response.json().get('customers', [])
@@ -200,6 +221,7 @@ class ShopifyFlagSyncer:
         payload = {"customer": customer_data}
 
         try:
+            self._rate_limit()  # Rate limit before API call
             response = requests.post(url, headers=self.headers, json=payload, timeout=10)
             if response.status_code in [200, 201]:
                 customer = response.json().get('customer', {})
@@ -307,6 +329,7 @@ class ShopifyFlagSyncer:
         url = f"{self.base_url}/customers/{shopify_customer_id}.json"
 
         try:
+            self._rate_limit()  # Rate limit before API call
             response = requests.get(url, headers=self.headers, timeout=10)
             if response.status_code == 200:
                 customer = response.json().get('customer', {})
@@ -350,6 +373,7 @@ class ShopifyFlagSyncer:
         }
 
         try:
+            self._rate_limit()  # Rate limit before API call
             response = requests.put(url, headers=self.headers, json=payload, timeout=10)
             if response.status_code == 200:
                 return True
@@ -392,6 +416,7 @@ class ShopifyFlagSyncer:
         }
 
         try:
+            self._rate_limit()  # Rate limit before API call
             response = requests.put(url, headers=self.headers, json=payload, timeout=10)
             if response.status_code == 200:
                 return True
