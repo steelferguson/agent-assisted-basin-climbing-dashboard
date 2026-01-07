@@ -143,6 +143,74 @@ class ShopifyFlagSyncer:
 
         return None
 
+    def create_shopify_customer(self, email: Optional[str] = None, phone: Optional[str] = None,
+                                first_name: str = "", last_name: str = "",
+                                capitan_customer_id: str = "") -> Optional[str]:
+        """
+        Create a new customer in Shopify.
+
+        Args:
+            email: Customer email
+            phone: Customer phone
+            first_name: Customer first name
+            last_name: Customer last name
+            capitan_customer_id: Capitan customer ID (stored in metafield)
+
+        Returns:
+            Shopify customer ID (as string) or None if creation failed
+        """
+        if not email and not phone:
+            print("   ⚠️  Cannot create customer: need at least email or phone")
+            return None
+
+        url = f"{self.base_url}/customers.json"
+
+        # Build customer payload
+        customer_data = {
+            "first_name": first_name if first_name and pd.notna(first_name) else "",
+            "last_name": last_name if last_name and pd.notna(last_name) else "",
+            "tags": "capitan-import",  # Tag to indicate this was imported from Capitan
+            "note": f"Imported from Capitan (customer_id: {capitan_customer_id})",
+            "verified_email": False,  # Don't auto-verify
+            "accepts_marketing": False  # Don't opt them in without consent
+        }
+
+        # Add email if available
+        if email and pd.notna(email):
+            customer_data["email"] = email
+
+        # Add phone if available
+        if phone and pd.notna(phone):
+            # Normalize phone to E.164 format (+1XXXXXXXXXX for US)
+            phone_digits = ''.join(filter(str.isdigit, str(phone)))
+            if len(phone_digits) >= 10:
+                phone_normalized = f"+1{phone_digits[-10:]}"
+                customer_data["phone"] = phone_normalized
+
+        # Add metafield for Capitan customer ID
+        customer_data["metafields"] = [
+            {
+                "namespace": "basin",
+                "key": "capitan_customer_id",
+                "value": str(capitan_customer_id),
+                "type": "single_line_text_field"
+            }
+        ]
+
+        payload = {"customer": customer_data}
+
+        try:
+            response = requests.post(url, headers=self.headers, json=payload, timeout=10)
+            if response.status_code in [200, 201]:
+                customer = response.json().get('customer', {})
+                return str(customer['id'])
+            else:
+                print(f"   ⚠️  Failed to create customer: {response.status_code} - {response.text}")
+                return None
+        except Exception as e:
+            print(f"   ⚠️  Error creating customer: {e}")
+            return None
+
     def set_customer_metafield(self, shopify_customer_id: str, namespace: str, key: str,
                               value: str, value_type: str = "boolean") -> bool:
         """
@@ -381,6 +449,7 @@ class ShopifyFlagSyncer:
 
             synced = 0
             not_found = 0
+            created = 0
             errors = 0
 
             for _, row in flag_subset.iterrows():
@@ -393,10 +462,32 @@ class ShopifyFlagSyncer:
                 # Search for customer in Shopify
                 shopify_id = self.search_shopify_customer(email=email, phone=phone)
 
+                # If not found, create customer (if they have email or phone)
                 if not shopify_id:
-                    not_found += 1
-                    print(f"   ⚠️  Customer {capitan_id} ({first_name} {last_name}) not found in Shopify")
-                    continue
+                    if (email and pd.notna(email)) or (phone and pd.notna(phone)):
+                        if not dry_run:
+                            print(f"   📝 Creating Shopify customer for {capitan_id} ({first_name} {last_name})...")
+                            shopify_id = self.create_shopify_customer(
+                                email=email,
+                                phone=phone,
+                                first_name=first_name,
+                                last_name=last_name,
+                                capitan_customer_id=capitan_id
+                            )
+                            if shopify_id:
+                                created += 1
+                                print(f"   ✅ Created Shopify customer {shopify_id}")
+                            else:
+                                errors += 1
+                                continue
+                        else:
+                            created += 1
+                            print(f"   [DRY RUN] Would create Shopify customer for {capitan_id} ({first_name} {last_name})")
+                            shopify_id = "DRY_RUN_ID"  # Placeholder for dry run
+                    else:
+                        not_found += 1
+                        print(f"   ⚠️  Customer {capitan_id} ({first_name} {last_name}) has no email or phone - cannot create")
+                        continue
 
                 # Add tag
                 if not dry_run:
@@ -414,8 +505,9 @@ class ShopifyFlagSyncer:
                     print(f"   [DRY RUN] Would add tag '{tag_name}' to customer {capitan_id} (Shopify ID: {shopify_id})")
 
             print(f"\n   Summary for {flag_name} -> tag '{tag_name}':")
-            print(f"      Synced: {synced}")
-            print(f"      Not found in Shopify: {not_found}")
+            print(f"      Tagged: {synced}")
+            print(f"      Created in Shopify: {created}")
+            print(f"      Missing contact info: {not_found}")
             print(f"      Errors: {errors}")
 
         # Clean up stale tags (tags that exist in Shopify but not in current flags)
