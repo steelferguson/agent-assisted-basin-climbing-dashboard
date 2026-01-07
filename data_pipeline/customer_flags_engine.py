@@ -392,18 +392,50 @@ class CustomerFlagsEngine:
         except Exception as e:
             print(f"   ⚠️  Error logging flag events: {e}")
 
-        # 5. Save flags to S3
-        print("\n💾 Saving flags to S3...")
+        # 5. Merge with existing flags and save to S3
+        print("\n💾 Merging with existing flags and saving to S3...")
         try:
+            # Load existing flags
+            try:
+                obj = s3_client.get_object(Bucket=bucket_name, Key='customers/customer_flags.csv')
+                df_existing_flags = pd.read_csv(StringIO(obj['Body'].read().decode('utf-8')))
+                df_existing_flags['triggered_date'] = pd.to_datetime(df_existing_flags['triggered_date'])
+                df_existing_flags['flag_added_date'] = pd.to_datetime(df_existing_flags['flag_added_date'])
+                print(f"   📂 Loaded {len(df_existing_flags)} existing flags")
+            except:
+                df_existing_flags = pd.DataFrame(columns=[
+                    'customer_id', 'flag_type', 'triggered_date',
+                    'flag_data', 'priority', 'flag_added_date'
+                ])
+                print(f"   📂 No existing flags found, starting fresh")
+
+            # Merge new flags with existing flags
+            # Keep the newer flag for each (customer_id, flag_type) pair
+            df_all_flags = pd.concat([df_existing_flags, df_flags], ignore_index=True)
+            df_all_flags = df_all_flags.sort_values('flag_added_date', ascending=False)
+            df_all_flags = df_all_flags.drop_duplicates(
+                subset=['customer_id', 'flag_type'],
+                keep='first'  # Keep the most recent
+            )
+
+            # Remove expired flags (older than 14 days)
+            today_dt = datetime.combine(today, datetime.min.time())
+            df_all_flags = df_all_flags[
+                df_all_flags['flag_added_date'] >= (today_dt - pd.Timedelta(days=14))
+            ]
+
+            print(f"   ✅ Merged to {len(df_all_flags)} total flags (added {len(df_flags)} new, kept non-expired existing)")
+
+            # Save merged flags
             csv_buffer = StringIO()
-            df_flags.to_csv(csv_buffer, index=False)
+            df_all_flags.to_csv(csv_buffer, index=False)
 
             s3_client.put_object(
                 Bucket=bucket_name,
                 Key='customers/customer_flags.csv',
                 Body=csv_buffer.getvalue()
             )
-            print(f"   ✅ Saved {len(df_flags)} flags to s3://{bucket_name}/customers/customer_flags.csv")
+            print(f"   ✅ Saved {len(df_all_flags)} flags to s3://{bucket_name}/customers/customer_flags.csv")
 
             # Also track in experiment_tracking if AB test flags exist
             ab_flags = df_flags[df_flags['flag_type'].isin([
