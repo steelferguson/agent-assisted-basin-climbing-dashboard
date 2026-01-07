@@ -69,13 +69,13 @@ def get_customer_ab_group(customer_id: str, email: Optional[str] = None, phone: 
             last_digit = int(last_char, 16) % 10
         else:
             # Phone has no digits, fall back to customer_id
-            customer_id_str = str(customer_id)
-            last_digit = int(customer_id_str[-1])
+            customer_id_int = int(float(customer_id))  # Handle scientific notation
+            last_digit = customer_id_int % 10
 
     # Priority 3: Fall back to customer_id last digit
     else:
-        customer_id_str = str(customer_id)
-        last_digit = int(customer_id_str[-1])
+        customer_id_int = int(float(customer_id))  # Handle scientific notation
+        last_digit = customer_id_int % 10
 
     # Split into groups based on last digit
     if last_digit <= 4:
