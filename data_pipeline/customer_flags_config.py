@@ -530,8 +530,8 @@ class TwoWeekPassUserFlag(FlagRule):
 
     def __init__(self):
         super().__init__(
-            flag_type="used_2_week_pass",
-            description="Customer used a 2-week climbing or fitness pass",
+            flag_type="2_week_pass_purchase",
+            description="Customer purchased a 2-week climbing or fitness pass",
             priority="medium"
         )
 

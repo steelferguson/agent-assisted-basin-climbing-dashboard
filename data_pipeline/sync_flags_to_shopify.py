@@ -562,7 +562,7 @@ class ShopifyFlagSyncer:
             'first-time-day-pass-2wk-offer',
             'second-visit-offer-eligible',
             'second-visit-2wk-offer',
-            'used-2-week-pass'
+            '2-week-pass-purchase'
         ]
 
         # Create mapping of customer_id -> set of their current flag types
