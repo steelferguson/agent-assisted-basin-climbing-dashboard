@@ -197,36 +197,20 @@ def run_daily_pipeline():
     except Exception as e:
         print(f"❌ Error fetching SendGrid data: {e}\n")
 
-    # 13. Run customer flag engine (NEW engine with rules-based evaluation)
-    print("15. Evaluating customer flags...")
-    try:
-        from data_pipeline.customer_flags_engine import CustomerFlagsEngine
-        flag_engine = CustomerFlagsEngine()
-        flag_engine.run()
-        print("✅ Customer flags evaluated successfully\n")
-    except Exception as e:
-        print(f"❌ Error evaluating customer flags: {e}\n")
+    # NOTE: Flag evaluation and Shopify sync moved to separate workflow
+    # See: .github/workflows/flag_sync.yml (runs at 8 AM, 2 PM, 8 PM CT)
+    # This prevents sending customer messages in the middle of the night
 
-    # 14. Sync flags to Shopify
-    print("16. Syncing customer flags to Shopify...")
-    try:
-        from data_pipeline.sync_flags_to_shopify import ShopifyFlagSyncer
-        shopify_syncer = ShopifyFlagSyncer()
-        shopify_syncer.sync_flags_to_shopify(dry_run=False)
-        print("✅ Flags synced to Shopify successfully\n")
-    except Exception as e:
-        print(f"❌ Error syncing flags to Shopify: {e}\n")
-
-    # 15. Generate at-risk members report
-    print("17. Generating at-risk members report...")
+    # 13. Generate at-risk members report
+    print("15. Generating at-risk members report...")
     try:
         upload_at_risk_members(save_local=False)
         print("✅ At-risk members report generated successfully\n")
     except Exception as e:
         print(f"❌ Error generating at-risk members report: {e}\n")
 
-    # 16. Generate new members report (last 28 days)
-    print("18. Generating new members report (last 28 days)...")
+    # 14. Generate new members report (last 28 days)
+    print("16. Generating new members report (last 28 days)...")
     try:
         upload_new_members_report(save_local=False, days_back=28)
         print("✅ New members report generated successfully\n")
