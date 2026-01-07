@@ -448,11 +448,13 @@ class CustomerFlagsEngine:
                 print(f"\n📊 Tracking {len(ab_flags)} AB test assignments...")
                 for _, flag in ab_flags.iterrows():
                     flag_data = json.loads(flag['flag_data'])
-                    experiment_tracking.track_assignment(
+                    experiment_tracking.log_experiment_entry(
                         customer_id=flag['customer_id'],
                         experiment_id=flag_data.get('experiment_id', 'day_pass_conversion_2026_01'),
-                        variant=flag_data.get('ab_group', 'unknown'),
-                        metadata=flag_data
+                        group=flag_data.get('ab_group', 'A'),
+                        entry_flag=flag['flag_type'],
+                        entry_date=flag['triggered_date'],
+                        save_local=False
                     )
                 print(f"   ✅ Tracked experiment assignments")
 
