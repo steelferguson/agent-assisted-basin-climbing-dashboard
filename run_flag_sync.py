@@ -53,6 +53,18 @@ def run_flag_sync():
         import traceback
         traceback.print_exc()
 
+    # 3. Sync flags to Mailchimp
+    print("3. Syncing customer flags to Mailchimp...", flush=True)
+    try:
+        from data_pipeline.sync_flags_to_mailchimp import MailchimpFlagSyncer
+        mailchimp_syncer = MailchimpFlagSyncer()
+        mailchimp_syncer.sync_flags_to_mailchimp(dry_run=False)
+        print("✅ Flags synced to Mailchimp successfully\n", flush=True)
+    except Exception as e:
+        print(f"❌ Error syncing flags to Mailchimp: {e}\n", flush=True)
+        import traceback
+        traceback.print_exc()
+
     print(f"{'='*80}", flush=True)
     print(f"FLAG SYNC COMPLETE - {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", flush=True)
     print(f"{'='*80}\n", flush=True)
