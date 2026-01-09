@@ -9,6 +9,7 @@ Runs all daily data fetching tasks:
 - Mailchimp campaigns (last 90 days with AI content analysis)
 - Capitan associations & events (all events)
 - SendGrid email activity (last 7 days for AB test tracking)
+- Birthday party RSVPs from Firebase
 
 Usage:
     python run_daily_pipeline.py
@@ -216,6 +217,21 @@ def run_daily_pipeline():
         print("✅ New members report generated successfully\n")
     except Exception as e:
         print(f"❌ Error generating new members report: {e}\n")
+
+    # 15. Fetch birthday party RSVPs
+    print("17. Fetching birthday party RSVPs from Firebase...")
+    try:
+        from data_pipeline.fetch_birthday_parties import fetch_birthday_party_data_from_firestore, BirthdayPartyFetcher
+        parties_df, rsvps_df = fetch_birthday_party_data_from_firestore()
+
+        if parties_df is not None and len(parties_df) > 0:
+            fetcher = BirthdayPartyFetcher()
+            fetcher.save_to_bigquery(parties_df, rsvps_df, dataset_id='basin_data')
+            print(f"✅ Uploaded {len(parties_df)} parties and {len(rsvps_df)} RSVPs to BigQuery\n")
+        else:
+            print("ℹ️  No birthday party data found\n")
+    except Exception as e:
+        print(f"❌ Error fetching birthday party data: {e}\n")
 
     print(f"{'='*80}")
     print(f"PIPELINE COMPLETE - {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
