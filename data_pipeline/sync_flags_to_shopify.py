@@ -569,10 +569,10 @@ class ShopifyFlagSyncer:
         active_flags_by_customer = {}
         for _, flag in active_flags_df.iterrows():
             customer_id = flag['customer_id']
-            flag_type = flag['flag_type']
+            flag_name = flag['flag_name']  # Fixed: was 'flag_type' but column is renamed to 'flag_name'
             if customer_id not in active_flags_by_customer:
                 active_flags_by_customer[customer_id] = set()
-            active_flags_by_customer[customer_id].add(flag_type)
+            active_flags_by_customer[customer_id].add(flag_name)
 
         # Load customer data
         customers_df = self.load_customers_from_s3()
