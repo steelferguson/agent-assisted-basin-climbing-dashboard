@@ -174,6 +174,15 @@ class CustomerFlagsEngine:
                     flag = rule.evaluate(customer_id, events_sorted, today)
 
             if flag:
+                # If customer is using parent contact, add "_child" suffix to flag_type
+                # This enables campaigns to target parents with "Your child..." messaging
+                if self.is_using_parent_contact.get(customer_id, False):
+                    flag['flag_type'] = f"{flag['flag_type']}_child"
+                    # Also add to flag_data for context
+                    if 'flag_data' not in flag:
+                        flag['flag_data'] = {}
+                    flag['flag_data']['is_using_parent_contact'] = True
+
                 flags.append(flag)
 
         return flags
