@@ -4,6 +4,21 @@ Sync Customer Flags to Shopify Metafields
 Reads customer flags from S3 and syncs them to Shopify customer metafields.
 Shopify Flows can then trigger on metafield changes to send offers, create discounts, etc.
 
+Flag Types:
+    Standard flags (customer has own contact):
+    - first-time-day-pass-2wk-offer
+    - second-visit-offer-eligible
+    - second-visit-2wk-offer
+    - ready-for-membership
+    - 2-week-pass-purchase
+
+    Child flags (customer using parent contact, enables "Your child..." messaging):
+    - first-time-day-pass-2wk-offer-child
+    - second-visit-offer-eligible-child
+    - second-visit-2wk-offer-child
+    - ready-for-membership-child
+    - 2-week-pass-purchase-child
+
 Usage:
     python sync_flags_to_shopify.py
 
@@ -557,12 +572,18 @@ class ShopifyFlagSyncer:
         """
         # Get list of flag tag prefixes to look for
         # Note: Tags are flag names with underscores replaced by hyphens (NO "flag-" prefix)
+        # Includes both standard flags and _child variants (for customers using parent contact)
         flag_tag_prefixes = [
             'ready-for-membership',
+            'ready-for-membership-child',
             'first-time-day-pass-2wk-offer',
+            'first-time-day-pass-2wk-offer-child',
             'second-visit-offer-eligible',
+            'second-visit-offer-eligible-child',
             'second-visit-2wk-offer',
-            '2-week-pass-purchase'
+            'second-visit-2wk-offer-child',
+            '2-week-pass-purchase',
+            '2-week-pass-purchase-child'
         ]
 
         # Create mapping of customer_id -> set of their current flag types
