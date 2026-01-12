@@ -378,6 +378,114 @@ def upload_new_capitan_membership_data(save_local=False):
         )
 
 
+def upload_capitan_relations_and_family_graph(save_local=False):
+    """
+    Fetches customer relations from Capitan API and builds family relationship graph.
+
+    This combines:
+    1. Relations API data (explicit parent-child relationships)
+    2. Membership roster data (inferred family relationships)
+    3. Youth membership data (parent email on child's membership)
+
+    Uploads both raw relations data and processed family graph to S3.
+    """
+    from data_pipeline.fetch_capitan_membership_data import CapitanDataFetcher
+    from data_pipeline.build_family_relationships import build_family_relationships
+    import json
+
+    print("\n" + "="*60)
+    print("Fetching Capitan Relations & Building Family Graph")
+    print("="*60)
+
+    # Initialize fetcher
+    capitan_token = config.capitan_token
+    if not capitan_token:
+        print("⚠️  No Capitan token found")
+        return
+
+    capitan_fetcher = CapitanDataFetcher(capitan_token)
+    uploader = upload_data.DataUploader()
+
+    # Load customers (need for relations fetch)
+    try:
+        csv_content = uploader.download_from_s3(
+            config.aws_bucket_name,
+            config.s3_path_capitan_customers
+        )
+        if csv_content:
+            from io import StringIO
+            customers_df = pd.read_csv(StringIO(csv_content))
+            print(f"✅ Loaded {len(customers_df)} customers from S3")
+        else:
+            print("⚠️  No customers data found in S3")
+            return
+    except Exception as e:
+        print(f"❌ Error loading customers from S3: {e}")
+        return
+
+    # Fetch relations for all customers
+    print(f"\nFetching relations for {len(customers_df)} customers...")
+    print("   (This takes ~21 minutes with rate limiting)")
+    relations_df = capitan_fetcher.fetch_all_relations(customers_df)
+
+    if relations_df.empty:
+        print("⚠️  No relations data found")
+        relations_df = pd.DataFrame(columns=[
+            'customer_id', 'related_customer_id', 'relationship',
+            'related_customer_first_name', 'related_customer_last_name', 'created_at'
+        ])
+    else:
+        print(f"✅ Fetched {len(relations_df)} relations for {relations_df['customer_id'].nunique()} customers")
+
+    # Load raw memberships (need for family graph)
+    try:
+        # Try to load from local file first (if available)
+        with open('data/raw_data/capitan_customer_memberships_json.json', 'r') as f:
+            memberships_raw = json.load(f)['results']
+        print(f"✅ Loaded {len(memberships_raw)} raw memberships from local file")
+    except FileNotFoundError:
+        print("⚠️  No raw memberships file found locally, will fetch fresh")
+        # Fetch fresh membership data
+        json_response = capitan_fetcher.get_results_from_api("customer-memberships")
+        if json_response:
+            memberships_raw = json_response.get('results', [])
+            print(f"✅ Fetched {len(memberships_raw)} raw memberships from API")
+        else:
+            memberships_raw = []
+            print("⚠️  No raw memberships data available")
+
+    # Build family relationship graph
+    print(f"\nBuilding family relationship graph...")
+    family_df = build_family_relationships(relations_df, memberships_raw, customers_df)
+
+    # Save locally if requested
+    if save_local:
+        print("\nSaving local files...")
+        relations_df.to_csv('data/outputs/capitan_relations.csv', index=False)
+        family_df.to_csv('data/outputs/family_relationships.csv', index=False)
+        print("✅ Saved to data/outputs/")
+
+    # Upload to S3
+    print("\nUploading to S3...")
+    uploader.upload_to_s3(
+        relations_df,
+        config.aws_bucket_name,
+        config.s3_path_capitan_relations
+    )
+    print(f"✅ Uploaded relations to: {config.s3_path_capitan_relations}")
+
+    uploader.upload_to_s3(
+        family_df,
+        config.aws_bucket_name,
+        config.s3_path_family_relationships
+    )
+    print(f"✅ Uploaded family graph to: {config.s3_path_family_relationships}")
+
+    print("\n" + "="*60)
+    print("Relations & Family Graph Upload Complete")
+    print("="*60)
+
+
 def upload_failed_membership_payments(save_local=False, days_back=90):
     """
     Fetches failed membership payment data from Stripe and uploads to S3.

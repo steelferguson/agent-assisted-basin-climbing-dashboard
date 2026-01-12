@@ -437,6 +437,103 @@ class CapitanDataFetcher:
 
         return df
 
+    def fetch_all_relations(self, customers_df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Fetch family relationship data for all customers using the Relations API.
+
+        This captures explicit parent-child, sibling, and other family relationships
+        that have been set up in Capitan.
+
+        Args:
+            customers_df: DataFrame with customer_id and relations_url columns
+
+        Returns:
+            DataFrame with columns:
+            - customer_id: Primary customer (e.g., parent)
+            - related_customer_id: Related person (e.g., child)
+            - relationship: Relationship code ("CHI"=child, "SIB"=sibling, etc.)
+            - related_customer_first_name: Name of related person
+            - related_customer_last_name: Last name of related person
+            - created_at: When relationship was created
+        """
+        import time
+
+        print("\n👨‍👩‍👧‍👦 Fetching customer relations...")
+        print(f"   Processing {len(customers_df)} customers...")
+
+        all_relations = []
+        total = len(customers_df)
+        relations_found = 0
+        errors = 0
+
+        for idx, customer in customers_df.iterrows():
+            # Progress updates every 100 customers
+            if idx % 100 == 0 and idx > 0:
+                print(f"   Progress: {idx}/{total} customers ({idx/total*100:.1f}%) - {relations_found} relations found")
+
+            customer_id = customer['customer_id']
+            relations_url = customer.get('relations_url')
+
+            # Skip if no relations_url
+            if pd.isna(relations_url) or not relations_url:
+                continue
+
+            try:
+                response = requests.get(relations_url, headers=self.headers, timeout=10)
+
+                if response.status_code == 200:
+                    data = response.json()
+
+                    for relation in data.get('results', []):
+                        all_relations.append({
+                            'customer_id': customer_id,
+                            'related_customer_id': relation.get('related_customer_id'),
+                            'relationship': relation.get('relation'),  # "CHI", "SIB", "PAR", etc.
+                            'related_customer_first_name': relation.get('related_customer_first_name'),
+                            'related_customer_last_name': relation.get('related_customer_last_name'),
+                            'created_at': relation.get('created_at')
+                        })
+                        relations_found += 1
+
+                elif response.status_code != 404:  # 404 is expected for customers with no relations
+                    errors += 1
+                    if errors < 5:  # Only print first few errors
+                        print(f"   ⚠️  Status {response.status_code} for customer {customer_id}")
+
+                # Rate limiting: Capitan allows ~10 requests/second, use 9/sec to be safe
+                time.sleep(0.11)
+
+            except requests.exceptions.Timeout:
+                errors += 1
+                if errors < 5:
+                    print(f"   ⚠️  Timeout for customer {customer_id}")
+                continue
+            except Exception as e:
+                errors += 1
+                if errors < 5:
+                    print(f"   ⚠️  Error for customer {customer_id}: {e}")
+                continue
+
+        print(f"\n✅ Relations fetch complete!")
+        print(f"   Total relations found: {len(all_relations)}")
+        print(f"   Unique customers with relations: {len(set(r['customer_id'] for r in all_relations))}")
+        print(f"   Errors encountered: {errors}")
+
+        # Convert to DataFrame
+        df = pd.DataFrame(all_relations)
+
+        # Convert dates
+        if not df.empty and 'created_at' in df.columns:
+            df['created_at'] = pd.to_datetime(df['created_at'], errors='coerce')
+
+        # Show relationship type breakdown
+        if not df.empty and 'relationship' in df.columns:
+            print(f"\n   Relationship types:")
+            for rel_type, count in df['relationship'].value_counts().items():
+                print(f"     {rel_type}: {count}")
+
+        return df
+
 
 if __name__ == "__main__":
     capitan_token = config.capitan_token

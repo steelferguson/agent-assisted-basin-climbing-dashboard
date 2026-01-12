@@ -21,6 +21,7 @@ Or set up as cron job:
 from data_pipeline.pipeline_handler import (
     replace_days_in_transaction_df_in_s3,
     upload_new_capitan_membership_data,
+    upload_capitan_relations_and_family_graph,
     upload_new_capitan_checkins,
     upload_new_instagram_data,
     upload_new_mailchimp_data,
@@ -65,6 +66,15 @@ def run_daily_pipeline():
         print("✅ Capitan data updated successfully\n")
     except Exception as e:
         print(f"❌ Error updating Capitan data: {e}\n")
+
+    # 3a. Update Capitan relations and family graph
+    print("3a. Fetching Capitan relations & building family graph...")
+    print("    (This takes ~21 minutes to fetch all customer relations)")
+    try:
+        upload_capitan_relations_and_family_graph(save_local=False)
+        print("✅ Relations & family graph updated successfully\n")
+    except Exception as e:
+        print(f"❌ Error updating relations & family graph: {e}\n")
 
     # 4. Update Google Analytics 4 data
     print("4. Fetching Google Analytics 4 data (last 30 days)...")

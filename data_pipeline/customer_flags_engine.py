@@ -29,9 +29,15 @@ class CustomerFlagsEngine:
         self.rules = rules if rules is not None else customer_flags_config.get_active_rules()
         self.customer_emails = {}  # Cache for customer emails
         self.customer_phones = {}  # Cache for customer phones
+        self.is_using_parent_contact = {}  # Track which customers are using parent contact
 
     def load_customer_contact_info(self):
-        """Load customer emails and phones from S3 for AB group assignment."""
+        """
+        Load customer emails and phones from S3 for AB group assignment.
+
+        For customers without their own contact info, looks up parent contact
+        from the family relationship graph.
+        """
         try:
             # Try S3 first
             aws_access_key_id = os.getenv("AWS_ACCESS_KEY_ID")
@@ -44,26 +50,83 @@ class CustomerFlagsEngine:
                     aws_secret_access_key=aws_secret_access_key
                 )
 
+                # Load customers
                 obj = s3_client.get_object(
                     Bucket='basin-climbing-data-prod',
                     Key='capitan/customers.csv'
                 )
-                df = pd.read_csv(StringIO(obj['Body'].read().decode('utf-8')))
-            else:
-                # Fall back to local file
-                df = pd.read_csv('data/outputs/capitan_customers.csv')
+                df_customers = pd.read_csv(StringIO(obj['Body'].read().decode('utf-8')))
 
-            # Build email and phone lookup dicts
-            self.customer_emails = df.set_index('customer_id')['email'].to_dict()
-            self.customer_phones = df.set_index('customer_id')['phone'].to_dict()
+                # Load family relationships graph
+                try:
+                    obj_family = s3_client.get_object(
+                        Bucket='basin-climbing-data-prod',
+                        Key='customers/family_relationships.csv'
+                    )
+                    df_family = pd.read_csv(StringIO(obj_family['Body'].read().decode('utf-8')))
+                    print(f"   Loaded {len(df_family)} family relationships")
+                except Exception as e:
+                    print(f"   ⚠️  Could not load family relationships: {e}")
+                    df_family = pd.DataFrame()
+            else:
+                # Fall back to local files
+                df_customers = pd.read_csv('data/outputs/capitan_customers.csv')
+                try:
+                    df_family = pd.read_csv('data/outputs/family_relationships.csv')
+                    print(f"   Loaded {len(df_family)} family relationships from local file")
+                except FileNotFoundError:
+                    print(f"   ⚠️  No family relationships file found locally")
+                    df_family = pd.DataFrame()
+
+            # Build initial email and phone lookup dicts
+            self.customer_emails = df_customers.set_index('customer_id')['email'].to_dict()
+            self.customer_phones = df_customers.set_index('customer_id')['phone'].to_dict()
+            self.is_using_parent_contact = {cid: False for cid in df_customers['customer_id']}
+
+            initial_with_email = sum(1 for e in self.customer_emails.values() if pd.notna(e) and e != '')
+            initial_with_phone = sum(1 for p in self.customer_phones.values() if pd.notna(p) and p != '')
+
+            # Enrich with parent contact info for customers without their own
+            parent_contact_added = 0
+            if not df_family.empty:
+                for _, row in df_family.iterrows():
+                    child_id = row['child_customer_id']
+                    parent_id = row['parent_customer_id']
+
+                    # Check if child lacks contact info
+                    child_email = self.customer_emails.get(child_id)
+                    child_phone = self.customer_phones.get(child_id)
+                    has_own_email = pd.notna(child_email) and child_email != ''
+                    has_own_phone = pd.notna(child_phone) and child_phone != ''
+
+                    if not (has_own_email and has_own_phone):
+                        # Look up parent contact
+                        parent_email = self.customer_emails.get(parent_id)
+                        parent_phone = self.customer_phones.get(parent_id)
+
+                        # Use parent contact if available
+                        if not has_own_email and pd.notna(parent_email) and parent_email != '':
+                            self.customer_emails[child_id] = parent_email
+                            self.is_using_parent_contact[child_id] = True
+                            parent_contact_added += 1
+
+                        if not has_own_phone and pd.notna(parent_phone) and parent_phone != '':
+                            self.customer_phones[child_id] = parent_phone
+                            self.is_using_parent_contact[child_id] = True
+
+            final_with_email = sum(1 for e in self.customer_emails.values() if pd.notna(e) and e != '')
+            final_with_phone = sum(1 for p in self.customer_phones.values() if pd.notna(p) and p != '')
+
             print(f"   Loaded contact info for {len(self.customer_emails)} customers")
-            print(f"   - {sum(1 for e in self.customer_emails.values() if pd.notna(e))} with emails")
-            print(f"   - {sum(1 for p in self.customer_phones.values() if pd.notna(p))} with phones")
+            print(f"   - {initial_with_email} with own emails → {final_with_email} after parent lookup (+{final_with_email - initial_with_email})")
+            print(f"   - {initial_with_phone} with own phones → {final_with_phone} after parent lookup (+{final_with_phone - initial_with_phone})")
+            print(f"   - {parent_contact_added} customers now reachable via parent contact")
 
         except Exception as e:
             print(f"   ⚠️  Could not load customer contact info: {e}")
             self.customer_emails = {}
             self.customer_phones = {}
+            self.is_using_parent_contact = {}
 
     def evaluate_customer(
         self,
