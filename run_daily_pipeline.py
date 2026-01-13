@@ -198,6 +198,15 @@ def run_daily_pipeline():
     except Exception as e:
         print(f"❌ Error building membership conversion metrics: {e}\n")
 
+    # 9d. Build flag-email verification report
+    print("11d. Building flag-email verification report...")
+    try:
+        from data_pipeline.build_flag_email_verification import upload_flag_email_verification
+        upload_flag_email_verification(save_local=False)
+        print("✅ Flag-email verification report updated\n")
+    except Exception as e:
+        print(f"❌ Error building flag-email verification report: {e}\n")
+
     # 10. Generate team membership reconciliation report
     print("12. Generating team membership reconciliation report...")
     try:
