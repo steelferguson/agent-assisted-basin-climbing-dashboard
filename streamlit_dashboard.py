@@ -2825,8 +2825,16 @@ with tab6:
             with col3:
                 # Calculate most recent request
                 most_recent = df_waiver['date_sent'].max()
-                days_ago = (pd.Timestamp.now() - most_recent).days
-                st.metric('Most Recent Request', f'{days_ago} days ago')
+                # Remove timezone if present
+                if pd.notna(most_recent):
+                    if hasattr(most_recent, 'tz_localize'):
+                        most_recent = most_recent.tz_localize(None)
+                    elif hasattr(most_recent, 'tz'):
+                        most_recent = most_recent.replace(tzinfo=None)
+                    days_ago = (pd.Timestamp.now() - most_recent).days
+                    st.metric('Most Recent Request', f'{days_ago} days ago')
+                else:
+                    st.metric('Most Recent Request', 'N/A')
         else:
             st.info('No waiver request messages found')
     else:
