@@ -1637,15 +1637,27 @@ with tab3:
 
                 if recency_data:
                     df_recency = pd.DataFrame(recency_data)
-                    df_recency['date_period'] = df_recency['date'].dt.to_period(timeframe_daypass).dt.start_time
 
-                    # Aggregate by date and recency category
-                    recency_summary = (
-                        df_recency
-                        .groupby(['date_period', 'recency_category'])['count']
-                        .sum()
-                        .reset_index()
-                    )
+                    # Use Grouper for more reliable date aggregation, especially for weekly periods
+                    if timeframe_daypass == 'W':
+                        # For weekly, use Sunday as week start (W-SUN)
+                        df_recency = df_recency.set_index('date')
+                        recency_summary = (
+                            df_recency
+                            .groupby([pd.Grouper(freq='W-SUN'), 'recency_category'])['count']
+                            .sum()
+                            .reset_index()
+                        )
+                        recency_summary.rename(columns={'date': 'date_period'}, inplace=True)
+                    else:
+                        # For other timeframes, use period approach
+                        df_recency['date_period'] = df_recency['date'].dt.to_period(timeframe_daypass).dt.start_time
+                        recency_summary = (
+                            df_recency
+                            .groupby(['date_period', 'recency_category'])['count']
+                            .sum()
+                            .reset_index()
+                        )
 
                     # Define category order and colors
                     category_order = [
@@ -1736,13 +1748,25 @@ with tab3:
             df_day_pass_checkins['entry_method_description'].str.lower().str.contains('|'.join(day_pass_keywords), na=False)
         ]
 
-        df_day_pass_checkins['date'] = df_day_pass_checkins['checkin_datetime'].dt.to_period(timeframe_daypass).dt.start_time
-
-        day_pass_used_summary = (
-            df_day_pass_checkins.groupby('date')
-            .size()
-            .reset_index(name='passes_used')
-        )
+        # Use Grouper for more reliable date aggregation, especially for weekly periods
+        if timeframe_daypass == 'W':
+            # For weekly, use Sunday as week start (W-SUN)
+            df_day_pass_checkins = df_day_pass_checkins.set_index('checkin_datetime')
+            day_pass_used_summary = (
+                df_day_pass_checkins
+                .groupby(pd.Grouper(freq='W-SUN'))
+                .size()
+                .reset_index(name='passes_used')
+            )
+            day_pass_used_summary.rename(columns={'checkin_datetime': 'date'}, inplace=True)
+        else:
+            # For other timeframes, use period approach
+            df_day_pass_checkins['date'] = df_day_pass_checkins['checkin_datetime'].dt.to_period(timeframe_daypass).dt.start_time
+            day_pass_used_summary = (
+                df_day_pass_checkins.groupby('date')
+                .size()
+                .reset_index(name='passes_used')
+            )
 
         fig_day_pass_used = px.bar(
             day_pass_used_summary,
@@ -1779,7 +1803,6 @@ with tab3:
         df_checkins_chart['checkin_datetime'] = pd.to_datetime(df_checkins_chart['checkin_datetime'], errors='coerce', utc=True)
         df_checkins_chart = df_checkins_chart[df_checkins_chart['checkin_datetime'].notna()].copy()
         df_checkins_chart['checkin_datetime'] = df_checkins_chart['checkin_datetime'].dt.tz_localize(None)
-        df_checkins_chart['date'] = df_checkins_chart['checkin_datetime'].dt.to_period(timeframe_daypass).dt.start_time
 
         # Determine if check-in is from member or non-member
         # Check if customer has a membership (is in memberships df with active status)
@@ -1799,7 +1822,21 @@ with tab3:
             lambda x: 'Member' if x in active_member_customer_ids else 'Non-Member'
         )
 
-        checkins_by_type = df_checkins_chart.groupby(['date', 'type']).size().reset_index(name='count')
+        # Use Grouper for more reliable date aggregation, especially for weekly periods
+        if timeframe_daypass == 'W':
+            # For weekly, use Sunday as week start (W-SUN)
+            df_checkins_chart = df_checkins_chart.set_index('checkin_datetime')
+            checkins_by_type = (
+                df_checkins_chart
+                .groupby([pd.Grouper(freq='W-SUN'), 'type'])
+                .size()
+                .reset_index(name='count')
+            )
+            checkins_by_type.rename(columns={'checkin_datetime': 'date'}, inplace=True)
+        else:
+            # For other timeframes, use period approach
+            df_checkins_chart['date'] = df_checkins_chart['checkin_datetime'].dt.to_period(timeframe_daypass).dt.start_time
+            checkins_by_type = df_checkins_chart.groupby(['date', 'type']).size().reset_index(name='count')
 
         fig_checkins_type = px.bar(
             checkins_by_type,
@@ -2427,6 +2464,11 @@ with tab6:
         df_ads = df_facebook_ads.copy()
         df_ads['date'] = pd.to_datetime(df_ads['date'], errors='coerce')
         df_ads = df_ads[df_ads['date'].notna()]
+
+        # Add missing columns with default values
+        for col in ['registrations', 'add_to_carts', 'link_clicks', 'leads', 'purchases']:
+            if col not in df_ads.columns:
+                df_ads[col] = 0
 
         # Aggregate by campaign for lifetime performance
         st.markdown('**Ad Campaigns - Lifetime Performance**')
