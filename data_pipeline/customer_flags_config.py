@@ -539,16 +539,16 @@ class TwoWeekPassUserFlag(FlagRule):
         """
         Check if customer has purchased a 2-week pass.
         """
-        # Get all purchase events with 2-week passes
-        two_week_purchases = [
+        # Get all purchase events (any event_type ending in '_purchase')
+        all_purchases = [
             e for e in events
-            if e['event_type'] == 'purchase'
+            if e['event_type'].endswith('_purchase')
             and isinstance(e.get('event_data'), dict)
         ]
 
         # Filter to 2-week pass purchases by checking description
         filtered_purchases = []
-        for purchase in two_week_purchases:
+        for purchase in all_purchases:
             event_data = purchase.get('event_data', {})
             description = event_data.get('description', '').lower()
 
