@@ -374,6 +374,26 @@ class CustomerFlagsEngine:
             obj = s3_client.get_object(Bucket=bucket_name, Key='customers/customer_events.csv')
             df_events = pd.read_csv(StringIO(obj['Body'].read().decode('utf-8')))
             df_events['event_date'] = pd.to_datetime(df_events['event_date'])
+
+            # Parse event_details JSON into event_data for purchase events
+            # This makes purchase descriptions available to flag rules
+            def parse_event_details(row):
+                # If event_data is already populated, use it
+                if pd.notna(row.get('event_data')):
+                    try:
+                        return json.loads(row['event_data']) if isinstance(row['event_data'], str) else row['event_data']
+                    except:
+                        pass
+
+                # Otherwise, parse event_details JSON
+                if pd.notna(row.get('event_details')):
+                    try:
+                        return json.loads(row['event_details']) if isinstance(row['event_details'], str) else row['event_details']
+                    except:
+                        return {}
+                return {}
+
+            df_events['event_data'] = df_events.apply(parse_event_details, axis=1)
             print(f"   ✅ Loaded {len(df_events)} customer events")
         except Exception as e:
             print(f"   ❌ Error loading customer events: {e}")
