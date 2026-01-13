@@ -1588,39 +1588,44 @@ with tab3:
     st.plotly_chart(fig_day_pass_revenue, use_container_width=True)
 
     # Day Pass Customer Recency Analysis
-    st.subheader('Day Pass Purchasers by Customer Type')
+    st.subheader('Day Pass Users by Customer Type')
 
-    if not df_customer_events.empty:
+    if not df_checkins.empty:
         try:
-            # Convert event_date to datetime for the entire dataframe first
-            df_customer_events_clean = df_customer_events.copy()
-            df_customer_events_clean['event_date'] = pd.to_datetime(df_customer_events_clean['event_date'], errors='coerce')
+            # Get all check-ins and filter to day pass entries
+            df_checkins_clean = df_checkins.copy()
+            df_checkins_clean['checkin_datetime'] = pd.to_datetime(df_checkins_clean['checkin_datetime'], errors='coerce', utc=True)
+            df_checkins_clean = df_checkins_clean[df_checkins_clean['checkin_datetime'].notna()].copy()
+            df_checkins_clean['checkin_datetime'] = df_checkins_clean['checkin_datetime'].dt.tz_localize(None)
 
-            # Get day pass purchases from customer_events
-            df_day_pass_events = df_customer_events_clean[
-                df_customer_events_clean['event_type'] == 'day_pass_purchase'
+            # Filter to day pass entries
+            day_pass_keywords = ['day pass', 'punch pass', 'pass']
+            df_day_pass_checkins = df_checkins_clean[
+                df_checkins_clean['entry_method_description'].str.lower().str.contains('|'.join(day_pass_keywords), na=False)
             ].copy()
 
-            if not df_day_pass_events.empty:
-                # For each day pass purchase, determine customer type based on prior activity
-                recency_data = []
-                for _, purchase in df_day_pass_events.iterrows():
-                    customer_id = purchase['customer_id']
-                    purchase_date = purchase['event_date']
+            if not df_day_pass_checkins.empty:
+                # Sort by datetime for chronological analysis
+                df_day_pass_checkins = df_day_pass_checkins.sort_values('checkin_datetime')
 
-                    # Get all prior events for this customer (excluding flag_set events)
-                    prior_events = df_customer_events_clean[
-                        (df_customer_events_clean['customer_id'] == customer_id) &
-                        (df_customer_events_clean['event_date'] < purchase_date) &
-                        (df_customer_events_clean['event_type'] != 'flag_set')
+                # For each day pass check-in, determine customer type based on prior check-in history
+                recency_data = []
+                for _, checkin in df_day_pass_checkins.iterrows():
+                    customer_id = checkin['customer_id']
+                    checkin_date = checkin['checkin_datetime']
+
+                    # Get all prior check-ins for this customer (any entry method)
+                    prior_checkins = df_checkins_clean[
+                        (df_checkins_clean['customer_id'] == customer_id) &
+                        (df_checkins_clean['checkin_datetime'] < checkin_date)
                     ]
 
-                    if len(prior_events) == 0:
+                    if len(prior_checkins) == 0:
                         recency_category = 'New Customer'
                     else:
-                        # Get most recent prior event date
-                        last_activity = prior_events['event_date'].max()
-                        days_since = (purchase_date - last_activity).days
+                        # Get most recent prior check-in date
+                        last_checkin = prior_checkins['checkin_datetime'].max()
+                        days_since = (checkin_date - last_checkin).days
 
                         if days_since <= 60:  # 0-2 months
                             recency_category = 'Returning (0-2mo)'
@@ -1630,7 +1635,7 @@ with tab3:
                             recency_category = 'Returning (6+mo)'
 
                     recency_data.append({
-                        'date': purchase_date,
+                        'date': checkin_date,
                         'recency_category': recency_category,
                         'count': 1
                     })
@@ -1679,7 +1684,7 @@ with tab3:
                         x='date_period',
                         y='count',
                         color='recency_category',
-                        title='Day Pass Purchases by Customer Type',
+                        title='Day Pass Check-ins by Customer Type',
                         barmode='stack',
                         category_orders={'recency_category': category_order},
                         color_discrete_map=color_map
@@ -1724,16 +1729,16 @@ with tab3:
                             long_pct = 100 * total_by_category_recent.get('Returning (6+mo)', 0) / total_passes_recent if total_passes_recent > 0 else 0
                             st.metric('Returning (6+ mo)', f"{long_pct:.1f}%", help=f"Most recent period: {latest_period.strftime('%Y-%m-%d')}")
                 else:
-                    st.info('No day pass purchases to analyze')
+                    st.info('No day pass check-ins to analyze')
             else:
-                st.info('No day pass purchases found in customer events')
+                st.info('No day pass check-ins found')
 
         except Exception as e:
-            st.error(f'Error analyzing day pass recency: {str(e)}')
+            st.error(f'Error analyzing day pass check-ins: {str(e)}')
             import traceback
             st.code(traceback.format_exc())
     else:
-        st.info('Customer events data required for recency analysis')
+        st.info('Check-in data required for day pass analysis')
 
     # Day Passes Used (from checkins)
     st.subheader('Day Passes Used (Check-ins)')
