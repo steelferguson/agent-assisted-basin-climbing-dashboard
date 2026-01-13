@@ -1703,23 +1703,26 @@ with tab3:
 
                     st.plotly_chart(fig_recency, use_container_width=True)
 
-                    # Show summary stats
-                    total_by_category = recency_summary.groupby('recency_category')['count'].sum()
-                    total_passes = total_by_category.sum()
+                    # Show summary stats for the most recent period only
+                    if not recency_summary.empty:
+                        latest_period = recency_summary['date_period'].max()
+                        latest_data = recency_summary[recency_summary['date_period'] == latest_period]
+                        total_by_category_recent = latest_data.set_index('recency_category')['count']
+                        total_passes_recent = total_by_category_recent.sum()
 
-                    col1, col2, col3, col4 = st.columns(4)
-                    with col1:
-                        new_pct = 100 * total_by_category.get('New Customer', 0) / total_passes if total_passes > 0 else 0
-                        st.metric('New Customers', f"{new_pct:.1f}%")
-                    with col2:
-                        recent_pct = 100 * total_by_category.get('Returning (0-2mo)', 0) / total_passes if total_passes > 0 else 0
-                        st.metric('Returning (0-2 mo)', f"{recent_pct:.1f}%")
-                    with col3:
-                        return_pct = 100 * total_by_category.get('Returning (2-6mo)', 0) / total_passes if total_passes > 0 else 0
-                        st.metric('Returning (2-6 mo)', f"{return_pct:.1f}%")
-                    with col4:
-                        long_pct = 100 * total_by_category.get('Returning (6+mo)', 0) / total_passes if total_passes > 0 else 0
-                        st.metric('Returning (6+ mo)', f"{long_pct:.1f}%")
+                        col1, col2, col3, col4 = st.columns(4)
+                        with col1:
+                            new_pct = 100 * total_by_category_recent.get('New Customer', 0) / total_passes_recent if total_passes_recent > 0 else 0
+                            st.metric('New Customers', f"{new_pct:.1f}%", help=f"Most recent period: {latest_period.strftime('%Y-%m-%d')}")
+                        with col2:
+                            recent_pct = 100 * total_by_category_recent.get('Returning (0-2mo)', 0) / total_passes_recent if total_passes_recent > 0 else 0
+                            st.metric('Returning (0-2 mo)', f"{recent_pct:.1f}%", help=f"Most recent period: {latest_period.strftime('%Y-%m-%d')}")
+                        with col3:
+                            return_pct = 100 * total_by_category_recent.get('Returning (2-6mo)', 0) / total_passes_recent if total_passes_recent > 0 else 0
+                            st.metric('Returning (2-6 mo)', f"{return_pct:.1f}%", help=f"Most recent period: {latest_period.strftime('%Y-%m-%d')}")
+                        with col4:
+                            long_pct = 100 * total_by_category_recent.get('Returning (6+mo)', 0) / total_passes_recent if total_passes_recent > 0 else 0
+                            st.metric('Returning (6+ mo)', f"{long_pct:.1f}%", help=f"Most recent period: {latest_period.strftime('%Y-%m-%d')}")
                 else:
                     st.info('No day pass purchases to analyze')
             else:

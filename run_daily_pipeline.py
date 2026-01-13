@@ -33,7 +33,8 @@ from data_pipeline.pipeline_handler import (
     upload_new_shopify_data,
     upload_at_risk_members,
     upload_new_members_report,
-    upload_new_sendgrid_data
+    upload_new_sendgrid_data,
+    update_customer_master
 )
 import datetime
 
@@ -169,6 +170,15 @@ def run_daily_pipeline():
         print("✅ Customer connections updated successfully\n")
     except Exception as e:
         print(f"❌ Error updating customer connections: {e}\n")
+
+    # 9a. Update customer master and rebuild customer events
+    print("11a. Updating customer master and rebuilding customer events...")
+    print("    (This includes identity resolution and event aggregation)")
+    try:
+        df_master, df_identifiers, df_events = update_customer_master(save_local=False)
+        print(f"✅ Customer master updated: {len(df_master)} customers, {len(df_events)} events\n")
+    except Exception as e:
+        print(f"❌ Error updating customer master: {e}\n")
 
     # 10. Generate team membership reconciliation report
     print("12. Generating team membership reconciliation report...")
