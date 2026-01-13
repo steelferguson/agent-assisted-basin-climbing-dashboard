@@ -189,6 +189,15 @@ def run_daily_pipeline():
     except Exception as e:
         print(f"❌ Error building day pass engagement table: {e}\n")
 
+    # 9c. Build membership conversion metrics
+    print("11c. Building membership conversion metrics...")
+    try:
+        from data_pipeline.build_membership_conversion_metrics import upload_membership_conversion_metrics
+        upload_membership_conversion_metrics(save_local=False)
+        print("✅ Membership conversion metrics updated\n")
+    except Exception as e:
+        print(f"❌ Error building membership conversion metrics: {e}\n")
+
     # 10. Generate team membership reconciliation report
     print("12. Generating team membership reconciliation report...")
     try:

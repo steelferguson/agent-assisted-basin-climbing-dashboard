@@ -115,6 +115,7 @@ def load_data():
     df_customer_events = load_df(config.aws_bucket_name, config.s3_path_customer_events)
     df_customer_flags = load_df(config.aws_bucket_name, config.s3_path_customer_flags)
     df_day_pass_engagement = load_df(config.aws_bucket_name, 'analytics/day_pass_engagement.csv')
+    df_membership_conversion = load_df(config.aws_bucket_name, 'analytics/membership_conversion_metrics.csv')
 
     # Load Shopify orders and convert to transaction format
     df_shopify = load_df(config.aws_bucket_name, config.s3_path_shopify_orders)
@@ -124,12 +125,12 @@ def load_data():
         # Merge with existing transactions
         df_transactions = pd.concat([df_transactions, shopify_transactions], ignore_index=True)
 
-    return df_transactions, df_memberships, df_members, df_projection, df_at_risk, df_new_members, df_facebook_ads, df_events, df_checkins, df_instagram, df_mailchimp, df_failed_payments, df_expenses, df_twilio_messages, df_customer_identifiers, df_customers_master, df_customer_events, df_customer_flags, df_day_pass_engagement
+    return df_transactions, df_memberships, df_members, df_projection, df_at_risk, df_new_members, df_facebook_ads, df_events, df_checkins, df_instagram, df_mailchimp, df_failed_payments, df_expenses, df_twilio_messages, df_customer_identifiers, df_customers_master, df_customer_events, df_customer_flags, df_day_pass_engagement, df_membership_conversion
 
 
 # Load data
 with st.spinner('Loading data from S3...'):
-    df_transactions, df_memberships, df_members, df_projection, df_at_risk, df_new_members, df_facebook_ads, df_events, df_checkins, df_instagram, df_mailchimp, df_failed_payments, df_expenses, df_twilio_messages, df_customer_identifiers, df_customers_master, df_customer_events, df_customer_flags, df_day_pass_engagement = load_data()
+    df_transactions, df_memberships, df_members, df_projection, df_at_risk, df_new_members, df_facebook_ads, df_events, df_checkins, df_instagram, df_mailchimp, df_failed_payments, df_expenses, df_twilio_messages, df_customer_identifiers, df_customers_master, df_customer_events, df_customer_flags, df_day_pass_engagement, df_membership_conversion = load_data()
 
 # Prepare at-risk members data
 if not df_at_risk.empty:
@@ -1830,6 +1831,105 @@ with tab3:
             st.code(traceback.format_exc())
     else:
         st.info('Check-in data required for day pass analysis')
+
+    # Membership Conversion Funnel
+    st.markdown('---')
+    st.subheader('Path to Membership: Check-ins Before Joining')
+    st.markdown('How many visits did new members have before purchasing their first membership?')
+
+    if not df_membership_conversion.empty:
+        df_conversion = df_membership_conversion.copy()
+        df_conversion['membership_start_date'] = pd.to_datetime(df_conversion['membership_start_date'], errors='coerce')
+
+        # Aggregate by time period for trend analysis
+        df_conversion['period'] = df_conversion['membership_start_date'].dt.to_period(timeframe_daypass).dt.start_time
+
+        # Calculate average check-ins per period
+        avg_by_period = df_conversion.groupby('period')['previous_checkins_count'].mean().reset_index()
+        avg_by_period.columns = ['period', 'avg_checkins']
+
+        # Distribution by bucket over time
+        bucket_by_period = df_conversion.groupby(['period', 'checkins_bucket']).size().reset_index(name='count')
+
+        # Overall metrics
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            avg_overall = df_conversion['previous_checkins_count'].mean()
+            st.metric('Avg Check-ins Before Membership', f"{avg_overall:.1f}")
+        with col2:
+            median_overall = df_conversion['previous_checkins_count'].median()
+            st.metric('Median Check-ins', f"{int(median_overall)}")
+        with col3:
+            zero_checkins = len(df_conversion[df_conversion['previous_checkins_count'] == 0])
+            zero_pct = 100 * zero_checkins / len(df_conversion)
+            st.metric('Joined Without Visiting', f"{zero_pct:.1f}%")
+        with col4:
+            st.metric('Total New Memberships', f"{len(df_conversion):,}")
+
+        # Line chart: Average check-ins over time
+        if not avg_by_period.empty:
+            fig_avg = px.line(
+                avg_by_period,
+                x='period',
+                y='avg_checkins',
+                title='Average Check-ins Before Membership (Over Time)',
+                markers=True
+            )
+            fig_avg.update_traces(line_color=COLORS['primary'], line_width=3)
+            fig_avg.update_layout(
+                plot_bgcolor=COLORS['background'],
+                paper_bgcolor=COLORS['background'],
+                font_color=COLORS['text'],
+                yaxis_title='Average Check-ins',
+                xaxis_title='Membership Start Date',
+                showlegend=False
+            )
+            st.plotly_chart(fig_avg, use_container_width=True)
+
+        # Stacked bar chart: Distribution by bucket
+        if not bucket_by_period.empty:
+            # Define bucket order
+            bucket_order = ['0', '1', '2', '3', '4', '5+']
+
+            # Define colors for buckets (gradient from new to experienced)
+            color_map = {
+                '0': COLORS['primary'],      # Rust - brand new
+                '1': COLORS['secondary'],    # Gold
+                '2': COLORS['quaternary'],   # Teal
+                '3': COLORS['tertiary'],     # Sage
+                '4': '#8B7355',              # Muted brown
+                '5+': '#4A4A4A'              # Dark gray - experienced
+            }
+
+            fig_dist = px.bar(
+                bucket_by_period,
+                x='period',
+                y='count',
+                color='checkins_bucket',
+                title='New Members by Previous Check-in Count',
+                barmode='stack',
+                category_orders={'checkins_bucket': bucket_order},
+                color_discrete_map=color_map
+            )
+            fig_dist.update_layout(
+                plot_bgcolor=COLORS['background'],
+                paper_bgcolor=COLORS['background'],
+                font_color=COLORS['text'],
+                yaxis_title='Number of New Members',
+                xaxis_title='Membership Start Date',
+                legend_title='Check-ins Before',
+                legend=dict(
+                    orientation='h',
+                    yanchor='bottom',
+                    y=-0.3,
+                    xanchor='center',
+                    x=0.5
+                )
+            )
+            st.plotly_chart(fig_dist, use_container_width=True)
+
+    else:
+        st.info('Conversion metrics not available')
 
     # Day Passes Used (from checkins)
     st.subheader('Day Passes Used (Check-ins)')
