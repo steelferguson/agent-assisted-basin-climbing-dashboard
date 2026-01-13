@@ -521,10 +521,10 @@ class SecondVisit2WeekOfferFlag(FlagRule):
 
 class TwoWeekPassUserFlag(FlagRule):
     """
-    Flag customers who use a 2-week pass.
+    Flag customers who purchase a 2-week pass.
 
     Business logic:
-    - Customer has checked in using "2-Week Climbing Pass" or "2-Week Fitness Pass"
+    - Customer has purchased a 2-week pass (from transaction/purchase events)
     - Hasn't been flagged for this in the last 14 days (prevent duplicate flags)
     """
 
@@ -537,25 +537,31 @@ class TwoWeekPassUserFlag(FlagRule):
 
     def evaluate(self, customer_id: str, events: list, today: datetime) -> Dict[str, Any]:
         """
-        Check if customer has used a 2-week pass.
+        Check if customer has purchased a 2-week pass.
         """
-        # Get all checkins with 2-week passes
-        two_week_checkins = [
+        # Get all purchase events with 2-week passes
+        two_week_purchases = [
             e for e in events
-            if e['event_type'] == 'checkin'
+            if e['event_type'] == 'purchase'
             and isinstance(e.get('event_data'), dict)
-            and e.get('event_data', {}).get('entry_method_description') in [
-                '2-Week Climbing Pass',
-                '2-Week Fitness Pass'
-            ]
         ]
 
-        if not two_week_checkins:
-            return None  # No 2-week pass usage
+        # Filter to 2-week pass purchases by checking description
+        filtered_purchases = []
+        for purchase in two_week_purchases:
+            event_data = purchase.get('event_data', {})
+            description = event_data.get('description', '').lower()
 
-        # Get the most recent 2-week pass checkin
-        most_recent_checkin = max(two_week_checkins, key=lambda e: e['event_date'])
-        checkin_date = most_recent_checkin['event_date']
+            # Check if description contains 2-week pass keywords
+            if any(keyword in description for keyword in ['2-week', '2 week', 'two week']):
+                filtered_purchases.append(purchase)
+
+        if not filtered_purchases:
+            return None  # No 2-week pass purchases
+
+        # Get the most recent 2-week pass purchase
+        most_recent_purchase = max(filtered_purchases, key=lambda e: e['event_date'])
+        purchase_date = most_recent_purchase['event_date']
 
         # Criteria: Must not have been flagged for this in last 14 days (prevent duplicates)
         lookback_start = today - timedelta(days=14)
@@ -572,18 +578,20 @@ class TwoWeekPassUserFlag(FlagRule):
             return None  # Already flagged recently
 
         # All criteria met - flag this customer
-        event_data = most_recent_checkin.get('event_data', {})
-        entry_method = event_data.get('entry_method_description') if isinstance(event_data, dict) else None
+        event_data = most_recent_purchase.get('event_data', {})
+        description = event_data.get('description', 'Unknown')
+        amount = event_data.get('amount', 0)
 
         return {
             'customer_id': customer_id,
             'flag_type': self.flag_type,
             'triggered_date': today,
             'flag_data': {
-                'most_recent_2wk_pass_checkin': checkin_date.isoformat(),
-                'days_since_checkin': (today - checkin_date).days,
-                'pass_type': entry_method,
-                'total_2wk_pass_checkins': len(two_week_checkins),
+                'purchase_date': purchase_date.isoformat(),
+                'days_since_purchase': (today - purchase_date).days,
+                'product_description': description,
+                'purchase_amount': amount,
+                'total_2wk_pass_purchases': len(filtered_purchases),
                 'description': self.description
             },
             'priority': self.priority
