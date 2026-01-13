@@ -113,6 +113,7 @@ def load_data():
     df_customer_identifiers = load_df(config.aws_bucket_name, 'customers/customer_identifiers.csv')
     df_customers_master = load_df(config.aws_bucket_name, 'customers/customers_master.csv')
     df_customer_events = load_df(config.aws_bucket_name, config.s3_path_customer_events)
+    df_customer_flags = load_df(config.aws_bucket_name, config.s3_path_customer_flags)
 
     # Load Shopify orders and convert to transaction format
     df_shopify = load_df(config.aws_bucket_name, config.s3_path_shopify_orders)
@@ -122,12 +123,12 @@ def load_data():
         # Merge with existing transactions
         df_transactions = pd.concat([df_transactions, shopify_transactions], ignore_index=True)
 
-    return df_transactions, df_memberships, df_members, df_projection, df_at_risk, df_new_members, df_facebook_ads, df_events, df_checkins, df_instagram, df_mailchimp, df_failed_payments, df_expenses, df_twilio_messages, df_customer_identifiers, df_customers_master, df_customer_events
+    return df_transactions, df_memberships, df_members, df_projection, df_at_risk, df_new_members, df_facebook_ads, df_events, df_checkins, df_instagram, df_mailchimp, df_failed_payments, df_expenses, df_twilio_messages, df_customer_identifiers, df_customers_master, df_customer_events, df_customer_flags
 
 
 # Load data
 with st.spinner('Loading data from S3...'):
-    df_transactions, df_memberships, df_members, df_projection, df_at_risk, df_new_members, df_facebook_ads, df_events, df_checkins, df_instagram, df_mailchimp, df_failed_payments, df_expenses, df_twilio_messages, df_customer_identifiers, df_customers_master, df_customer_events = load_data()
+    df_transactions, df_memberships, df_members, df_projection, df_at_risk, df_new_members, df_facebook_ads, df_events, df_checkins, df_instagram, df_mailchimp, df_failed_payments, df_expenses, df_twilio_messages, df_customer_identifiers, df_customers_master, df_customer_events, df_customer_flags = load_data()
 
 # Prepare at-risk members data
 if not df_at_risk.empty:
@@ -2824,6 +2825,72 @@ with tab6:
 
     else:
         st.info('No email campaign data available')
+
+    # ========== CUSTOMER FLAGS SECTION ==========
+    st.subheader('Customer Engagement Flags')
+    st.markdown('Customers flagged for targeted offers and engagement campaigns')
+
+    if not df_customer_flags.empty:
+        # Prepare flags data
+        df_flags_display = df_customer_flags.copy()
+        df_flags_display['triggered_date'] = pd.to_datetime(df_flags_display['triggered_date'], errors='coerce')
+        df_flags_display['flag_added_date'] = pd.to_datetime(df_flags_display['flag_added_date'], errors='coerce')
+
+        # Summary metrics
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric('Total Flagged Customers', len(df_flags_display))
+        with col2:
+            st.metric('Unique Customers', df_flags_display['customer_id'].nunique())
+        with col3:
+            st.metric('Flag Types', df_flags_display['flag_type'].nunique())
+        with col4:
+            latest_flag = df_flags_display['flag_added_date'].max()
+            st.metric('Latest Flag', latest_flag.strftime('%Y-%m-%d') if pd.notna(latest_flag) else 'N/A')
+
+        # Flag type breakdown
+        st.markdown('**Flags by Type**')
+        flag_counts = df_flags_display['flag_type'].value_counts().reset_index()
+        flag_counts.columns = ['Flag Type', 'Count']
+
+        # Format flag names for display
+        flag_counts['Flag Type'] = flag_counts['Flag Type'].str.replace('_', ' ').str.title()
+
+        # Display as table
+        st.dataframe(
+            flag_counts,
+            use_container_width=True,
+            hide_index=True
+        )
+
+        # Recent flags detail
+        st.markdown('**Recent Flags (Last 30 Days)**')
+        recent_cutoff = pd.Timestamp.now() - pd.Timedelta(days=30)
+        df_recent = df_flags_display[df_flags_display['flag_added_date'] >= recent_cutoff].copy()
+
+        if not df_recent.empty:
+            # Sort by most recent
+            df_recent = df_recent.sort_values('flag_added_date', ascending=False)
+
+            # Select and format columns for display
+            display_cols = df_recent[['customer_id', 'flag_type', 'triggered_date', 'priority', 'flag_added_date']].copy()
+            display_cols['flag_type'] = display_cols['flag_type'].str.replace('_', ' ').str.title()
+            display_cols.columns = ['Customer ID', 'Flag Type', 'Triggered Date', 'Priority', 'Added Date']
+
+            # Format dates
+            display_cols['Triggered Date'] = display_cols['Triggered Date'].dt.strftime('%Y-%m-%d')
+            display_cols['Added Date'] = display_cols['Added Date'].dt.strftime('%Y-%m-%d %H:%M')
+
+            st.dataframe(
+                display_cols,
+                use_container_width=True,
+                hide_index=True
+            )
+        else:
+            st.info('No flags added in the last 30 days')
+
+    else:
+        st.info('No customer flags data available')
 
 # ============================================================================
 # TAB 7: EXPENSES
