@@ -1609,13 +1609,35 @@ with tab3:
                 # Sort by datetime for chronological analysis
                 df_day_pass_checkins = df_day_pass_checkins.sort_values('checkin_datetime')
 
-                # For each day pass check-in, determine customer type based on prior check-in history
+                # Prepare membership data to check if customer had active membership at time of check-in
+                df_memberships_check = df_memberships.copy()
+                if 'start_date' in df_memberships_check.columns and 'end_date' in df_memberships_check.columns:
+                    df_memberships_check['start_date'] = pd.to_datetime(df_memberships_check['start_date'], errors='coerce')
+                    df_memberships_check['end_date'] = pd.to_datetime(df_memberships_check['end_date'], errors='coerce')
+
+                # For each day pass check-in, check if customer was a non-member at that time
                 recency_data = []
                 for _, checkin in df_day_pass_checkins.iterrows():
                     customer_id = checkin['customer_id']
                     checkin_date = checkin['checkin_datetime']
 
-                    # Get all prior check-ins for this customer (any entry method)
+                    # Check if customer had an active membership at time of check-in
+                    was_member = False
+                    if 'start_date' in df_memberships_check.columns and 'end_date' in df_memberships_check.columns:
+                        customer_memberships = df_memberships_check[df_memberships_check['owner_id'] == customer_id]
+                        for _, membership in customer_memberships.iterrows():
+                            start = membership['start_date']
+                            end = membership['end_date']
+                            if pd.notna(start) and pd.notna(end):
+                                if start <= checkin_date <= end:
+                                    was_member = True
+                                    break
+
+                    # Skip if they were a member at time of check-in
+                    if was_member:
+                        continue
+
+                    # Determine customer type based on prior check-in history (non-member day passes only)
                     prior_checkins = df_checkins_clean[
                         (df_checkins_clean['customer_id'] == customer_id) &
                         (df_checkins_clean['checkin_datetime'] < checkin_date)
