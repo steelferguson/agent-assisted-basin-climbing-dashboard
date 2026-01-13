@@ -127,6 +127,16 @@ def run_daily_pipeline():
     except Exception as e:
         print(f"❌ Error fetching Mailchimp recipient activity: {e}\n")
 
+    # 5b. Fetch SendGrid recipient activity
+    print("7b. Fetching SendGrid recipient activity (last 7 days)...")
+    try:
+        from data_pipeline.fetch_sendgrid_recipient_activity import SendGridRecipientActivityFetcher
+        sendgrid_recipient_fetcher = SendGridRecipientActivityFetcher()
+        sendgrid_recipient_fetcher.fetch_and_save(days_back=7, save_local=False)
+        print("✅ SendGrid recipient activity updated successfully\n")
+    except Exception as e:
+        print(f"❌ Error fetching SendGrid recipient activity: {e}\n")
+
     # 6. Update Capitan associations & events (all events)
     print("8. Fetching Capitan associations, members, and events...")
     try:
