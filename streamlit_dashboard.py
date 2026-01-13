@@ -114,6 +114,7 @@ def load_data():
     df_customers_master = load_df(config.aws_bucket_name, 'customers/customers_master.csv')
     df_customer_events = load_df(config.aws_bucket_name, config.s3_path_customer_events)
     df_customer_flags = load_df(config.aws_bucket_name, config.s3_path_customer_flags)
+    df_day_pass_engagement = load_df(config.aws_bucket_name, 'analytics/day_pass_engagement.csv')
 
     # Load Shopify orders and convert to transaction format
     df_shopify = load_df(config.aws_bucket_name, config.s3_path_shopify_orders)
@@ -123,12 +124,12 @@ def load_data():
         # Merge with existing transactions
         df_transactions = pd.concat([df_transactions, shopify_transactions], ignore_index=True)
 
-    return df_transactions, df_memberships, df_members, df_projection, df_at_risk, df_new_members, df_facebook_ads, df_events, df_checkins, df_instagram, df_mailchimp, df_failed_payments, df_expenses, df_twilio_messages, df_customer_identifiers, df_customers_master, df_customer_events, df_customer_flags
+    return df_transactions, df_memberships, df_members, df_projection, df_at_risk, df_new_members, df_facebook_ads, df_events, df_checkins, df_instagram, df_mailchimp, df_failed_payments, df_expenses, df_twilio_messages, df_customer_identifiers, df_customers_master, df_customer_events, df_customer_flags, df_day_pass_engagement
 
 
 # Load data
 with st.spinner('Loading data from S3...'):
-    df_transactions, df_memberships, df_members, df_projection, df_at_risk, df_new_members, df_facebook_ads, df_events, df_checkins, df_instagram, df_mailchimp, df_failed_payments, df_expenses, df_twilio_messages, df_customer_identifiers, df_customers_master, df_customer_events, df_customer_flags = load_data()
+    df_transactions, df_memberships, df_members, df_projection, df_at_risk, df_new_members, df_facebook_ads, df_events, df_checkins, df_instagram, df_mailchimp, df_failed_payments, df_expenses, df_twilio_messages, df_customer_identifiers, df_customers_master, df_customer_events, df_customer_flags, df_day_pass_engagement = load_data()
 
 # Prepare at-risk members data
 if not df_at_risk.empty:
@@ -1751,6 +1752,73 @@ with tab3:
                         with col4:
                             long_pct = 100 * total_by_category_recent.get('Returning (6+mo)', 0) / total_passes_recent if total_passes_recent > 0 else 0
                             st.metric('Returning (6+ mo)', f"{long_pct:.1f}%", help=f"Most recent period: {latest_period.strftime('%Y-%m-%d')}")
+
+                    # Detailed engagement table
+                    st.markdown('---')
+                    st.subheader('Day Pass User Engagement Details')
+
+                    if not df_day_pass_engagement.empty:
+                        df_engagement = df_day_pass_engagement.copy()
+
+                        # Convert dates
+                        df_engagement['latest_day_pass_date'] = pd.to_datetime(df_engagement['latest_day_pass_date'], errors='coerce')
+                        df_engagement['previous_visit_date'] = pd.to_datetime(df_engagement['previous_visit_date'], errors='coerce')
+
+                        # Show filters
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            show_recent_only = st.checkbox('Show last 30 days only', value=True, key='day_pass_recent_filter')
+                        with col2:
+                            min_visits = st.slider('Min visits in last 6 months', 0, 20, 0, key='day_pass_visits_filter')
+
+                        # Apply filters
+                        df_filtered = df_engagement.copy()
+                        if show_recent_only:
+                            cutoff = pd.Timestamp.now() - pd.Timedelta(days=30)
+                            df_filtered = df_filtered[df_filtered['latest_day_pass_date'] >= cutoff]
+
+                        df_filtered = df_filtered[df_filtered['visits_last_6mo'] >= min_visits]
+
+                        # Format for display
+                        if not df_filtered.empty:
+                            df_display = df_filtered.copy()
+
+                            # Combine name
+                            df_display['name'] = (df_display['customer_first_name'] + ' ' + df_display['customer_last_name']).str.strip()
+
+                            # Format dates and numbers
+                            df_display['latest_day_pass_date'] = df_display['latest_day_pass_date'].dt.strftime('%Y-%m-%d')
+                            df_display['previous_visit_date'] = df_display['previous_visit_date'].apply(
+                                lambda x: x.strftime('%Y-%m-%d') if pd.notna(x) else 'First Visit'
+                            )
+                            df_display['days_since_last_visit'] = df_display['days_since_last_visit'].apply(
+                                lambda x: f"{int(x)}" if pd.notna(x) else 'N/A'
+                            )
+
+                            # Select and rename columns
+                            df_display = df_display[[
+                                'customer_id', 'name', 'customer_email', 'latest_day_pass_date',
+                                'previous_visit_date', 'days_since_last_visit',
+                                'visits_last_2mo', 'visits_last_6mo', 'visits_last_12mo'
+                            ]]
+                            df_display.columns = [
+                                'Customer ID', 'Name', 'Email', 'Latest Day Pass',
+                                'Previous Visit', 'Days Since', 'Visits (2mo)', 'Visits (6mo)', 'Visits (12mo)'
+                            ]
+
+                            st.dataframe(
+                                df_display,
+                                use_container_width=True,
+                                hide_index=True,
+                                height=400
+                            )
+
+                            st.caption(f'Showing {len(df_filtered):,} of {len(df_engagement):,} total non-member day pass users')
+                        else:
+                            st.info('No customers match the current filters')
+                    else:
+                        st.info('Engagement data not available')
+
                 else:
                     st.info('No day pass check-ins to analyze')
             else:

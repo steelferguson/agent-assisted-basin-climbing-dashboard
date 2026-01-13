@@ -34,13 +34,14 @@ def load_data():
     df_at_risk = load_df_from_s3(config.aws_bucket_name, config.s3_path_at_risk_members)
     df_facebook_ads = load_df_from_s3(config.aws_bucket_name, config.s3_path_facebook_ads)
     df_events = load_df_from_s3(config.aws_bucket_name, config.s3_path_capitan_events)
+    df_customer_events = load_df_from_s3(config.aws_bucket_name, config.s3_path_customer_events)
 
-    return df_memberships, df_members, df_transactions, df_projection, df_at_risk, df_facebook_ads, df_events
+    return df_memberships, df_members, df_transactions, df_projection, df_at_risk, df_facebook_ads, df_events, df_customer_events
 
 
 def create_dashboard(app):
 
-    df_memberships, df_members, df_combined, df_projection, df_at_risk, df_facebook_ads, df_events = load_data()
+    df_memberships, df_members, df_combined, df_projection, df_at_risk, df_facebook_ads, df_events, df_customer_events = load_data()
 
     # Prepare at-risk members data for display
     if not df_at_risk.empty:
@@ -758,29 +759,98 @@ def create_dashboard(app):
         Output("day-pass-count-chart", "figure"), [Input("timeframe-toggle", "value")]
     )
     def update_day_pass_chart(selected_timeframe):
-        df_filtered = df_combined[df_combined["revenue_category"] == "Day Pass"].copy()
-        df_filtered["Date"] = pd.to_datetime(df_filtered["Date"], errors="coerce")
-        df_filtered["Date"] = df_filtered["Date"].dt.tz_localize(None)
-        df_filtered["date"] = (
-            df_filtered["Date"].dt.to_period(selected_timeframe).dt.start_time
-        )
-        day_pass_sum = (
-            df_filtered.groupby("date")["Day Pass Count"]
-            .sum()
-            .reset_index(name="total_day_passes")
+        # Get day pass purchases from customer_events
+        df_day_passes = df_customer_events[
+            df_customer_events["event_type"] == "day_pass_purchase"
+        ].copy()
+
+        if df_day_passes.empty:
+            # Return empty chart if no data
+            fig = px.bar(title="Day Pass Purchases by Customer Type")
+            fig.update_layout(
+                plot_bgcolor=chart_colors["background"],
+                paper_bgcolor=chart_colors["background"],
+                font_color=chart_colors["text"],
+            )
+            return fig
+
+        df_day_passes["event_date"] = pd.to_datetime(df_day_passes["event_date"], errors="coerce")
+
+        # For each day pass purchase, determine customer type based on prior activity
+        customer_types = []
+        for _, purchase in df_day_passes.iterrows():
+            customer_id = purchase["customer_id"]
+            purchase_date = purchase["event_date"]
+
+            # Get all prior events for this customer (excluding flag_set events)
+            prior_events = df_customer_events[
+                (df_customer_events["customer_id"] == customer_id) &
+                (df_customer_events["event_date"] < purchase_date) &
+                (df_customer_events["event_type"] != "flag_set")
+            ]
+
+            if len(prior_events) == 0:
+                customer_type = "New Customer"
+            else:
+                # Get most recent prior event date
+                last_activity = prior_events["event_date"].max()
+                days_since = (purchase_date - pd.to_datetime(last_activity)).days
+
+                if days_since <= 60:  # 0-2 months
+                    customer_type = "Returning (0-2mo)"
+                elif days_since <= 180:  # 2-6 months
+                    customer_type = "Returning (2-6mo)"
+                else:  # 6+ months
+                    customer_type = "Returning (6+mo)"
+
+            customer_types.append(customer_type)
+
+        df_day_passes["customer_type"] = customer_types
+
+        # Group by time period and customer type
+        df_day_passes["date"] = (
+            df_day_passes["event_date"].dt.to_period(selected_timeframe).dt.start_time
         )
 
-        fig = px.bar(
-            day_pass_sum,
-            x="date",
-            y="total_day_passes",
-            title="Total Day Passes Purchased",
+        day_pass_grouped = (
+            df_day_passes.groupby(["date", "customer_type"])
+            .size()
+            .reset_index(name="count")
         )
-        fig.update_traces(marker_color=chart_colors["quaternary"])  # Using teal color
+
+        # Define category order and colors
+        category_order = ["New Customer", "Returning (0-2mo)", "Returning (2-6mo)", "Returning (6+mo)"]
+        category_colors = {
+            "New Customer": chart_colors["primary"],  # Rust
+            "Returning (0-2mo)": chart_colors["secondary"],  # Gold
+            "Returning (2-6mo)": chart_colors["quaternary"],  # Teal
+            "Returning (6+mo)": chart_colors["tertiary"],  # Sage
+        }
+
+        fig = px.bar(
+            day_pass_grouped,
+            x="date",
+            y="count",
+            color="customer_type",
+            title="Day Pass Purchases by Customer Type",
+            category_orders={"customer_type": category_order},
+            color_discrete_map=category_colors,
+            labels={"count": "Day Passes", "date": "Date", "customer_type": "Customer Type"}
+        )
+
         fig.update_layout(
             plot_bgcolor=chart_colors["background"],
             paper_bgcolor=chart_colors["background"],
             font_color=chart_colors["text"],
+            barmode="stack",
+            legend=dict(
+                title="Customer Type",
+                orientation="v",
+                yanchor="top",
+                y=1,
+                xanchor="left",
+                x=1.02
+            )
         )
         return fig
 

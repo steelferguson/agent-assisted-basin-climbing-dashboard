@@ -180,6 +180,15 @@ def run_daily_pipeline():
     except Exception as e:
         print(f"❌ Error updating customer master: {e}\n")
 
+    # 9b. Build day pass engagement table
+    print("11b. Building day pass engagement table...")
+    try:
+        from data_pipeline.build_day_pass_engagement_table import upload_day_pass_engagement_table
+        upload_day_pass_engagement_table(save_local=False)
+        print("✅ Day pass engagement table updated\n")
+    except Exception as e:
+        print(f"❌ Error building day pass engagement table: {e}\n")
+
     # 10. Generate team membership reconciliation report
     print("12. Generating team membership reconciliation report...")
     try:
