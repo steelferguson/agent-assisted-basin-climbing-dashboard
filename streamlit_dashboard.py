@@ -110,6 +110,8 @@ def load_data():
     df_failed_payments = load_df(config.aws_bucket_name, config.s3_path_failed_payments)
     df_expenses = load_df(config.aws_bucket_name, config.s3_path_quickbooks_expenses)
     df_twilio_messages = load_df(config.aws_bucket_name, config.s3_path_twilio_messages)
+    df_customer_identifiers = load_df(config.aws_bucket_name, 'customers/customer_identifiers.csv')
+    df_customers_master = load_df(config.aws_bucket_name, 'customers/customers_master.csv')
 
     # Load Shopify orders and convert to transaction format
     df_shopify = load_df(config.aws_bucket_name, config.s3_path_shopify_orders)
@@ -119,12 +121,12 @@ def load_data():
         # Merge with existing transactions
         df_transactions = pd.concat([df_transactions, shopify_transactions], ignore_index=True)
 
-    return df_transactions, df_memberships, df_members, df_projection, df_at_risk, df_new_members, df_facebook_ads, df_events, df_checkins, df_instagram, df_mailchimp, df_failed_payments, df_expenses, df_twilio_messages
+    return df_transactions, df_memberships, df_members, df_projection, df_at_risk, df_new_members, df_facebook_ads, df_events, df_checkins, df_instagram, df_mailchimp, df_failed_payments, df_expenses, df_twilio_messages, df_customer_identifiers, df_customers_master
 
 
 # Load data
 with st.spinner('Loading data from S3...'):
-    df_transactions, df_memberships, df_members, df_projection, df_at_risk, df_new_members, df_facebook_ads, df_events, df_checkins, df_instagram, df_mailchimp, df_failed_payments, df_expenses, df_twilio_messages = load_data()
+    df_transactions, df_memberships, df_members, df_projection, df_at_risk, df_new_members, df_facebook_ads, df_events, df_checkins, df_instagram, df_mailchimp, df_failed_payments, df_expenses, df_twilio_messages, df_customer_identifiers, df_customers_master = load_data()
 
 # Prepare at-risk members data
 if not df_at_risk.empty:
@@ -1589,9 +1591,9 @@ with tab3:
 
     if not df_checkins.empty:
         try:
-            # Load customer matching data
-            df_identifiers = load_df(config.aws_bucket_name, 'customers/customer_identifiers.csv')
-            df_customers_master = load_df(config.aws_bucket_name, 'customers/customers_master.csv')
+            # Use customer matching data already loaded
+            df_identifiers = df_customer_identifiers
+            df_customers = df_customers_master
 
             # Prepare checkins with datetime
             df_checkins_clean = df_checkins.copy()
@@ -1619,7 +1621,7 @@ with tab3:
             for _, row in capitan_identifiers.iterrows():
                 if row['identifier_type'] == 'email':
                     # Use customer_master to get name for this UUID
-                    master_match = df_customers_master[df_customers_master['customer_id'] == row['customer_id']]
+                    master_match = df_customers[df_customers['customer_id'] == row['customer_id']]
                     if not master_match.empty:
                         name = str(master_match.iloc[0]['primary_name']).lower().strip()
                         name_to_capitan[name] = row['capitan_id']
