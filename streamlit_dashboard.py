@@ -112,6 +112,7 @@ def load_data():
     df_twilio_messages = load_df(config.aws_bucket_name, config.s3_path_twilio_messages)
     df_customer_identifiers = load_df(config.aws_bucket_name, 'customers/customer_identifiers.csv')
     df_customers_master = load_df(config.aws_bucket_name, 'customers/customers_master.csv')
+    df_customer_events = load_df(config.aws_bucket_name, config.s3_path_customer_events)
 
     # Load Shopify orders and convert to transaction format
     df_shopify = load_df(config.aws_bucket_name, config.s3_path_shopify_orders)
@@ -121,12 +122,12 @@ def load_data():
         # Merge with existing transactions
         df_transactions = pd.concat([df_transactions, shopify_transactions], ignore_index=True)
 
-    return df_transactions, df_memberships, df_members, df_projection, df_at_risk, df_new_members, df_facebook_ads, df_events, df_checkins, df_instagram, df_mailchimp, df_failed_payments, df_expenses, df_twilio_messages, df_customer_identifiers, df_customers_master
+    return df_transactions, df_memberships, df_members, df_projection, df_at_risk, df_new_members, df_facebook_ads, df_events, df_checkins, df_instagram, df_mailchimp, df_failed_payments, df_expenses, df_twilio_messages, df_customer_identifiers, df_customers_master, df_customer_events
 
 
 # Load data
 with st.spinner('Loading data from S3...'):
-    df_transactions, df_memberships, df_members, df_projection, df_at_risk, df_new_members, df_facebook_ads, df_events, df_checkins, df_instagram, df_mailchimp, df_failed_payments, df_expenses, df_twilio_messages, df_customer_identifiers, df_customers_master = load_data()
+    df_transactions, df_memberships, df_members, df_projection, df_at_risk, df_new_members, df_facebook_ads, df_events, df_checkins, df_instagram, df_mailchimp, df_failed_payments, df_expenses, df_twilio_messages, df_customer_identifiers, df_customers_master, df_customer_events = load_data()
 
 # Prepare at-risk members data
 if not df_at_risk.empty:
@@ -1587,162 +1588,137 @@ with tab3:
     st.plotly_chart(fig_day_pass_revenue, use_container_width=True)
 
     # Day Pass Customer Recency Analysis
-    st.subheader('Day Pass Purchasers by Visit Recency')
+    st.subheader('Day Pass Purchasers by Customer Type')
 
-    if not df_checkins.empty:
+    if not df_customer_events.empty:
         try:
-            # Use customer matching data already loaded
-            df_identifiers = df_customer_identifiers
-            df_customers = df_customers_master
+            # Convert event_date to datetime for the entire dataframe first
+            df_customer_events_clean = df_customer_events.copy()
+            df_customer_events_clean['event_date'] = pd.to_datetime(df_customer_events_clean['event_date'], errors='coerce')
 
-            # Prepare checkins with datetime
-            df_checkins_clean = df_checkins.copy()
-            df_checkins_clean['checkin_datetime'] = pd.to_datetime(df_checkins_clean['checkin_datetime'], errors='coerce', utc=True)
-            df_checkins_clean = df_checkins_clean[df_checkins_clean['checkin_datetime'].notna()].copy()
-            df_checkins_clean['checkin_datetime'] = df_checkins_clean['checkin_datetime'].dt.tz_localize(None)
-
-            # Build lookup: capitan_customer_id -> last_checkin_date
-            customer_last_checkin = (
-                df_checkins_clean
-                .groupby('customer_id')['checkin_datetime']
-                .max()
-                .to_dict()
-            )
-
-            # Build lookup: transaction name -> capitan_customer_id
-            # Extract Capitan customer IDs from identifiers
-            capitan_identifiers = df_identifiers[
-                df_identifiers['source_id'].str.startswith('customer:', na=False)
+            # Get day pass purchases from customer_events
+            df_day_pass_events = df_customer_events_clean[
+                df_customer_events_clean['event_type'] == 'day_pass_purchase'
             ].copy()
-            capitan_identifiers['capitan_id'] = capitan_identifiers['source_id'].str.replace('customer:', '').astype(int)
 
-            # Create name lookup (normalize names for matching)
-            name_to_capitan = {}
-            for _, row in capitan_identifiers.iterrows():
-                if row['identifier_type'] == 'email':
-                    # Use customer_master to get name for this UUID
-                    master_match = df_customers[df_customers['customer_id'] == row['customer_id']]
-                    if not master_match.empty:
-                        name = str(master_match.iloc[0]['primary_name']).lower().strip()
-                        name_to_capitan[name] = row['capitan_id']
+            if not df_day_pass_events.empty:
+                # For each day pass purchase, determine customer type based on prior activity
+                recency_data = []
+                for _, purchase in df_day_pass_events.iterrows():
+                    customer_id = purchase['customer_id']
+                    purchase_date = purchase['event_date']
 
-            # Analyze each day pass purchase
-            recency_data = []
-            for _, purchase in df_day_pass.iterrows():
-                purchase_date = pd.to_datetime(purchase['Date'])
-                customer_name = str(purchase['Name']).lower().strip()
+                    # Get all prior events for this customer (excluding flag_set events)
+                    prior_events = df_customer_events_clean[
+                        (df_customer_events_clean['customer_id'] == customer_id) &
+                        (df_customer_events_clean['event_date'] < purchase_date) &
+                        (df_customer_events_clean['event_type'] != 'flag_set')
+                    ]
 
-                # Try to find Capitan customer ID
-                capitan_id = name_to_capitan.get(customer_name)
-
-                if capitan_id and capitan_id in customer_last_checkin:
-                    # Get their last checkin BEFORE this purchase
-                    last_checkin = customer_last_checkin[capitan_id]
-
-                    if last_checkin >= purchase_date:
-                        # They have a future checkin (data issue), skip
-                        recency_category = 'Unknown'
+                    if len(prior_events) == 0:
+                        recency_category = 'New Customer'
                     else:
-                        days_since = (purchase_date - last_checkin).days
+                        # Get most recent prior event date
+                        last_activity = prior_events['event_date'].max()
+                        days_since = (purchase_date - last_activity).days
 
-                        if days_since <= 60:  # Within 2 months
-                            recency_category = 'Recent (< 2 months)'
-                        elif days_since <= 180:  # Within 6 months
-                            recency_category = 'Returning (2-6 months)'
+                        if days_since <= 60:  # 0-2 months
+                            recency_category = 'Returning (0-2mo)'
+                        elif days_since <= 180:  # 2-6 months
+                            recency_category = 'Returning (2-6mo)'
                         else:  # 6+ months
-                            recency_category = 'Long Absent (6+ months)'
-                else:
-                    # No checkin history found = new customer
-                    recency_category = 'New Customer (Never)'
+                            recency_category = 'Returning (6+mo)'
 
-                recency_data.append({
-                    'date': purchase_date.date(),
-                    'recency_category': recency_category,
-                    'count': purchase['Day Pass Count']
-                })
+                    recency_data.append({
+                        'date': purchase_date,
+                        'recency_category': recency_category,
+                        'count': 1
+                    })
 
-            if recency_data:
-                df_recency = pd.DataFrame(recency_data)
-                df_recency['date'] = pd.to_datetime(df_recency['date'])
-                df_recency['date_period'] = df_recency['date'].dt.to_period(timeframe_daypass).dt.start_time
+                if recency_data:
+                    df_recency = pd.DataFrame(recency_data)
+                    df_recency['date_period'] = df_recency['date'].dt.to_period(timeframe_daypass).dt.start_time
 
-                # Aggregate by date and recency category
-                recency_summary = (
-                    df_recency
-                    .groupby(['date_period', 'recency_category'])['count']
-                    .sum()
-                    .reset_index()
-                )
-
-                # Define category order and colors
-                category_order = [
-                    'New Customer (Never)',
-                    'Long Absent (6+ months)',
-                    'Returning (2-6 months)',
-                    'Recent (< 2 months)'
-                ]
-
-                color_map = {
-                    'New Customer (Never)': COLORS['primary'],      # Rust
-                    'Long Absent (6+ months)': COLORS['secondary'], # Gold
-                    'Returning (2-6 months)': COLORS['tertiary'],   # Sage
-                    'Recent (< 2 months)': COLORS['quaternary']     # Teal
-                }
-
-                fig_recency = px.bar(
-                    recency_summary,
-                    x='date_period',
-                    y='count',
-                    color='recency_category',
-                    title='Day Pass Purchasers by Visit Recency',
-                    barmode='stack',
-                    category_orders={'recency_category': category_order},
-                    color_discrete_map=color_map
-                )
-
-                fig_recency.update_layout(
-                    plot_bgcolor=COLORS['background'],
-                    paper_bgcolor=COLORS['background'],
-                    font_color=COLORS['text'],
-                    yaxis_title='Number of Day Passes',
-                    xaxis_title='Date',
-                    legend_title='Customer Type',
-                    legend=dict(
-                        orientation='h',
-                        yanchor='bottom',
-                        y=-0.3,
-                        xanchor='center',
-                        x=0.5
+                    # Aggregate by date and recency category
+                    recency_summary = (
+                        df_recency
+                        .groupby(['date_period', 'recency_category'])['count']
+                        .sum()
+                        .reset_index()
                     )
-                )
 
-                st.plotly_chart(fig_recency, use_container_width=True)
+                    # Define category order and colors
+                    category_order = [
+                        'New Customer',
+                        'Returning (0-2mo)',
+                        'Returning (2-6mo)',
+                        'Returning (6+mo)'
+                    ]
 
-                # Show summary stats
-                total_by_category = recency_summary.groupby('recency_category')['count'].sum()
-                total_passes = total_by_category.sum()
+                    color_map = {
+                        'New Customer': COLORS['primary'],          # Rust
+                        'Returning (0-2mo)': COLORS['secondary'],   # Gold
+                        'Returning (2-6mo)': COLORS['quaternary'],  # Teal
+                        'Returning (6+mo)': COLORS['tertiary']      # Sage
+                    }
 
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    new_pct = 100 * total_by_category.get('New Customer (Never)', 0) / total_passes if total_passes > 0 else 0
-                    st.metric('New Customers', f"{new_pct:.1f}%")
-                with col2:
-                    long_pct = 100 * total_by_category.get('Long Absent (6+ months)', 0) / total_passes if total_passes > 0 else 0
-                    st.metric('Long Absent (6+ mo)', f"{long_pct:.1f}%")
-                with col3:
-                    return_pct = 100 * total_by_category.get('Returning (2-6 months)', 0) / total_passes if total_passes > 0 else 0
-                    st.metric('Returning (2-6 mo)', f"{return_pct:.1f}%")
-                with col4:
-                    recent_pct = 100 * total_by_category.get('Recent (< 2 months)', 0) / total_passes if total_passes > 0 else 0
-                    st.metric('Recent (< 2 mo)', f"{recent_pct:.1f}%")
+                    fig_recency = px.bar(
+                        recency_summary,
+                        x='date_period',
+                        y='count',
+                        color='recency_category',
+                        title='Day Pass Purchases by Customer Type',
+                        barmode='stack',
+                        category_orders={'recency_category': category_order},
+                        color_discrete_map=color_map
+                    )
+
+                    fig_recency.update_layout(
+                        plot_bgcolor=COLORS['background'],
+                        paper_bgcolor=COLORS['background'],
+                        font_color=COLORS['text'],
+                        yaxis_title='Number of Day Passes',
+                        xaxis_title='Date',
+                        legend_title='Customer Type',
+                        legend=dict(
+                            orientation='h',
+                            yanchor='bottom',
+                            y=-0.3,
+                            xanchor='center',
+                            x=0.5
+                        )
+                    )
+
+                    st.plotly_chart(fig_recency, use_container_width=True)
+
+                    # Show summary stats
+                    total_by_category = recency_summary.groupby('recency_category')['count'].sum()
+                    total_passes = total_by_category.sum()
+
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        new_pct = 100 * total_by_category.get('New Customer', 0) / total_passes if total_passes > 0 else 0
+                        st.metric('New Customers', f"{new_pct:.1f}%")
+                    with col2:
+                        recent_pct = 100 * total_by_category.get('Returning (0-2mo)', 0) / total_passes if total_passes > 0 else 0
+                        st.metric('Returning (0-2 mo)', f"{recent_pct:.1f}%")
+                    with col3:
+                        return_pct = 100 * total_by_category.get('Returning (2-6mo)', 0) / total_passes if total_passes > 0 else 0
+                        st.metric('Returning (2-6 mo)', f"{return_pct:.1f}%")
+                    with col4:
+                        long_pct = 100 * total_by_category.get('Returning (6+mo)', 0) / total_passes if total_passes > 0 else 0
+                        st.metric('Returning (6+ mo)', f"{long_pct:.1f}%")
+                else:
+                    st.info('No day pass purchases to analyze')
             else:
-                st.info('No day pass purchases to analyze')
+                st.info('No day pass purchases found in customer events')
 
         except Exception as e:
             st.error(f'Error analyzing day pass recency: {str(e)}')
-            st.info('Customer matching data may not be available')
+            import traceback
+            st.code(traceback.format_exc())
     else:
-        st.info('Checkin data required for recency analysis')
+        st.info('Customer events data required for recency analysis')
 
     # Day Passes Used (from checkins)
     st.subheader('Day Passes Used (Check-ins)')
