@@ -1841,92 +1841,99 @@ with tab3:
         df_conversion = df_membership_conversion.copy()
         df_conversion['membership_start_date'] = pd.to_datetime(df_conversion['membership_start_date'], errors='coerce')
 
-        # Aggregate by time period for trend analysis
-        df_conversion['period'] = df_conversion['membership_start_date'].dt.to_period(timeframe_daypass).dt.start_time
+        # Filter to only memberships that have already started (no future memberships)
+        today = pd.Timestamp.now()
+        df_conversion = df_conversion[df_conversion['membership_start_date'] <= today].copy()
 
-        # Calculate average check-ins per period
-        avg_by_period = df_conversion.groupby('period')['previous_checkins_count'].mean().reset_index()
-        avg_by_period.columns = ['period', 'avg_checkins']
+        if not df_conversion.empty:
+            # Aggregate by time period for trend analysis
+            df_conversion['period'] = df_conversion['membership_start_date'].dt.to_period(timeframe_daypass).dt.start_time
 
-        # Distribution by bucket over time
-        bucket_by_period = df_conversion.groupby(['period', 'checkins_bucket']).size().reset_index(name='count')
+            # Calculate average check-ins per period
+            avg_by_period = df_conversion.groupby('period')['previous_checkins_count'].mean().reset_index()
+            avg_by_period.columns = ['period', 'avg_checkins']
 
-        # Overall metrics
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            avg_overall = df_conversion['previous_checkins_count'].mean()
-            st.metric('Avg Check-ins Before Membership', f"{avg_overall:.1f}")
-        with col2:
-            median_overall = df_conversion['previous_checkins_count'].median()
-            st.metric('Median Check-ins', f"{int(median_overall)}")
-        with col3:
-            zero_checkins = len(df_conversion[df_conversion['previous_checkins_count'] == 0])
-            zero_pct = 100 * zero_checkins / len(df_conversion)
-            st.metric('Joined Without Visiting', f"{zero_pct:.1f}%")
-        with col4:
-            st.metric('Total New Memberships', f"{len(df_conversion):,}")
+            # Distribution by bucket over time
+            bucket_by_period = df_conversion.groupby(['period', 'checkins_bucket']).size().reset_index(name='count')
 
-        # Line chart: Average check-ins over time
-        if not avg_by_period.empty:
-            fig_avg = px.line(
-                avg_by_period,
-                x='period',
-                y='avg_checkins',
-                title='Average Check-ins Before Membership (Over Time)',
-                markers=True
-            )
-            fig_avg.update_traces(line_color=COLORS['primary'], line_width=3)
-            fig_avg.update_layout(
-                plot_bgcolor=COLORS['background'],
-                paper_bgcolor=COLORS['background'],
-                font_color=COLORS['text'],
-                yaxis_title='Average Check-ins',
-                xaxis_title='Membership Start Date',
-                showlegend=False
-            )
-            st.plotly_chart(fig_avg, use_container_width=True)
+            # Overall metrics
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                avg_overall = df_conversion['previous_checkins_count'].mean()
+                st.metric('Avg Check-ins Before Membership', f"{avg_overall:.1f}")
+            with col2:
+                median_overall = df_conversion['previous_checkins_count'].median()
+                st.metric('Median Check-ins', f"{int(median_overall)}")
+            with col3:
+                zero_checkins = len(df_conversion[df_conversion['previous_checkins_count'] == 0])
+                zero_pct = 100 * zero_checkins / len(df_conversion)
+                st.metric('Joined Without Visiting', f"{zero_pct:.1f}%")
+            with col4:
+                st.metric('Total New Memberships', f"{len(df_conversion):,}")
 
-        # Stacked bar chart: Distribution by bucket
-        if not bucket_by_period.empty:
-            # Define bucket order
-            bucket_order = ['0', '1', '2', '3', '4', '5+']
-
-            # Define colors for buckets (gradient from new to experienced)
-            color_map = {
-                '0': COLORS['primary'],      # Rust - brand new
-                '1': COLORS['secondary'],    # Gold
-                '2': COLORS['quaternary'],   # Teal
-                '3': COLORS['tertiary'],     # Sage
-                '4': '#8B7355',              # Muted brown
-                '5+': '#4A4A4A'              # Dark gray - experienced
-            }
-
-            fig_dist = px.bar(
-                bucket_by_period,
-                x='period',
-                y='count',
-                color='checkins_bucket',
-                title='New Members by Previous Check-in Count',
-                barmode='stack',
-                category_orders={'checkins_bucket': bucket_order},
-                color_discrete_map=color_map
-            )
-            fig_dist.update_layout(
-                plot_bgcolor=COLORS['background'],
-                paper_bgcolor=COLORS['background'],
-                font_color=COLORS['text'],
-                yaxis_title='Number of New Members',
-                xaxis_title='Membership Start Date',
-                legend_title='Check-ins Before',
-                legend=dict(
-                    orientation='h',
-                    yanchor='bottom',
-                    y=-0.3,
-                    xanchor='center',
-                    x=0.5
+            # Line chart: Average check-ins over time
+            if not avg_by_period.empty:
+                fig_avg = px.line(
+                    avg_by_period,
+                    x='period',
+                    y='avg_checkins',
+                    title='Average Check-ins Before Membership (Over Time)',
+                    markers=True
                 )
-            )
-            st.plotly_chart(fig_dist, use_container_width=True)
+                fig_avg.update_traces(line_color=COLORS['primary'], line_width=3)
+                fig_avg.update_layout(
+                    plot_bgcolor=COLORS['background'],
+                    paper_bgcolor=COLORS['background'],
+                    font_color=COLORS['text'],
+                    yaxis_title='Average Check-ins',
+                    xaxis_title='Membership Start Date',
+                    showlegend=False
+                )
+                st.plotly_chart(fig_avg, use_container_width=True)
+
+            # Stacked bar chart: Distribution by bucket
+            if not bucket_by_period.empty:
+                # Define bucket order
+                bucket_order = ['0', '1', '2', '3', '4', '5+']
+
+                # Define colors for buckets (gradient from new to experienced)
+                color_map = {
+                    '0': COLORS['primary'],      # Rust - brand new
+                    '1': COLORS['secondary'],    # Gold
+                    '2': COLORS['quaternary'],   # Teal
+                    '3': COLORS['tertiary'],     # Sage
+                    '4': '#8B7355',              # Muted brown
+                    '5+': '#4A4A4A'              # Dark gray - experienced
+                }
+
+                fig_dist = px.bar(
+                    bucket_by_period,
+                    x='period',
+                    y='count',
+                    color='checkins_bucket',
+                    title='New Members by Previous Check-in Count',
+                    barmode='stack',
+                    category_orders={'checkins_bucket': bucket_order},
+                    color_discrete_map=color_map
+                )
+                fig_dist.update_layout(
+                    plot_bgcolor=COLORS['background'],
+                    paper_bgcolor=COLORS['background'],
+                    font_color=COLORS['text'],
+                    yaxis_title='Number of New Members',
+                    xaxis_title='Membership Start Date',
+                    legend_title='Check-ins Before',
+                    legend=dict(
+                        orientation='h',
+                        yanchor='bottom',
+                        y=-0.3,
+                        xanchor='center',
+                        x=0.5
+                    )
+                )
+                st.plotly_chart(fig_dist, use_container_width=True)
+        else:
+            st.info('No memberships have started yet')
 
     else:
         st.info('Conversion metrics not available')
