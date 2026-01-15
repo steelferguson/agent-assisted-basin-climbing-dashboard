@@ -23,10 +23,14 @@ from data_pipeline import config, upload_data
 
 def identify_journey_customers(df_master, df_flags, df_events, df_identifiers):
     """
-    Identifies customers who should enter the 2-week pass journey automation.
+    Identifies customers who should enter the 2-week pass SALES journey automation.
 
-    ONLY includes customers who purchased 2-week passes.
-    Does NOT include day pass customers (they get a different offer email).
+    ONLY includes customers with the first_time_day_pass_2wk_offer flag.
+    These are day pass customers who should be SOLD a 2-week pass.
+
+    Does NOT include:
+    - second_visit_offer_eligible (they have a separate 50% off 2nd visit flow)
+    - 2_week_pass_purchase (they already bought the pass)
 
     Args:
         df_master: Customer master data with UUIDs
@@ -35,7 +39,7 @@ def identify_journey_customers(df_master, df_flags, df_events, df_identifiers):
         df_identifiers: Customer identifiers for ID mapping
 
     Returns:
-        pd.DataFrame with columns: customer_id, email, first_name, last_name, phone
+        pd.DataFrame with columns: customer_id, email, first_name, last_name, phone, flag_date
     """
     journey_customers = []
 
@@ -48,13 +52,12 @@ def identify_journey_customers(df_master, df_flags, df_events, df_identifiers):
             if capitan_id:
                 capitan_to_uuid[capitan_id] = row['customer_id']
 
-    # ONLY 2-week pass purchasers (they enter the journey automation)
-    # Day pass customers get a different offer email (not handled by this script)
-    two_week_flags = df_flags[df_flags['flag_type'] == '2_week_pass_purchase']
+    # ONLY first-time day pass customers eligible for 2-week pass offer
+    offer_flags = df_flags[df_flags['flag_type'] == 'first_time_day_pass_2wk_offer']
 
     # Build mapping from customer_id (or Capitan ID) to flag triggered_date
     customer_to_flag_date = {}
-    for _, flag in two_week_flags.iterrows():
+    for _, flag in offer_flags.iterrows():
         flag_customer_id = str(flag['customer_id'])
         uuid = capitan_to_uuid.get(flag_customer_id)
         mapped_id = uuid if uuid else flag_customer_id
@@ -99,7 +102,18 @@ def identify_journey_customers(df_master, df_flags, df_events, df_identifiers):
                 'flag_date': flag_date_str
             })
 
-    return pd.DataFrame(journey_customers)
+    df = pd.DataFrame(journey_customers)
+
+    # Remove duplicates by email (keep OLDEST flag_date)
+    # Assumes flags are removed after 14 days, so oldest = when they first qualified
+    if not df.empty:
+        df = df.sort_values('flag_date', ascending=True)  # Sort oldest first
+        df = df.drop_duplicates(subset=['email'], keep='first')  # Keep oldest
+        # Re-sort by newest for display
+        df = df.sort_values('flag_date', ascending=False)
+        print(f"   (Deduplicated to {len(df)} unique emails, kept oldest flag date)")
+
+    return df
 
 
 def generate_mailchimp_csv(df_journey_customers):
@@ -157,15 +171,15 @@ def send_csv_email(csv_content, customer_count):
     email_body = f"""
 Hi Vicky,
 
-Here is today's Mailchimp import CSV for the 2-week pass journey automation.
+Here is today's Mailchimp import CSV for the 2-week pass SALES journey automation.
 
 Summary:
 - Total customers: {customer_count}
-- All are 2-week pass purchasers who should enter the journey
+- All are first-time day pass customers eligible for 2-week pass offer
 - Sorted by flag date (newest first)
 
-Note: Day pass customers (who get the 50% offer email) are NOT in this list.
-They are handled separately.
+Note: These customers should be SOLD a 2-week pass via the journey emails.
+Customers who already purchased 2-week passes are NOT in this list.
 
 Please import this CSV into the Mailchimp audience to trigger the automated journey emails.
 
@@ -174,7 +188,7 @@ The CSV includes:
 - First Name
 - Last Name
 - Phone Number
-- Flag Date (when they purchased the 2-week pass)
+- Flag Date (when they became eligible for the offer)
 - Tags (2-week-pass-purchase)
 
 Best,
@@ -272,7 +286,7 @@ def run_mailchimp_csv_email():
         print("   ℹ️  No customers found for journey")
         return True
 
-    print(f"   ✅ Found {len(df_journey)} customers (2-week pass purchasers only)")
+    print(f"   ✅ Found {len(df_journey)} customers (day pass → 2-week offer eligible)")
 
     # Generate Mailchimp CSV
     print("\n📄 Generating Mailchimp CSV...")
