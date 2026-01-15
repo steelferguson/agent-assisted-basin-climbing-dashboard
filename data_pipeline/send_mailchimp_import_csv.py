@@ -23,7 +23,10 @@ from data_pipeline import config, upload_data
 
 def identify_journey_customers(df_master, df_flags, df_events, df_identifiers):
     """
-    Identifies customers who should enter the 2-week pass journey.
+    Identifies customers who should enter the 2-week pass journey automation.
+
+    ONLY includes customers who purchased 2-week passes.
+    Does NOT include day pass customers (they get a different offer email).
 
     Args:
         df_master: Customer master data with UUIDs
@@ -32,8 +35,7 @@ def identify_journey_customers(df_master, df_flags, df_events, df_identifiers):
         df_identifiers: Customer identifiers for ID mapping
 
     Returns:
-        pd.DataFrame with columns: customer_id, email, first_name, last_name,
-                                   phone, journey_path, reason
+        pd.DataFrame with columns: customer_id, email, first_name, last_name, phone
     """
     journey_customers = []
 
@@ -46,22 +48,27 @@ def identify_journey_customers(df_master, df_flags, df_events, df_identifiers):
             if capitan_id:
                 capitan_to_uuid[capitan_id] = row['customer_id']
 
-    # PATH A: Customers with 2_week_pass_purchase flag
+    # ONLY 2-week pass purchasers (they enter the journey automation)
+    # Day pass customers get a different offer email (not handled by this script)
     two_week_flags = df_flags[df_flags['flag_type'] == '2_week_pass_purchase']
 
-    # Convert Capitan IDs to UUIDs
-    path_a_customer_ids = []
-    for flag_customer_id in two_week_flags['customer_id'].unique():
-        uuid = capitan_to_uuid.get(str(flag_customer_id))
-        if uuid:
-            path_a_customer_ids.append(uuid)
-        else:
-            # Try as-is in case it's already a UUID
-            path_a_customer_ids.append(flag_customer_id)
+    # Build mapping from customer_id (or Capitan ID) to flag triggered_date
+    customer_to_flag_date = {}
+    for _, flag in two_week_flags.iterrows():
+        flag_customer_id = str(flag['customer_id'])
+        uuid = capitan_to_uuid.get(flag_customer_id)
+        mapped_id = uuid if uuid else flag_customer_id
+        # Keep the most recent triggered_date if multiple flags
+        triggered = pd.to_datetime(flag['triggered_date'])
+        if mapped_id not in customer_to_flag_date or triggered > customer_to_flag_date[mapped_id]:
+            customer_to_flag_date[mapped_id] = triggered
 
-    path_a_customers = df_master[df_master['customer_id'].isin(path_a_customer_ids)]
+    # Get unique customer UUIDs
+    customer_uuids = list(customer_to_flag_date.keys())
 
-    for _, customer in path_a_customers.iterrows():
+    journey_customers_df = df_master[df_master['customer_id'].isin(customer_uuids)]
+
+    for _, customer in journey_customers_df.iterrows():
         email = customer.get('primary_email', '')
         if pd.notna(email) and email:
             # Parse name from primary_name
@@ -78,52 +85,10 @@ def identify_journey_customers(df_master, df_flags, df_events, df_identifiers):
             else:
                 phone = ''
 
-            journey_customers.append({
-                'customer_id': customer['customer_id'],
-                'email': email,
-                'first_name': first_name,
-                'last_name': last_name,
-                'phone': phone,
-                'journey_path': 'A',
-                'reason': '2-week pass purchaser'
-            })
-
-    # PATH B: Day pass purchasers who returned for a second visit
-    # Use the second_visit_offer_eligible flag which already identifies these customers
-    second_visit_flags = df_flags[df_flags['flag_type'] == 'second_visit_offer_eligible']
-
-    # Convert Capitan IDs to UUIDs
-    path_b_customer_ids = []
-    for flag_customer_id in second_visit_flags['customer_id'].unique():
-        uuid = capitan_to_uuid.get(str(flag_customer_id))
-        if uuid:
-            path_b_customer_ids.append(uuid)
-        else:
-            # Try as-is in case it's already a UUID
-            path_b_customer_ids.append(flag_customer_id)
-
-    path_b_customers = df_master[df_master['customer_id'].isin(path_b_customer_ids)]
-
-    for _, customer in path_b_customers.iterrows():
-        # Skip if already in path A
-        if customer['customer_id'] in path_a_customer_ids:
-            continue
-
-        email = customer.get('primary_email', '')
-        if pd.notna(email) and email:
-            # Parse name from primary_name
-            name = customer.get('primary_name', '')
-            name_parts = str(name).split() if pd.notna(name) else []
-            first_name = name_parts[0] if len(name_parts) > 0 else ''
-            last_name = ' '.join(name_parts[1:]) if len(name_parts) > 1 else ''
-
-            # Format phone number
-            phone = customer.get('primary_phone', '')
-            if pd.notna(phone):
-                # Convert float to string and clean
-                phone = str(phone).replace('.0', '').strip()
-            else:
-                phone = ''
+            # Get flag date for this customer
+            customer_id = customer['customer_id']
+            flag_date = customer_to_flag_date.get(customer_id)
+            flag_date_str = flag_date.strftime('%Y-%m-%d') if pd.notna(flag_date) else ''
 
             journey_customers.append({
                 'customer_id': customer['customer_id'],
@@ -131,8 +96,7 @@ def identify_journey_customers(df_master, df_flags, df_events, df_identifiers):
                 'first_name': first_name,
                 'last_name': last_name,
                 'phone': phone,
-                'journey_path': 'B',
-                'reason': 'Day pass + 2nd visit'
+                'flag_date': flag_date_str
             })
 
     return pd.DataFrame(journey_customers)
@@ -147,17 +111,22 @@ def generate_mailchimp_csv(df_journey_customers):
     - First Name
     - Last Name
     - Phone Number
+    - Flag Date (when they were flagged)
     - Tags (comma-separated)
 
     Returns:
         CSV string ready for Mailchimp import
     """
+    # Sort by flag_date descending (newest first)
+    df_sorted = df_journey_customers.sort_values('flag_date', ascending=False)
+
     # Create the CSV with Mailchimp column headers
     mailchimp_df = pd.DataFrame({
-        'Email Address': df_journey_customers['email'],
-        'First Name': df_journey_customers['first_name'].fillna(''),
-        'Last Name': df_journey_customers['last_name'].fillna(''),
-        'Phone Number': df_journey_customers['phone'].fillna(''),
+        'Email Address': df_sorted['email'],
+        'First Name': df_sorted['first_name'].fillna(''),
+        'Last Name': df_sorted['last_name'].fillna(''),
+        'Phone Number': df_sorted['phone'].fillna(''),
+        'Flag Date': df_sorted['flag_date'].fillna(''),
         'Tags': '2-week-pass-purchase'  # All get the same tag for the journey
     })
 
@@ -167,7 +136,7 @@ def generate_mailchimp_csv(df_journey_customers):
     return csv_buffer.getvalue()
 
 
-def send_csv_email(csv_content, customer_count, path_a_count, path_b_count):
+def send_csv_email(csv_content, customer_count):
     """
     Sends the Mailchimp import CSV via SendGrid email.
 
@@ -192,8 +161,11 @@ Here is today's Mailchimp import CSV for the 2-week pass journey automation.
 
 Summary:
 - Total customers: {customer_count}
-- Path A (2-week pass purchasers): {path_a_count}
-- Path B (day pass + 2nd visit): {path_b_count}
+- All are 2-week pass purchasers who should enter the journey
+- Sorted by flag date (newest first)
+
+Note: Day pass customers (who get the 50% offer email) are NOT in this list.
+They are handled separately.
 
 Please import this CSV into the Mailchimp audience to trigger the automated journey emails.
 
@@ -202,6 +174,7 @@ The CSV includes:
 - First Name
 - Last Name
 - Phone Number
+- Flag Date (when they purchased the 2-week pass)
 - Tags (2-week-pass-purchase)
 
 Best,
@@ -299,12 +272,7 @@ def run_mailchimp_csv_email():
         print("   ℹ️  No customers found for journey")
         return True
 
-    path_a_count = len(df_journey[df_journey['journey_path'] == 'A'])
-    path_b_count = len(df_journey[df_journey['journey_path'] == 'B'])
-
-    print(f"   ✅ Found {len(df_journey)} customers")
-    print(f"      Path A (2-week pass): {path_a_count}")
-    print(f"      Path B (day pass + 2nd visit): {path_b_count}")
+    print(f"   ✅ Found {len(df_journey)} customers (2-week pass purchasers only)")
 
     # Generate Mailchimp CSV
     print("\n📄 Generating Mailchimp CSV...")
@@ -330,7 +298,7 @@ def run_mailchimp_csv_email():
         print("   (Email will be sent when running in production pipeline)")
         return True
 
-    success = send_csv_email(csv_content, len(df_journey), path_a_count, path_b_count)
+    success = send_csv_email(csv_content, len(df_journey))
 
     if success:
         print("\n✅ Mailchimp CSV email sent successfully!")
