@@ -209,7 +209,7 @@ Basin Climbing Data Pipeline
 """
 
     message = Mail(
-        from_email='steel@basinclimbing.com',
+        from_email='info@basinclimbing.com',  # Verified sender in SendGrid
         to_emails='vicky@basinclimbing.com',
         subject=f'Daily Mailchimp Import - 2-Week Pass Journey ({today})',
         plain_text_content=email_body

@@ -410,6 +410,9 @@ def get_transfer_summary(transfers_df: pd.DataFrame) -> dict:
             'unique_users': 0
         }
 
+    # Ensure checkin_datetime is datetime type for min/max calculation
+    checkin_datetime = pd.to_datetime(transfers_df['checkin_datetime'])
+
     return {
         'total_transfers': len(transfers_df),
         'entry_pass_transfers': len(transfers_df[transfers_df['transfer_type'] == 'entry_pass']),
@@ -418,7 +421,7 @@ def get_transfer_summary(transfers_df: pd.DataFrame) -> dict:
         'youth_pass_transfers': len(transfers_df[transfers_df['is_youth_pass'] == True]),
         'unique_purchasers': transfers_df['purchaser_name'].nunique(),
         'unique_users': transfers_df['user_customer_id'].nunique(),
-        'date_range': f"{transfers_df['checkin_datetime'].min()} to {transfers_df['checkin_datetime'].max()}"
+        'date_range': f"{checkin_datetime.min()} to {checkin_datetime.max()}"
     }
 
 
