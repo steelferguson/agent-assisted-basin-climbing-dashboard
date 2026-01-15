@@ -521,10 +521,11 @@ class SecondVisit2WeekOfferFlag(FlagRule):
 
 class TwoWeekPassUserFlag(FlagRule):
     """
-    Flag customers who purchase a 2-week pass.
+    Flag customers who have a 2-week pass.
 
     Business logic:
-    - Customer has purchased a 2-week pass (from transaction/purchase events)
+    - Customer has a 2-week pass membership (from Capitan memberships data)
+    - Detected via membership_started events with name containing "2-Week"
     - Hasn't been flagged for this in the last 14 days (prevent duplicate flags)
     """
 
@@ -535,33 +536,34 @@ class TwoWeekPassUserFlag(FlagRule):
             priority="medium"
         )
 
-    def evaluate(self, customer_id: str, events: list, today: datetime) -> Dict[str, Any]:
+    def evaluate(self, customer_id: str, events: list, today: datetime, email: str = None, phone: str = None) -> Dict[str, Any]:
         """
-        Check if customer has purchased a 2-week pass.
+        Check if customer has a 2-week pass membership.
         """
-        # Get all purchase events (any event_type ending in '_purchase')
-        all_purchases = [
+        # Get all membership_started events
+        all_memberships = [
             e for e in events
-            if e['event_type'].endswith('_purchase')
+            if e['event_type'] == 'membership_started'
             and isinstance(e.get('event_data'), dict)
         ]
 
-        # Filter to 2-week pass purchases by checking description
-        filtered_purchases = []
-        for purchase in all_purchases:
-            event_data = purchase.get('event_data', {})
-            description = event_data.get('description', '').lower()
+        # Filter to 2-week pass memberships by checking membership name
+        filtered_memberships = []
+        for membership in all_memberships:
+            event_data = membership.get('event_data', {})
+            membership_name = event_data.get('membership_name', '').lower()
 
-            # Check if description contains 2-week pass keywords
-            if any(keyword in description for keyword in ['2-week', '2 week', 'two week']):
-                filtered_purchases.append(purchase)
+            # Check if membership name contains 2-week pass keywords
+            if any(keyword in membership_name for keyword in ['2-week', '2 week', 'two week']):
+                filtered_memberships.append(membership)
 
-        if not filtered_purchases:
-            return None  # No 2-week pass purchases
+        if not filtered_memberships:
+            return None  # No 2-week pass memberships
 
-        # Get the most recent 2-week pass purchase
-        most_recent_purchase = max(filtered_purchases, key=lambda e: e['event_date'])
-        purchase_date = most_recent_purchase['event_date']
+        # Get the most recent 2-week pass membership
+        most_recent_membership = max(filtered_memberships, key=lambda e: e['event_date'])
+        start_date = most_recent_membership['event_date']
+        membership_data = most_recent_membership.get('event_data', {})
 
         # Criteria: Must not have been flagged for this in last 14 days (prevent duplicates)
         lookback_start = today - timedelta(days=14)
@@ -578,20 +580,18 @@ class TwoWeekPassUserFlag(FlagRule):
             return None  # Already flagged recently
 
         # All criteria met - flag this customer
-        event_data = most_recent_purchase.get('event_data', {})
-        description = event_data.get('description', 'Unknown')
-        amount = event_data.get('amount', 0)
-
         return {
             'customer_id': customer_id,
             'flag_type': self.flag_type,
             'triggered_date': today,
             'flag_data': {
-                'purchase_date': purchase_date.isoformat(),
-                'days_since_purchase': (today - purchase_date).days,
-                'product_description': description,
-                'purchase_amount': amount,
-                'total_2wk_pass_purchases': len(filtered_purchases),
+                'membership_start_date': start_date.isoformat(),
+                'days_since_start': (today - start_date).days,
+                'membership_name': membership_data.get('membership_name', ''),
+                'membership_id': membership_data.get('membership_id', ''),
+                'end_date': membership_data.get('end_date', ''),
+                'billing_amount': membership_data.get('billing_amount', 0),
+                'total_2wk_memberships': len(filtered_memberships),
                 'description': self.description
             },
             'priority': self.priority

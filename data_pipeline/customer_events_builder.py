@@ -16,16 +16,18 @@ class CustomerEventsBuilder:
     Aggregates events from multiple data sources into a unified customer timeline.
     """
 
-    def __init__(self, customers_master: pd.DataFrame, customer_identifiers: pd.DataFrame):
+    def __init__(self, customers_master: pd.DataFrame, customer_identifiers: pd.DataFrame, df_memberships: pd.DataFrame = None):
         """
         Initialize with customer master and identifier data.
 
         Args:
             customers_master: DataFrame with deduplicated customer records
             customer_identifiers: DataFrame with all customer identifiers and confidence levels
+            df_memberships: Optional DataFrame with Capitan membership data (for transaction matching)
         """
         self.customers_master = customers_master
         self.customer_identifiers = customer_identifiers
+        self.df_memberships = df_memberships
         self.events = []
 
         # Build email -> customer_id lookup for fast matching
@@ -82,8 +84,28 @@ class CustomerEventsBuilder:
                 if normalized and normalized != 'no name':
                     name_to_customer[normalized] = row.get('customer_id')
 
+        # Build Capitan membership_id -> customer lookup from memberships data
+        # This helps match transactions that have membership numbers in descriptions
+        membership_to_capitan_customer = {}
+        if self.df_memberships is not None and not self.df_memberships.empty:
+            for _, row in self.df_memberships.iterrows():
+                membership_id = str(row.get('membership_id', '')).strip()
+                owner_id = row.get('owner_id')  # This is the Capitan customer_id
+                if membership_id and pd.notna(owner_id):
+                    membership_to_capitan_customer[membership_id] = str(int(owner_id))
+
+        # Build Capitan customer_id -> UUID mapping
+        capitan_to_uuid = {}
+        for _, row in self.customer_identifiers[self.customer_identifiers['source'] == 'capitan'].iterrows():
+            source_id = row.get('source_id', '')
+            if source_id and str(source_id).startswith('customer:'):
+                capitan_id = str(source_id).replace('customer:', '').strip()
+                if capitan_id:
+                    capitan_to_uuid[capitan_id] = row['customer_id']
+
         events_added = 0
         matched = 0
+        matched_by_membership = 0
         unmatched = 0
 
         for _, row in df_transactions.iterrows():
@@ -126,10 +148,26 @@ class CustomerEventsBuilder:
 
             if customer_name and not pd.isna(customer_name):
                 normalized_name = str(customer_name).lower().strip()
-                if normalized_name in name_to_customer:
+                if normalized_name in name_to_customer and normalized_name != 'no name':
                     customer_id = name_to_customer[normalized_name]
                     confidence = 'medium'  # Name match is medium confidence
                     matched += 1
+
+            # If name match failed, try to extract membership number from description
+            if not customer_id and description:
+                import re
+                # Look for pattern like "Capitan membership #232014"
+                match = re.search(r'membership #(\d+)', description, re.IGNORECASE)
+                if match:
+                    membership_id = match.group(1)
+                    # First lookup: membership_id -> Capitan customer_id
+                    capitan_customer_id = membership_to_capitan_customer.get(membership_id)
+                    if capitan_customer_id:
+                        # Second lookup: Capitan customer_id -> UUID
+                        customer_id = capitan_to_uuid.get(capitan_customer_id)
+                        if customer_id:
+                            confidence = 'high'  # Membership ID match is high confidence
+                            matched_by_membership += 1
 
             if not customer_id:
                 # Skip events we can't match to customers
@@ -152,7 +190,10 @@ class CustomerEventsBuilder:
             })
             events_added += 1
 
-        print(f"✅ Added {events_added} transaction events ({matched} matched, {unmatched} unmatched)")
+        print(f"✅ Added {events_added} transaction events")
+        print(f"   - {matched} matched by name")
+        print(f"   - {matched_by_membership} matched by membership ID")
+        print(f"   - {unmatched} unmatched")
 
     def add_checkin_events(self, df_checkins: pd.DataFrame):
         """
@@ -208,6 +249,83 @@ class CustomerEventsBuilder:
             events_added += 1
 
         print(f"✅ Added {events_added} check-in events")
+
+    def add_membership_events(self, df_memberships: pd.DataFrame):
+        """
+        Add membership events from Capitan memberships data.
+
+        Creates membership_started events for all memberships, which provides
+        a reliable source of truth for what passes/memberships customers have.
+
+        Event type: membership_started
+        """
+        print(f"\n🎫 Processing membership events ({len(df_memberships)} records)...")
+
+        if df_memberships.empty:
+            print("⚠️  No membership data")
+            return
+
+        # Build Capitan owner_id -> UUID mapping
+        capitan_to_uuid = {}
+        for _, row in self.customer_identifiers[self.customer_identifiers['source'] == 'capitan'].iterrows():
+            source_id = row.get('source_id', '')
+            if source_id and str(source_id).startswith('customer:'):
+                capitan_id = str(source_id).replace('customer:', '').strip()
+                if capitan_id:
+                    capitan_to_uuid[capitan_id] = row['customer_id']
+
+        events_added = 0
+        matched = 0
+        unmatched = 0
+
+        for _, row in df_memberships.iterrows():
+            owner_id = row.get('owner_id')
+            start_date_raw = row.get('start_date')
+
+            if pd.isna(owner_id) or pd.isna(start_date_raw):
+                continue
+
+            # Parse start date
+            start_date = pd.to_datetime(start_date_raw, errors='coerce')
+            if pd.isna(start_date):
+                continue
+
+            # Look up unified customer_id from Capitan owner_id
+            capitan_owner_id = str(int(owner_id))
+            customer_id = capitan_to_uuid.get(capitan_owner_id)
+
+            if not customer_id:
+                unmatched += 1
+                continue
+
+            matched += 1
+
+            # Parse end date
+            end_date_raw = row.get('end_date')
+            end_date = pd.to_datetime(end_date_raw, errors='coerce') if pd.notna(end_date_raw) else None
+
+            self.events.append({
+                'customer_id': customer_id,
+                'event_date': start_date,
+                'event_type': 'membership_started',
+                'event_source': 'capitan',
+                'source_confidence': 'exact',
+                'event_details': json.dumps({
+                    'membership_id': int(row.get('membership_id', 0)),
+                    'membership_name': row.get('name', ''),
+                    'start_date': start_date.isoformat(),
+                    'end_date': end_date.isoformat() if end_date else None,
+                    'status': row.get('status', ''),
+                    'frequency': row.get('frequency', ''),
+                    'size': row.get('size', ''),
+                    'billing_amount': float(row.get('billing_amount', 0)) if pd.notna(row.get('billing_amount')) else 0,
+                    'is_fitness_only': bool(row.get('is_fitness_only', False)),
+                    'has_fitness_addon': bool(row.get('has_fitness_addon', False))
+                })
+            })
+            events_added += 1
+
+        print(f"✅ Added {events_added} membership events ({matched} matched, {unmatched} unmatched)")
 
     def add_mailchimp_events(self, mailchimp_fetcher, df_mailchimp: pd.DataFrame,
                             anthropic_api_key: str = None):
@@ -468,6 +586,7 @@ def build_customer_events(
     df_checkins: pd.DataFrame = None,
     df_transfers: pd.DataFrame = None,
     df_mailchimp: pd.DataFrame = None,
+    df_memberships: pd.DataFrame = None,
     mailchimp_fetcher = None,
     anthropic_api_key: str = None
 ) -> pd.DataFrame:
@@ -481,6 +600,7 @@ def build_customer_events(
         df_checkins: Capitan check-in data
         df_transfers: Pass transfer data (with purchaser_customer_id)
         df_mailchimp: Mailchimp campaign data
+        df_memberships: Capitan memberships data (for transaction matching)
         mailchimp_fetcher: MailchimpDataFetcher instance for recipient fetching
         anthropic_api_key: API key for template analysis
 
@@ -491,7 +611,7 @@ def build_customer_events(
     print("Building Customer Event Timeline")
     print("=" * 60)
 
-    builder = CustomerEventsBuilder(customers_master, customer_identifiers)
+    builder = CustomerEventsBuilder(customers_master, customer_identifiers, df_memberships)
 
     # Add events from each source
     if df_transactions is not None and not df_transactions.empty:
@@ -499,6 +619,9 @@ def build_customer_events(
 
     if df_checkins is not None and not df_checkins.empty:
         builder.add_checkin_events(df_checkins)
+
+    if df_memberships is not None and not df_memberships.empty:
+        builder.add_membership_events(df_memberships)
 
     if df_transfers is not None and not df_transfers.empty:
         builder.add_pass_sharing_events(df_transfers)

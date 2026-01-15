@@ -24,6 +24,7 @@ ga4_credentials_path = os.getenv("GA4_CREDENTIALS_PATH")  # For local dev (file 
 ga4_credentials_json = os.getenv("GA4_CREDENTIALS_JSON")  # For CI/CD (JSON string)
 shopify_store_domain = os.getenv("SHOPIFY_STORE_DOMAIN")
 shopify_admin_token = os.getenv("SHOPIFY_ADMIN_TOKEN")
+sendgrid_api_key = os.getenv("SENDGRID_API_KEY")
 df_path_recent_days = "data/outputs/stripe_and_square_combined_data_recent_days.csv"
 df_path_combined = "data/outputs/stripe_and_square_combined_data.csv"
 aws_bucket_name = "basin-climbing-data-prod"

@@ -217,6 +217,16 @@ def run_daily_pipeline():
     except Exception as e:
         print(f"❌ Error building flag-email verification report: {e}\n")
 
+    # 9e. Send Mailchimp import CSV for 2-week pass journey
+    print("11e. Sending Mailchimp import CSV for 2-week pass journey...")
+    print("    (Emails CSV to vicky@basinclimbing.com for daily import)")
+    try:
+        from data_pipeline.send_mailchimp_import_csv import run_mailchimp_csv_email
+        run_mailchimp_csv_email()
+        print("✅ Mailchimp import CSV sent successfully\n")
+    except Exception as e:
+        print(f"❌ Error sending Mailchimp import CSV: {e}\n")
+
     # 10. Generate team membership reconciliation report
     print("12. Generating team membership reconciliation report...")
     try:

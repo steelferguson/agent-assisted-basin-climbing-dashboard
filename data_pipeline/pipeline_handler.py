@@ -752,6 +752,15 @@ def update_customer_master(save_local=False):
     except Exception as e:
         print(f"⚠️  Could not load transactions: {e}")
 
+    # Load Capitan memberships data for transaction matching
+    df_memberships = pd.DataFrame()
+    try:
+        csv_content = uploader.download_from_s3(config.aws_bucket_name, 'capitan/memberships.csv')
+        df_memberships = uploader.convert_csv_to_df(csv_content)
+        print(f"📥 Loaded {len(df_memberships)} memberships for transaction matching")
+    except Exception as e:
+        print(f"⚠️  Could not load memberships: {e}")
+
     # Load Mailchimp campaign data for email event tracking
     df_mailchimp = pd.DataFrame()
     mailchimp_fetcher = None
@@ -783,6 +792,7 @@ def update_customer_master(save_local=False):
         df_transactions=df_transactions,
         df_checkins=df_checkins,
         df_mailchimp=df_mailchimp,
+        df_memberships=df_memberships,
         mailchimp_fetcher=mailchimp_fetcher,
         anthropic_api_key=config.anthropic_api_key
     )
