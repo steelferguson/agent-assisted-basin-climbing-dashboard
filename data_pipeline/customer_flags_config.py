@@ -820,6 +820,134 @@ class BirthdayPartyAttendeeOneWeekOutFlag(FlagRule):
             return None
 
 
+class BirthdayPartyHostSixDaysOutFlag(FlagRule):
+    """
+    Flag party hosts 6 days before the party (day after attendee reminders sent).
+
+    Business logic:
+    - Customer's email matches a host_email in birthday_parties table
+    - Party date is exactly 6 days from today
+    - Party hasn't already happened
+    - Hasn't been flagged for this party in the last 7 days (prevent duplicates)
+    """
+
+    def __init__(self):
+        super().__init__(
+            flag_type="birthday_party_host_six_days_out",
+            description="Customer is hosting a birthday party in 6 days (day after attendee reminders)",
+            priority="high"
+        )
+
+    def evaluate(self, customer_id: str, events: list, today: datetime, email: str = None, phone: str = None) -> Dict[str, Any]:
+        """
+        Check if customer is hosting a party in 6 days.
+
+        This requires querying BigQuery birthday_parties table.
+        """
+        if not email:
+            return None  # Can't match without email
+
+        try:
+            from google.cloud import bigquery
+
+            # Initialize BigQuery client
+            client = bigquery.Client()
+
+            # Query for parties where this customer is the host
+            target_date = today + timedelta(days=6)
+            target_date_str = target_date.strftime('%Y-%m-%d')
+
+            query = f"""
+                SELECT
+                    party_id,
+                    child_name,
+                    party_date,
+                    party_time,
+                    host_email,
+                    host_name,
+                    total_guests,
+                    party_package
+                FROM `basin_data.birthday_parties`
+                WHERE LOWER(host_email) = LOWER(@email)
+                  AND party_date = @target_date
+                LIMIT 1
+            """
+
+            job_config = bigquery.QueryJobConfig(
+                query_parameters=[
+                    bigquery.ScalarQueryParameter("email", "STRING", email),
+                    bigquery.ScalarQueryParameter("target_date", "STRING", target_date_str),
+                ]
+            )
+
+            results = client.query(query, job_config=job_config).result()
+            party_row = None
+            for row in results:
+                party_row = row
+                break
+
+            if not party_row:
+                return None  # No party found for this host in 6 days
+
+            # Count how many attendees were sent reminders yesterday (those who had phone and opted in)
+            # For now, count all 'yes' RSVPs - we'll refine this later to track actual sends
+            rsvp_query = f"""
+                SELECT COUNT(*) as yes_count
+                FROM `basin_data.birthday_party_rsvps`
+                WHERE party_id = @party_id
+                  AND attending = 'yes'
+            """
+
+            rsvp_job_config = bigquery.QueryJobConfig(
+                query_parameters=[
+                    bigquery.ScalarQueryParameter("party_id", "STRING", party_row.party_id),
+                ]
+            )
+
+            rsvp_results = client.query(rsvp_query, job_config=rsvp_job_config).result()
+            yes_count = 0
+            for row in rsvp_results:
+                yes_count = row.yes_count
+                break
+
+            # Check if already flagged for this party in last 7 days
+            lookback_start = today - timedelta(days=7)
+            recent_flags = [
+                e for e in events
+                if e['event_type'] == 'flag_set'
+                and isinstance(e.get('event_data'), dict)
+                and e.get('event_data', {}).get('flag_type') == self.flag_type
+                and e.get('event_data', {}).get('party_id') == party_row.party_id
+                and e['event_date'] >= lookback_start
+                and e['event_date'] <= today
+            ]
+
+            if recent_flags:
+                return None  # Already flagged for this party
+
+            # All criteria met - flag this customer
+            return {
+                'flag_type': self.flag_type,
+                'description': self.description,
+                'flag_data': {
+                    'party_id': party_row.party_id,
+                    'child_name': party_row.child_name,
+                    'party_date': target_date_str,
+                    'party_time': party_row.party_time if party_row.party_time else '',
+                    'host_email': party_row.host_email,
+                    'host_name': party_row.host_name if party_row.host_name else '',
+                    'total_guests': party_row.total_guests if party_row.total_guests else 0,
+                    'yes_rsvp_count': yes_count,
+                    'party_package': party_row.party_package if party_row.party_package else ''
+                },
+                'priority': self.priority
+            }
+
+        except Exception as e:
+            print(f"   ⚠️  Error querying birthday parties for host notification {customer_id}: {e}")
+            return None
+
+
 # List of all active rules
 ACTIVE_RULES = [
     ReadyForMembershipFlag(),
@@ -829,6 +957,7 @@ ACTIVE_RULES = [
     TwoWeekPassUserFlag(),                 # Track 2-week pass usage
     BirthdayPartyHostOneWeekOutFlag(),     # Host has party in 7 days
     BirthdayPartyAttendeeOneWeekOutFlag(), # Attendee has party in 7 days
+    BirthdayPartyHostSixDaysOutFlag(),     # Host notification (6 days before)
 ]
 
 
