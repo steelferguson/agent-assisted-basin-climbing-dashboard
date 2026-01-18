@@ -300,6 +300,29 @@ def run_daily_pipeline():
     except Exception as e:
         print(f"❌ Error fetching birthday party data: {e}\n")
 
+    # NOTE: Flags are evaluated separately via run_flag_sync.py (runs at 8 AM, 2 PM, 8 PM CT)
+    # After flags are set, birthday party reminders are sent automatically
+
+    # 16. Send birthday party attendee reminders (via SMS)
+    print("18. Sending birthday party attendee reminders...")
+    print("    (Runs automatically when birthday_party_attendee_one_week_out flag is set)")
+    try:
+        import subprocess
+        # Run in auto-send mode (not dry-run) since this is automated
+        result = subprocess.run(
+            ['python', 'send_birthday_party_attendee_reminders.py', '--send'],
+            capture_output=True,
+            text=True
+        )
+        if result.returncode == 0:
+            print("✅ Birthday party reminders sent successfully\n")
+        else:
+            print(f"⚠️  Birthday party reminders completed with warnings\n")
+            if result.stdout:
+                print(result.stdout)
+    except Exception as e:
+        print(f"❌ Error sending birthday party reminders: {e}\n")
+
     print(f"{'='*80}")
     print(f"PIPELINE COMPLETE - {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"{'='*80}\n")

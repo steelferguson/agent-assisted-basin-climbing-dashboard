@@ -598,6 +598,228 @@ class TwoWeekPassUserFlag(FlagRule):
         }
 
 
+class BirthdayPartyHostOneWeekOutFlag(FlagRule):
+    """
+    Flag customers who are hosting a birthday party in 7 days.
+
+    Business logic:
+    - Customer's email matches a host_email in birthday_parties table
+    - Party date is exactly 7 days from today
+    - Party hasn't already happened
+    - Hasn't been flagged for this party in the last 7 days (prevent duplicates)
+    """
+
+    def __init__(self):
+        super().__init__(
+            flag_type="birthday_party_host_one_week_out",
+            description="Customer is hosting a birthday party in 7 days",
+            priority="high"
+        )
+
+    def evaluate(self, customer_id: str, events: list, today: datetime, email: str = None, phone: str = None) -> Dict[str, Any]:
+        """
+        Check if customer is hosting a party in 7 days.
+
+        This requires querying BigQuery birthday_parties table.
+        The flag engine should call this with the customer's email.
+        """
+        if not email:
+            return None  # Can't match without email
+
+        try:
+            from google.cloud import bigquery
+            import os
+
+            # Initialize BigQuery client
+            client = bigquery.Client()
+
+            # Query for parties where this customer is the host
+            target_date = today + timedelta(days=7)
+            target_date_str = target_date.strftime('%Y-%m-%d')
+
+            query = f"""
+                SELECT
+                    party_id,
+                    host_email,
+                    child_name,
+                    party_date,
+                    party_time,
+                    total_yes,
+                    total_guests
+                FROM `basin_data.birthday_parties`
+                WHERE LOWER(host_email) = LOWER(@email)
+                  AND party_date = @target_date
+                LIMIT 1
+            """
+
+            job_config = bigquery.QueryJobConfig(
+                query_parameters=[
+                    bigquery.ScalarQueryParameter("email", "STRING", email),
+                    bigquery.ScalarQueryParameter("target_date", "STRING", target_date_str),
+                ]
+            )
+
+            results = client.query(query, job_config=job_config).result()
+            party_row = None
+            for row in results:
+                party_row = row
+                break
+
+            if not party_row:
+                return None  # No party found for this customer in 7 days
+
+            # Check if already flagged for this party in last 7 days
+            lookback_start = today - timedelta(days=7)
+            recent_flags = [
+                e for e in events
+                if e['event_type'] == 'flag_set'
+                and isinstance(e.get('event_data'), dict)
+                and e.get('event_data', {}).get('flag_type') == self.flag_type
+                and e.get('event_data', {}).get('party_id') == party_row.party_id
+                and e['event_date'] >= lookback_start
+                and e['event_date'] <= today
+            ]
+
+            if recent_flags:
+                return None  # Already flagged for this party
+
+            # All criteria met - flag this customer
+            return {
+                'customer_id': customer_id,
+                'flag_type': self.flag_type,
+                'triggered_date': today,
+                'flag_data': {
+                    'party_id': party_row.party_id,
+                    'child_name': party_row.child_name,
+                    'party_date': party_row.party_date,
+                    'party_time': party_row.party_time if hasattr(party_row, 'party_time') else None,
+                    'days_until_party': 7,
+                    'total_rsvp_yes': party_row.total_yes if hasattr(party_row, 'total_yes') else 0,
+                    'total_guests': party_row.total_guests if hasattr(party_row, 'total_guests') else 0,
+                    'description': self.description
+                },
+                'priority': self.priority
+            }
+
+        except Exception as e:
+            print(f"   ⚠️  Error querying birthday parties for customer {customer_id}: {e}")
+            return None
+
+
+class BirthdayPartyAttendeeOneWeekOutFlag(FlagRule):
+    """
+    Flag customers who RSVP'd 'yes' to a birthday party in 7 days.
+
+    Business logic:
+    - Customer's email matches an RSVP email in birthday_party_rsvps table
+    - RSVP status is 'yes'
+    - Party date is exactly 7 days from today
+    - Party hasn't already happened
+    - Hasn't been flagged for this party in the last 7 days (prevent duplicates)
+    """
+
+    def __init__(self):
+        super().__init__(
+            flag_type="birthday_party_attendee_one_week_out",
+            description="Customer RSVP'd yes to a birthday party in 7 days",
+            priority="medium"
+        )
+
+    def evaluate(self, customer_id: str, events: list, today: datetime, email: str = None, phone: str = None) -> Dict[str, Any]:
+        """
+        Check if customer RSVP'd yes to a party in 7 days.
+
+        This requires querying BigQuery birthday_party_rsvps table.
+        """
+        if not email:
+            return None  # Can't match without email
+
+        try:
+            from google.cloud import bigquery
+
+            # Initialize BigQuery client
+            client = bigquery.Client()
+
+            # Query for RSVPs where this customer said yes
+            target_date = today + timedelta(days=7)
+            target_date_str = target_date.strftime('%Y-%m-%d')
+
+            query = f"""
+                SELECT
+                    r.party_id,
+                    r.rsvp_id,
+                    r.guest_name,
+                    r.attending,
+                    r.num_adults,
+                    r.num_kids,
+                    p.child_name,
+                    p.party_date,
+                    p.party_time,
+                    p.host_email
+                FROM `basin_data.birthday_party_rsvps` r
+                JOIN `basin_data.birthday_parties` p ON r.party_id = p.party_id
+                WHERE LOWER(r.email) = LOWER(@email)
+                  AND r.attending = 'yes'
+                  AND p.party_date = @target_date
+                LIMIT 1
+            """
+
+            job_config = bigquery.QueryJobConfig(
+                query_parameters=[
+                    bigquery.ScalarQueryParameter("email", "STRING", email),
+                    bigquery.ScalarQueryParameter("target_date", "STRING", target_date_str),
+                ]
+            )
+
+            results = client.query(query, job_config=job_config).result()
+            rsvp_row = None
+            for row in results:
+                rsvp_row = row
+                break
+
+            if not rsvp_row:
+                return None  # No 'yes' RSVP found for this customer in 7 days
+
+            # Check if already flagged for this party in last 7 days
+            lookback_start = today - timedelta(days=7)
+            recent_flags = [
+                e for e in events
+                if e['event_type'] == 'flag_set'
+                and isinstance(e.get('event_data'), dict)
+                and e.get('event_data', {}).get('flag_type') == self.flag_type
+                and e.get('event_data', {}).get('party_id') == rsvp_row.party_id
+                and e['event_date'] >= lookback_start
+                and e['event_date'] <= today
+            ]
+
+            if recent_flags:
+                return None  # Already flagged for this party
+
+            # All criteria met - flag this customer
+            return {
+                'customer_id': customer_id,
+                'flag_type': self.flag_type,
+                'triggered_date': today,
+                'flag_data': {
+                    'party_id': rsvp_row.party_id,
+                    'rsvp_id': rsvp_row.rsvp_id,
+                    'child_name': rsvp_row.child_name,
+                    'party_date': rsvp_row.party_date,
+                    'party_time': rsvp_row.party_time if hasattr(rsvp_row, 'party_time') else None,
+                    'days_until_party': 7,
+                    'host_email': rsvp_row.host_email if hasattr(rsvp_row, 'host_email') else None,
+                    'num_adults': rsvp_row.num_adults if hasattr(rsvp_row, 'num_adults') else 0,
+                    'num_kids': rsvp_row.num_kids if hasattr(rsvp_row, 'num_kids') else 0,
+                    'description': self.description
+                },
+                'priority': self.priority
+            }
+
+        except Exception as e:
+            print(f"   ⚠️  Error querying birthday party RSVPs for customer {customer_id}: {e}")
+            return None
+
+
 # List of all active rules
 ACTIVE_RULES = [
     ReadyForMembershipFlag(),
@@ -605,6 +827,8 @@ ACTIVE_RULES = [
     SecondVisitOfferEligibleFlag(),        # Group B Step 1: 2nd pass offer
     SecondVisit2WeekOfferFlag(),           # Group B Step 2: 2-week offer after return
     TwoWeekPassUserFlag(),                 # Track 2-week pass usage
+    BirthdayPartyHostOneWeekOutFlag(),     # Host has party in 7 days
+    BirthdayPartyAttendeeOneWeekOutFlag(), # Attendee has party in 7 days
 ]
 
 
