@@ -7,7 +7,7 @@
 - `pyproject.toml` - Python project configuration
 - `runtime.txt` - Heroku runtime specification
 - `Procfile` - Heroku deployment configuration
-- `streamlit_dashboard.py` - Main Streamlit dashboard
+- `main_basin_dashboard.py` - Main Streamlit dashboard
 - `streamlit_app.py` - Secondary Streamlit app
 - `crew_app.py` - Crew dashboard app
 - `run_daily_pipeline.py` - Production pipeline runner
