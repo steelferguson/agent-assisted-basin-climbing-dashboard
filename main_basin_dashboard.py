@@ -71,6 +71,45 @@ REVENUE_CATEGORY_COLORS = {
 }
 
 
+def check_password():
+    """
+    Password protection for the dashboard.
+    Returns True if the user has entered the correct password.
+    """
+    def password_entered():
+        """Check if entered password is correct."""
+        if st.session_state["password"] == os.getenv("DASHBOARD_PASSWORD", "basin2024"):
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]  # Don't store password
+        else:
+            st.session_state["password_correct"] = False
+
+    # First run, show input for password
+    if "password_correct" not in st.session_state:
+        st.text_input(
+            "🔒 Enter Dashboard Password",
+            type="password",
+            on_change=password_entered,
+            key="password"
+        )
+        return False
+
+    # Password not correct, show input + error
+    elif not st.session_state["password_correct"]:
+        st.text_input(
+            "🔒 Enter Dashboard Password",
+            type="password",
+            on_change=password_entered,
+            key="password"
+        )
+        st.error("😕 Password incorrect")
+        return False
+
+    # Password correct
+    else:
+        return True
+
+
 def apply_axis_styling(fig):
     """
     Apply consistent axis styling to charts: darker labels, lighter gridlines.
@@ -173,6 +212,10 @@ def load_data():
 
     return df_transactions, df_memberships, df_members, df_projection, df_at_risk, df_new_members, df_facebook_ads, df_events, df_checkins, df_instagram, df_mailchimp, df_failed_payments, df_expenses, df_twilio_messages, df_customer_identifiers, df_customers_master, df_customer_events, df_customer_flags, df_day_pass_engagement, df_membership_conversion
 
+
+# Check password before loading data
+if not check_password():
+    st.stop()
 
 # Load data
 with st.spinner('Loading data from S3...'):
