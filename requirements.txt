@@ -94,4 +94,5 @@ kaleido==0.2.1  # For plotly static image export
 google-analytics-data==0.19.0  # For GA4 API access
 twilio==9.0.4  # For SMS messaging and Twilio API
 sendgrid>=6.12.5
-python-Levenshtein>=0.21.0
+python-Levenshtein==0.25.1  # For fuzzy string matching in customer identity resolution
+Levenshtein==0.25.1  # Ensure both package names work

@@ -77,6 +77,11 @@ def upload_pass_transfers_to_s3(days_back=7, save_local=False, local_dir='data')
         response = s3_client.get_object(Bucket=AWS_BUCKET_NAME, Key="capitan/pass_transfers.csv")
         csv_content = response['Body'].read().decode('utf-8')
         existing_transfers = pd.read_csv(StringIO(csv_content))
+
+        # Convert datetime columns to avoid comparison errors
+        if 'checkin_datetime' in existing_transfers.columns:
+            existing_transfers['checkin_datetime'] = pd.to_datetime(existing_transfers['checkin_datetime'], errors='coerce')
+
         print(f"   ✓ Loaded {len(existing_transfers)} existing transfers")
     except s3_client.exceptions.NoSuchKey:
         print("   ✓ No existing transfers file (first run)")

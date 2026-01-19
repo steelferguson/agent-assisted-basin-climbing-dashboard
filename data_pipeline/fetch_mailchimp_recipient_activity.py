@@ -70,6 +70,11 @@ class MailchimpRecipientActivityFetcher:
         try:
             obj = self.s3_client.get_object(Bucket=self.bucket_name, Key=self.s3_key)
             df = pd.read_csv(StringIO(obj['Body'].read().decode('utf-8')))
+
+            # Convert date columns to datetime to avoid comparison errors
+            if 'sent_date' in df.columns:
+                df['sent_date'] = pd.to_datetime(df['sent_date'], errors='coerce')
+
             print(f"✅ Loaded {len(df)} existing records from S3")
             return df
         except self.s3_client.exceptions.NoSuchKey:

@@ -322,7 +322,7 @@ THEMES: [comma-separated themes]"""
                 if offset >= total_items:
                     break
 
-            print(f"  Fetched {len(all_recipients)} recipients")
+            # Removed verbose output - summary will be printed at the end
             return all_recipients
 
         except ApiClientError as error:
@@ -734,14 +734,15 @@ THEMES: [comma-separated themes]"""
             campaign_title = campaign.get('settings', {}).get('title', 'Untitled')
             send_time = campaign.get('send_time', '')
 
-            print(f"\nProcessing: {campaign_title}")
-            print(f"  Sent: {send_time}")
-
-            # Fetch recipients for this campaign
+            # Fetch recipients for this campaign (reduced verbosity)
             recipients = self.get_campaign_recipients(campaign_id)
 
             if not recipients:
                 continue
+
+            # Only print summary instead of per-campaign details
+            if len(all_recipients) % 1000 == 0:  # Print progress every 1000 recipients
+                print(f"  ... processed {len(all_recipients)} recipients so far")
 
             # Process each recipient
             for recipient in recipients:
