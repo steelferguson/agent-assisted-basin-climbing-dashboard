@@ -72,6 +72,27 @@ REVENUE_CATEGORY_COLORS = {
 }
 
 
+def apply_axis_styling(fig):
+    """
+    Apply consistent axis styling to charts: darker labels, lighter gridlines.
+
+    Call this after creating any chart to apply better readability styling.
+    """
+    fig.update_layout(
+        xaxis=dict(
+            tickfont=dict(color=COLORS['axis_text'], size=12),
+            gridcolor=COLORS['gridline'],
+            title_font=dict(color=COLORS['text'], size=14)
+        ),
+        yaxis=dict(
+            tickfont=dict(color=COLORS['axis_text'], size=12),
+            gridcolor=COLORS['gridline'],
+            title_font=dict(color=COLORS['text'], size=14)
+        )
+    )
+    return fig
+
+
 def convert_shopify_to_transactions(df_shopify: pd.DataFrame) -> pd.DataFrame:
     """
     Convert Shopify orders to transactions dataframe format.
@@ -245,18 +266,9 @@ with tab1:
         paper_bgcolor=COLORS['background'],
         font_color=COLORS['text'],
         yaxis_title='Revenue ($)',
-        xaxis_title='Date',
-        xaxis=dict(
-            tickfont=dict(color=COLORS['axis_text'], size=12),
-            gridcolor=COLORS['gridline'],
-            title_font=dict(color=COLORS['text'], size=14)
-        ),
-        yaxis=dict(
-            tickfont=dict(color=COLORS['axis_text'], size=12),
-            gridcolor=COLORS['gridline'],
-            title_font=dict(color=COLORS['text'], size=14)
-        )
+        xaxis_title='Date'
     )
+    fig_line = apply_axis_styling(fig_line)
     st.plotly_chart(fig_line, use_container_width=True)
 
     # Stacked bar chart - Revenue by Category
@@ -279,6 +291,7 @@ with tab1:
         xaxis_title='Date',
         legend_title='Category'
     )
+    fig_stacked = apply_axis_styling(fig_stacked)
     st.plotly_chart(fig_stacked, use_container_width=True)
 
     # Percentage chart - Revenue by Category
@@ -316,6 +329,7 @@ with tab1:
         xaxis_title='Date',
         legend_title='Category'
     )
+    fig_percentage = apply_axis_styling(fig_percentage)
     st.plotly_chart(fig_percentage, use_container_width=True)
 
     # Refund rate chart
@@ -361,6 +375,7 @@ with tab1:
         yaxis_title='Category',
         height=400
     )
+    fig_refund = apply_axis_styling(fig_refund)
     st.plotly_chart(fig_refund, use_container_width=True)
 
     # Accounting groups chart
@@ -414,6 +429,7 @@ with tab1:
         xaxis_title='Date',
         legend_title='Group'
     )
+    fig_accounting = apply_axis_styling(fig_accounting)
     st.plotly_chart(fig_accounting, use_container_width=True)
 
     # Membership Revenue Projection
@@ -1165,6 +1181,7 @@ with tab2:
             showlegend=False,
             yaxis_title='Number of Members'
         )
+        fig_90 = apply_axis_styling(fig_90)
         st.plotly_chart(fig_90, use_container_width=True)
     else:
         st.info('No 90 for 90 memberships found')
@@ -1593,6 +1610,7 @@ with tab3:
         yaxis_title='Number of Day Passes',
         xaxis_title='Date'
     )
+    fig_day_pass_count = apply_axis_styling(fig_day_pass_count)
     st.plotly_chart(fig_day_pass_count, use_container_width=True)
     st.caption(f'Total day passes: {int(total_day_passes):,}')
 
@@ -1624,6 +1642,7 @@ with tab3:
         yaxis_title='Revenue ($)',
         xaxis_title='Date'
     )
+    fig_day_pass_revenue = apply_axis_styling(fig_day_pass_revenue)
     st.plotly_chart(fig_day_pass_revenue, use_container_width=True)
 
     # Day Pass Customer Recency Analysis
@@ -1925,6 +1944,7 @@ with tab3:
                     xaxis_title='Membership Start Date',
                     showlegend=False
                 )
+                fig_avg = apply_axis_styling(fig_avg)
                 st.plotly_chart(fig_avg, use_container_width=True)
 
             # Stacked bar chart: Distribution by bucket
@@ -1967,6 +1987,7 @@ with tab3:
                         x=0.5
                     )
                 )
+                fig_dist = apply_axis_styling(fig_dist)
                 st.plotly_chart(fig_dist, use_container_width=True)
         else:
             st.info('No memberships have started yet')
@@ -2029,6 +2050,7 @@ with tab3:
             yaxis_title='Number of Passes Used',
             xaxis_title='Date'
         )
+        fig_day_pass_used = apply_axis_styling(fig_day_pass_used)
         st.plotly_chart(fig_day_pass_used, use_container_width=True)
 
         total_used = day_pass_used_summary['passes_used'].sum()
@@ -2097,6 +2119,7 @@ with tab3:
             xaxis_title='Date',
             legend_title='Type'
         )
+        fig_checkins_type = apply_axis_styling(fig_checkins_type)
         st.plotly_chart(fig_checkins_type, use_container_width=True)
     else:
         st.info('No check-in data available')
@@ -2137,6 +2160,7 @@ with tab3:
             xaxis_title='Day of Week',
             legend_title='Month'
         )
+        fig_checkins_by_day = apply_axis_styling(fig_checkins_by_day)
         st.plotly_chart(fig_checkins_by_day, use_container_width=True)
 
         # Chart 2: Grouped by Month first (x-axis = Month, color = Day of Week)
@@ -2162,6 +2186,7 @@ with tab3:
             xaxis_title='Month',
             legend_title='Day of Week'
         )
+        fig_checkins_by_month = apply_axis_styling(fig_checkins_by_month)
         st.plotly_chart(fig_checkins_by_month, use_container_width=True)
     else:
         st.info('No check-in data available')
@@ -2209,6 +2234,7 @@ with tab4:
             yaxis_title='Number of Parties',
             xaxis_title='Date'
         )
+        fig_birthday_count = apply_axis_styling(fig_birthday_count)
         st.plotly_chart(fig_birthday_count, use_container_width=True)
         st.caption(f'Total parties booked: {birthday_count["num_parties"].sum()}')
     else:
@@ -2237,6 +2263,7 @@ with tab4:
         yaxis_title='Revenue ($)',
         xaxis_title='Date'
     )
+    fig_birthday_revenue = apply_axis_styling(fig_birthday_revenue)
     st.plotly_chart(fig_birthday_revenue, use_container_width=True)
 
     # All Rental Revenue (Event Booking category)
@@ -2270,6 +2297,7 @@ with tab4:
         xaxis_title='Date',
         legend_title='Rental Type'
     )
+    fig_all_rentals = apply_axis_styling(fig_all_rentals)
     st.plotly_chart(fig_all_rentals, use_container_width=True)
 
 # ============================================================================
@@ -2361,6 +2389,7 @@ with tab5:
             xaxis_title='Date',
             hovermode='x unified'
         )
+        fig_youth = apply_axis_styling(fig_youth)
         st.plotly_chart(fig_youth, use_container_width=True)
     else:
         st.info('No youth team data available')
@@ -2408,6 +2437,7 @@ with tab5:
             yaxis_title='Revenue ($)',
             xaxis_title='Date'
         )
+        fig_team_revenue = apply_axis_styling(fig_team_revenue)
         st.plotly_chart(fig_team_revenue, use_container_width=True)
     else:
         st.info('No youth team revenue data available')
@@ -2446,6 +2476,7 @@ with tab5:
             yaxis_title='Fitness Revenue ($)',
             xaxis_title='Date'
         )
+        fig_fitness = apply_axis_styling(fig_fitness)
         st.plotly_chart(fig_fitness, use_container_width=True)
     else:
         st.info('Fitness revenue data is being calculated. Please wait for the next data pipeline run.')
@@ -2499,6 +2530,7 @@ with tab5:
                 yaxis_title='Total Attendance',
                 xaxis_title='Date'
             )
+            fig_attendance = apply_axis_styling(fig_attendance)
             st.plotly_chart(fig_attendance, use_container_width=True)
 
             # Fitness Check-ins by Class Type
@@ -2540,6 +2572,7 @@ with tab5:
                 xaxis_title='Date',
                 legend_title='Class Type'
             )
+            fig_class_types = apply_axis_styling(fig_class_types)
             st.plotly_chart(fig_class_types, use_container_width=True)
         else:
             st.info('No fitness class data available with valid dates')
@@ -2675,6 +2708,7 @@ with tab5:
                     x=1
                 )
             )
+            fig_past_camps = apply_axis_styling(fig_past_camps)
             st.plotly_chart(fig_past_camps, use_container_width=True)
         else:
             st.info('No past camp data available')
