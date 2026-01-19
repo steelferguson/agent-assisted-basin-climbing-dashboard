@@ -243,9 +243,10 @@ with tab0:
 
     # Prepare data with dates
     df_transactions['Date'] = pd.to_datetime(df_transactions['Date'], errors='coerce')
-    df_checkins['check_in_date'] = pd.to_datetime(df_checkins['check_in_date'], errors='coerce')
+    df_checkins['checkin_datetime'] = pd.to_datetime(df_checkins['checkin_datetime'], errors='coerce')
     df_memberships['created_at'] = pd.to_datetime(df_memberships['created_at'], errors='coerce')
-    df_events['event_date'] = pd.to_datetime(df_events['event_date'], errors='coerce')
+    if 'event_date' in df_events.columns:
+        df_events['event_date'] = pd.to_datetime(df_events['event_date'], errors='coerce')
 
     # ========== REVENUE SECTION ==========
     st.subheader('💰 Revenue')
@@ -348,17 +349,17 @@ with tab0:
 
     # Check-ins
     last_week_checkins = len(df_checkins[
-        (df_checkins['check_in_date'] >= last_week_start) &
-        (df_checkins['check_in_date'] <= last_week_end)
+        (df_checkins['checkin_datetime'] >= last_week_start) &
+        (df_checkins['checkin_datetime'] <= last_week_end)
     ])
 
     last_month_checkins = len(df_checkins[
-        (df_checkins['check_in_date'] >= last_month_start) &
-        (df_checkins['check_in_date'] <= last_month_end)
+        (df_checkins['checkin_datetime'] >= last_month_start) &
+        (df_checkins['checkin_datetime'] <= last_month_end)
     ])
 
     # Event/class fill rate
-    if not df_events.empty:
+    if not df_events.empty and 'event_date' in df_events.columns:
         events_last_month = df_events[
             (df_events['event_date'] >= last_month_start) &
             (df_events['event_date'] <= last_month_end)
