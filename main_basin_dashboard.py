@@ -31,8 +31,25 @@ COLORS = {
     'quaternary': '#1A2E31',   # Dark teal
     'background': '#FFFFFF',
     'text': '#213B3F',
-    'dark_grey': '#4A4A4A'
+    'dark_grey': '#4A4A4A',
+    'axis_text': '#2C2C2C',    # Dark grey for axis labels (easier to read)
+    'gridline': '#E0E0E0'      # Light grey for gridlines (subtle)
 }
+
+# Set default Plotly template for consistent chart styling across all charts
+import plotly.io as pio
+pio.templates["basin"] = pio.templates["plotly"]
+pio.templates["basin"].layout.xaxis.tickfont.color = COLORS['axis_text']
+pio.templates["basin"].layout.xaxis.tickfont.size = 12
+pio.templates["basin"].layout.xaxis.gridcolor = COLORS['gridline']
+pio.templates["basin"].layout.xaxis.title.font.color = COLORS['text']
+pio.templates["basin"].layout.xaxis.title.font.size = 14
+pio.templates["basin"].layout.yaxis.tickfont.color = COLORS['axis_text']
+pio.templates["basin"].layout.yaxis.tickfont.size = 12
+pio.templates["basin"].layout.yaxis.gridcolor = COLORS['gridline']
+pio.templates["basin"].layout.yaxis.title.font.color = COLORS['text']
+pio.templates["basin"].layout.yaxis.title.font.size = 14
+pio.templates.default = "basin"
 
 # Revenue category colors
 REVENUE_CATEGORY_COLORS = {
