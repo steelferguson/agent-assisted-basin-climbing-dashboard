@@ -11,6 +11,7 @@ from data_pipeline import config
 import os
 import plotly.io as pio
 from data_pipeline import pipeline_handler
+from dashboard import system_health
 
 pio.templates.default = "plotly"  # start off with plotly template as a clean slate
 
@@ -64,8 +65,10 @@ def create_dashboard(app):
     else:
         at_risk_timestamp = 'N/A'
 
-    app.layout = html.Div(
-        [
+    app.layout = html.Div([
+        dcc.Tabs(id='tabs', value='business-metrics', children=[
+            dcc.Tab(label='Business Metrics', value='business-metrics', children=[
+                html.Div([
             # Timeframe toggle
             dcc.RadioItems(
                 id="timeframe-toggle",
@@ -467,8 +470,26 @@ def create_dashboard(app):
             "backgroundColor": "#FFFFFF",
             "color": "#26241C",
             "fontFamily": "Arial, sans-serif",
-        },
-    )
+        })  # Close html.Div for Business Metrics tab
+            ]),  # Close dcc.Tab for Business Metrics
+
+            # System Health Tab
+            dcc.Tab(label='System Health', value='system-health', children=[
+                html.Div([
+                    system_health.create_system_health_layout()
+                ],
+                style={
+                    "margin": "0 auto",
+                    "maxWidth": "1200px",
+                    "padding": "20px",
+                    "backgroundColor": "#FFFFFF",
+                    "color": "#26241C",
+                    "fontFamily": "Arial, sans-serif",
+                })  # Close html.Div for System Health tab
+            ]),  # Close dcc.Tab for System Health
+
+        ])  # Close dcc.Tabs
+    ])  # Close outer html.Div (app.layout)
 
     # Update the color scheme for all charts
     chart_colors = {
