@@ -213,9 +213,9 @@ def load_data():
     return df_transactions, df_memberships, df_members, df_projection, df_at_risk, df_new_members, df_facebook_ads, df_events, df_checkins, df_instagram, df_mailchimp, df_failed_payments, df_expenses, df_twilio_messages, df_customer_identifiers, df_customers_master, df_customer_events, df_customer_flags, df_day_pass_engagement, df_membership_conversion
 
 
-# Check password before loading data
-if not check_password():
-    st.stop()
+# TODO: Re-enable password protection after testing
+# if not check_password():
+#     st.stop()
 
 # Load data
 with st.spinner('Loading data from S3...'):
@@ -246,7 +246,7 @@ tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "🎉 Rentals",
     "💪 Programming",
     "📱 Marketing",
-    "💰 Expenses"
+    "🎯 Lead Flow"
 ])
 
 # ============================================================================
@@ -366,7 +366,7 @@ with tab0:
     ]['Total Amount'].sum()
 
     # First timers - using day pass engagement data
-    if not df_day_pass_engagement.empty:
+    if not df_day_pass_engagement.empty and 'purchase_date' in df_day_pass_engagement.columns and 'total_passes_purchased' in df_day_pass_engagement.columns:
         df_day_pass_engagement['purchase_date'] = pd.to_datetime(df_day_pass_engagement['purchase_date'], errors='coerce')
         first_timers_week = len(df_day_pass_engagement[
             (df_day_pass_engagement['purchase_date'] >= last_week_start) &
@@ -389,6 +389,58 @@ with tab0:
         st.metric("Day Pass Revenue (Last Month)", f"${last_month_day_pass:,.0f}")
     with col3:
         st.metric("First Timers (Last Month)", f"{first_timers_month}")
+
+    # Day pass check-ins analysis
+    st.markdown("**Day Pass Check-ins**")
+
+    # Debug: show available columns
+    with st.expander("Debug: Available Columns"):
+        st.write("df_day_pass_engagement columns:", df_day_pass_engagement.columns.tolist() if not df_day_pass_engagement.empty else "EMPTY")
+        st.write("df_checkins columns:", df_checkins.columns.tolist() if not df_checkins.empty else "EMPTY")
+
+    if not df_day_pass_engagement.empty and 'customer_id' in df_day_pass_engagement.columns and 'checkin_datetime' in df_checkins.columns and 'customer_id' in df_checkins.columns:
+        # Get day pass customer IDs
+        day_pass_customer_ids = set(df_day_pass_engagement['customer_id'].dropna())
+
+        # Filter checkins for day pass customers
+        day_pass_checkins_week = df_checkins[
+            (df_checkins['checkin_datetime'] >= last_week_start) &
+            (df_checkins['checkin_datetime'] <= last_week_end) &
+            (df_checkins['customer_id'].isin(day_pass_customer_ids))
+        ]
+
+        day_pass_checkins_month = df_checkins[
+            (df_checkins['checkin_datetime'] >= last_month_start) &
+            (df_checkins['checkin_datetime'] <= last_month_end) &
+            (df_checkins['customer_id'].isin(day_pass_customer_ids))
+        ]
+
+        # Count first-time vs returning (based on whether they had checkins before the period)
+        first_time_customers_month = []
+        returning_customers_month = []
+
+        for customer_id in day_pass_checkins_month['customer_id'].unique():
+            # Check if customer had any checkins before last month start
+            prior_checkins = df_checkins[
+                (df_checkins['customer_id'] == customer_id) &
+                (df_checkins['checkin_datetime'] < last_month_start)
+            ]
+            if len(prior_checkins) == 0:
+                first_time_customers_month.append(customer_id)
+            else:
+                returning_customers_month.append(customer_id)
+
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Check-ins (Last Week)", f"{len(day_pass_checkins_week):,}")
+        with col2:
+            st.metric("Check-ins (Last Month)", f"{len(day_pass_checkins_month):,}")
+        with col3:
+            st.metric("First-Time Visitors (Month)", f"{len(first_time_customers_month)}")
+        with col4:
+            st.metric("Returning Visitors (Month)", f"{len(returning_customers_month)}")
+    else:
+        st.info("Day pass check-in data not available")
 
     st.markdown('---')
 
@@ -470,8 +522,11 @@ with tab0:
     st.subheader('📱 Marketing')
 
     # Facebook/Instagram ads
-    if not df_facebook_ads.empty:
+    if not df_facebook_ads.empty and 'date' in df_facebook_ads.columns:
         df_facebook_ads['date'] = pd.to_datetime(df_facebook_ads['date'], errors='coerce')
+        # Remove timezone info for comparison
+        if df_facebook_ads['date'].dt.tz is not None:
+            df_facebook_ads['date'] = df_facebook_ads['date'].dt.tz_localize(None)
         ads_last_month = df_facebook_ads[
             (df_facebook_ads['date'] >= last_month_start) &
             (df_facebook_ads['date'] <= last_month_end)
@@ -485,8 +540,11 @@ with tab0:
         ad_clicks = 0
 
     # Email/text journey metrics
-    if not df_mailchimp.empty:
+    if not df_mailchimp.empty and 'send_time' in df_mailchimp.columns:
         df_mailchimp['send_time'] = pd.to_datetime(df_mailchimp['send_time'], errors='coerce')
+        # Remove timezone info for comparison
+        if df_mailchimp['send_time'].dt.tz is not None:
+            df_mailchimp['send_time'] = df_mailchimp['send_time'].dt.tz_localize(None)
         campaigns_last_month = df_mailchimp[
             (df_mailchimp['send_time'] >= last_month_start) &
             (df_mailchimp['send_time'] <= last_month_end)
@@ -2591,9 +2649,43 @@ with tab4:
     # Birthday Parties Booked
     st.subheader('Birthday Parties Booked')
 
-    df_birthday = df_transactions[df_transactions['sub_category'] == 'birthday'].copy()
-    # Only count Calendly payments (first payment)
-    df_birthday = df_birthday[df_birthday['Description'].str.contains('Calendly', case=False, na=False)]
+    # Debug: Show sample transactions to understand structure
+    with st.expander("Debug: Recent Transactions (Jan 2026)"):
+        recent_txns = df_transactions[
+            df_transactions['Date'] >= '2026-01-01'
+        ][['Date', 'Description', 'Data Source', 'revenue_category', 'sub_category', 'Total Amount']].head(30)
+        st.dataframe(recent_txns)
+
+        # Show birthday-related transactions
+        st.write("**Birthday-related transactions in Jan 2026:**")
+        birthday_txns = df_transactions[
+            (df_transactions['Date'] >= '2026-01-01') &
+            (df_transactions['Description'].str.contains('birthday', case=False, na=False))
+        ][['Date', 'Description', 'Data Source', 'revenue_category', 'sub_category', 'Total Amount']]
+        st.dataframe(birthday_txns)
+
+        # Show all unique values
+        st.write("Unique revenue_category:", df_transactions['revenue_category'].unique().tolist())
+        st.write("Unique sub_category:", df_transactions['sub_category'].unique().tolist())
+        st.write("Unique Data Source:", df_transactions['Data Source'].unique().tolist())
+
+    # Combine old birthday data (Calendly) with new Shopify birthday purchases
+    # Old: sub_category == 'birthday' with Calendly in description (deposit payments)
+    df_birthday_old = df_transactions[
+        (df_transactions['sub_category'] == 'birthday') &
+        (df_transactions['Description'].str.contains('Calendly', case=False, na=False))
+    ].copy()
+
+    # New: Shopify purchases with 'Birthday Party' in product name or revenue_category == 'Event Booking' with birthday in description
+    df_birthday_shopify = df_transactions[
+        (df_transactions['Description'].str.contains('Birthday Party', case=False, na=False)) |
+        ((df_transactions['revenue_category'] == 'Event Booking') &
+         (df_transactions['Description'].str.contains('birthday', case=False, na=False)))
+    ].copy()
+
+    # Combine both sources and remove duplicates
+    df_birthday = pd.concat([df_birthday_old, df_birthday_shopify], ignore_index=True).drop_duplicates()
+
     df_birthday['Date'] = pd.to_datetime(df_birthday['Date'], errors='coerce')
     df_birthday = df_birthday[df_birthday['Date'].notna()]
     df_birthday['date'] = df_birthday['Date'].dt.to_period(timeframe).dt.start_time
@@ -2901,17 +2993,7 @@ with tab5:
     df_events_filtered['event_type_name_lower'] = df_events_filtered['event_type_name'].str.lower()
 
     fitness_mask = df_events_filtered['event_type_name_lower'].apply(
-        lambda x: any(keyword.lower() in str(x) for keyword in fitness_event_keywords) if pd.notna(x) else False,
-        xaxis=dict(
-            tickfont=dict(color=COLORS['axis_text'], size=12),
-            gridcolor=COLORS['gridline'],
-            title_font=dict(color=COLORS['text'], size=14)
-        ),
-        yaxis=dict(
-            tickfont=dict(color=COLORS['axis_text'], size=12),
-            gridcolor=COLORS['gridline'],
-            title_font=dict(color=COLORS['text'], size=14)
-        )
+        lambda x: any(keyword.lower() in str(x) for keyword in fitness_event_keywords) if pd.notna(x) else False
     )
     df_events_filtered = df_events_filtered[fitness_mask]
 
@@ -3589,151 +3671,368 @@ with tab6:
         st.info('No customer flags data available')
 
 # ============================================================================
-# TAB 7: EXPENSES
+# TAB 7: LEAD FLOW (Day Pass → Membership Conversion Funnel)
 # ============================================================================
 with tab7:
-    st.header('Expense Analysis')
-    st.markdown('Payroll and Marketing expenses from QuickBooks (2025 YTD)')
+    st.header('🎯 Lead Flow: Day Pass → Membership Funnel (2026+)')
+    st.markdown('Track how day pass customers move through the conversion funnel to membership')
 
-    if not df_expenses.empty:
-        # Add expense categories
-        df_expenses_categorized = categorize_expenses.add_expense_categories(df_expenses)
+    # Filter flags to 2026+ only
+    df_flags_2026 = df_customer_flags.copy()
+    if not df_flags_2026.empty and 'flag_added_date' in df_flags_2026.columns:
+        df_flags_2026['flag_added_date'] = pd.to_datetime(df_flags_2026['flag_added_date'], errors='coerce')
+        df_flags_2026 = df_flags_2026[df_flags_2026['flag_added_date'] >= '2026-01-01']
 
-        # Filter to only Payroll and Marketing
-        df_display = df_expenses_categorized[df_expenses_categorized['category_group'].isin(['Payroll', 'Marketing'])].copy()
+    # ========== ENTRY POINT: DAY PASS CUSTOMERS ==========
+    st.subheader('1️⃣ Entry Point: Day Pass Customers')
 
-        if not df_display.empty:
-            # Ensure date is datetime
-            df_display['date'] = pd.to_datetime(df_display['date'])
+    # Get total day pass customers from 2026+
+    if not df_day_pass_engagement.empty:
+        if 'latest_day_pass_date' in df_day_pass_engagement.columns:
+            df_day_pass_engagement['latest_day_pass_date'] = pd.to_datetime(df_day_pass_engagement['latest_day_pass_date'], errors='coerce')
+            df_day_pass_2026 = df_day_pass_engagement[df_day_pass_engagement['latest_day_pass_date'] >= '2026-01-01']
+            total_day_pass_customers = len(df_day_pass_2026)
+            st.metric("Total Day Pass Customers (2026+)", f"{total_day_pass_customers:,}")
 
-            # Calculate summary metrics
-            total_payroll = df_display[df_display['category_group'] == 'Payroll']['amount'].sum()
-            total_marketing = df_display[df_display['category_group'] == 'Marketing']['amount'].sum()
-            total_expenses = total_payroll + total_marketing
-
-            # Summary metrics
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric(
-                    "Total Payroll & Marketing",
-                    f"${total_expenses:,.0f}",
-                    help="Combined Payroll and Marketing expenses for 2025 YTD"
-                )
-            with col2:
-                st.metric(
-                    "Payroll Expenses",
-                    f"${total_payroll:,.0f}",
-                    help="Salaries, payroll taxes, and employee benefits"
-                )
-            with col3:
-                st.metric(
-                    "Marketing Expenses",
-                    f"${total_marketing:,.0f}",
-                    help="Google Ads, social media, website ads, and listing fees"
-                )
-
-            # Monthly expense trend
-            st.subheader('Monthly Expense Trends')
-
-            df_display['year_month'] = df_display['date'].dt.to_period('M').astype(str)
-            monthly_expenses = df_display.groupby(['year_month', 'category_group'])['amount'].sum().reset_index()
-
-            # Create line chart
-            fig_monthly = go.Figure()
-
-            for category in ['Payroll', 'Marketing']:
-                df_cat = monthly_expenses[monthly_expenses['category_group'] == category]
-                color = COLORS['primary'] if category == 'Payroll' else COLORS['secondary']
-
-                fig_monthly.add_trace(go.Scatter(
-                    x=df_cat['year_month'],
-                    y=df_cat['amount'],
-                    name=category,
-                    mode='lines+markers',
-                    line=dict(color=color, width=3),
-                    marker=dict(size=8),
-                    hovertemplate='%{x}<br>$%{y:,.0f}<extra></extra>'
-                ))
-
-            fig_monthly.update_layout(
-                plot_bgcolor=COLORS['background'],
-                paper_bgcolor=COLORS['background'],
-                font_color=COLORS['text'],
-                xaxis_title='Month',
-                yaxis_title='Expense Amount ($)',
-                hovermode='x unified',
-                showlegend=True,
-                legend=dict(
-                    orientation="h",
-                    yanchor="bottom",
-                    y=1.02,
-                    xanchor="right",
-                    x=1
-                )
-            )
-
-            st.plotly_chart(fig_monthly, use_container_width=True)
-
-            # Category breakdown
-            st.subheader('Expense Breakdown')
+            # Show recent activity
+            last_30_days = pd.Timestamp.now() - pd.Timedelta(days=30)
+            recent_day_pass = len(df_day_pass_2026[df_day_pass_2026['latest_day_pass_date'] >= last_30_days])
 
             col1, col2 = st.columns(2)
-
             with col1:
-                # Pie chart
-                summary = categorize_expenses.get_category_summary(df_display)
-
-                fig_pie = go.Figure(data=[go.Pie(
-                    labels=summary['category_group'],
-                    values=summary['total_amount'],
-                    marker=dict(colors=[COLORS['primary'], COLORS['secondary']]),
-                    textinfo='label+percent',
-                    hovertemplate='%{label}<br>$%{value:,.0f}<br>%{percent}<extra></extra>'
-                )])
-
-                fig_pie.update_layout(
-                    plot_bgcolor=COLORS['background'],
-                    paper_bgcolor=COLORS['background'],
-                    font_color=COLORS['text'],
-                    showlegend=False
-                )
-
-                st.plotly_chart(fig_pie, use_container_width=True)
-
+                st.metric("Active Last 30 Days", f"{recent_day_pass:,}")
             with col2:
-                # Summary table
-                st.markdown("**Category Summary**")
-
-                summary_display = summary.copy()
-                summary_display['total_amount'] = summary_display['total_amount'].apply(lambda x: f"${x:,.0f}")
-                summary_display['avg_amount'] = summary_display['avg_amount'].apply(lambda x: f"${x:,.0f}")
-                summary_display.columns = ['Category', 'Total Amount', 'Transactions', 'Avg Amount']
-
-                st.dataframe(summary_display, use_container_width=True, hide_index=True)
-
-                # Key insights
-                st.markdown("**Key Insights:**")
-                payroll_pct = (total_payroll / total_expenses * 100) if total_expenses > 0 else 0
-                st.markdown(f"- Payroll represents **{payroll_pct:.1f}%** of tracked expenses")
-                st.markdown(f"- Average payroll transaction: **${summary[summary['category_group'] == 'Payroll']['avg_amount'].values[0]:,.0f}**")
-                if len(summary[summary['category_group'] == 'Marketing']) > 0:
-                    st.markdown(f"- Average marketing transaction: **${summary[summary['category_group'] == 'Marketing']['avg_amount'].values[0]:,.0f}**")
-
-            # Detailed transactions table
-            with st.expander("📋 View Detailed Transactions"):
-                df_table = df_display[['date', 'category_group', 'expense_category', 'vendor', 'description', 'amount']].copy()
-                df_table = df_table.sort_values('date', ascending=False)
-                df_table['date'] = df_table['date'].dt.strftime('%Y-%m-%d')
-                df_table['amount'] = df_table['amount'].apply(lambda x: f"${x:,.2f}")
-                df_table.columns = ['Date', 'Category', 'Expense Type', 'Vendor', 'Description', 'Amount']
-
-                st.dataframe(df_table, use_container_width=True, hide_index=True, height=400)
-
+                pct_active = (recent_day_pass / total_day_pass_customers * 100) if total_day_pass_customers > 0 else 0
+                st.metric("% Active", f"{pct_active:.1f}%")
         else:
-            st.info('No Payroll or Marketing expense data available')
-
+            st.info("Date information not available")
     else:
-        st.info('No expense data available. Run the QuickBooks pipeline to fetch data.')
+        st.info("No day pass engagement data available")
+
+    st.markdown('---')
+
+    # ========== FLAG EVALUATION ==========
+    st.subheader('2️⃣ A/B Test Entry: Who Qualifies?')
+    st.markdown('Customers who enter the A/B test based on business rules')
+
+    if not df_flags_2026.empty:
+        # Filter to only the two A/B test flags
+        ab_test_flags = df_flags_2026[df_flags_2026['flag_type'].isin(['first_time_day_pass_2wk_offer', 'second_visit_offer_eligible'])]
+
+        if not ab_test_flags.empty:
+            # Count by flag type
+            flag_counts = ab_test_flags['flag_type'].value_counts().to_dict()
+
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                first_time_count = flag_counts.get('first_time_day_pass_2wk_offer', 0)
+                st.metric("First-Time 2wk Offer (Group A)", f"{first_time_count:,}")
+            with col2:
+                second_visit_eligible = flag_counts.get('second_visit_offer_eligible', 0)
+                st.metric("2nd Visit Eligible (Group B)", f"{second_visit_eligible:,}")
+            with col3:
+                total_ab = first_time_count + second_visit_eligible
+                st.metric("Total in A/B Test", f"{total_ab:,}")
+        else:
+            st.info("No A/B test flags found for 2026")
+    else:
+        st.info("No customer flags data available for 2026")
+
+    st.markdown('---')
+
+    # ========== A/B GROUP SPLIT ==========
+    st.subheader('3️⃣ A/B Group Split')
+    st.markdown('**Group A** (first_time_day_pass_2wk_offer): Direct SendGrid 2-week offer email')
+    st.markdown('**Group B** (second_visit_offer_eligible): Mailchimp journey → earn 2-week after 2nd visit')
+
+    if not df_flags_2026.empty:
+        # The flag type itself indicates the group
+        ab_test_flags = df_flags_2026[df_flags_2026['flag_type'].isin(['first_time_day_pass_2wk_offer', 'second_visit_offer_eligible'])]
+
+        if not ab_test_flags.empty:
+            group_a = len(ab_test_flags[ab_test_flags['flag_type'] == 'first_time_day_pass_2wk_offer'])
+            group_b = len(ab_test_flags[ab_test_flags['flag_type'] == 'second_visit_offer_eligible'])
+            total_ab = group_a + group_b
+
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Group A (SendGrid)", f"{group_a:,}")
+            with col2:
+                st.metric("Group B (Mailchimp)", f"{group_b:,}")
+            with col3:
+                if total_ab > 0:
+                    split_pct_a = (group_a / total_ab * 100)
+                    split_pct_b = (group_b / total_ab * 100)
+                    st.metric("Split", f"{split_pct_a:.0f}% / {split_pct_b:.0f}%")
+
+            # Show table of customers who entered AB test
+            st.markdown('---')
+            st.markdown('**Customers Entering A/B Test:**')
+
+            # Prepare display table
+            display_cols = ['customer_id', 'flag_type', 'triggered_date', 'flag_added_date']
+            available_cols = [col for col in display_cols if col in ab_test_flags.columns]
+
+            if available_cols:
+                df_ab_display = ab_test_flags[available_cols].copy()
+
+                # Format columns
+                if 'flag_type' in df_ab_display.columns:
+                    df_ab_display['flag_type'] = df_ab_display['flag_type'].map({
+                        'first_time_day_pass_2wk_offer': 'Group A - First-Time Offer',
+                        'second_visit_offer_eligible': 'Group B - 2nd Visit Eligible'
+                    })
+
+                if 'triggered_date' in df_ab_display.columns:
+                    df_ab_display['triggered_date'] = pd.to_datetime(df_ab_display['triggered_date'], errors='coerce').dt.strftime('%Y-%m-%d')
+
+                if 'flag_added_date' in df_ab_display.columns:
+                    df_ab_display['flag_added_date'] = pd.to_datetime(df_ab_display['flag_added_date'], errors='coerce').dt.strftime('%Y-%m-%d %H:%M')
+
+                # Rename columns
+                column_rename = {
+                    'customer_id': 'Customer ID',
+                    'flag_type': 'A/B Group',
+                    'triggered_date': 'Triggered Date',
+                    'flag_added_date': 'Flag Added'
+                }
+                df_ab_display = df_ab_display.rename(columns=column_rename)
+
+                # Sort by most recent
+                if 'Flag Added' in df_ab_display.columns:
+                    df_ab_display = df_ab_display.sort_values('Flag Added', ascending=False)
+
+                st.dataframe(df_ab_display, use_container_width=True, hide_index=True, height=400)
+            else:
+                st.info("Customer details not available")
+        else:
+            st.info("No A/B test flags found")
+    else:
+        st.info("No flags data available")
+
+    st.markdown('---')
+
+    # ========== SHOPIFY SYNC ==========
+    st.subheader('4️⃣ Shopify Sync Status')
+    st.markdown('Flags synced to Shopify customer metafields for automated flows')
+
+    if not df_customer_flags.empty:
+        # Check if there's a shopify_synced column or similar
+        if 'shopify_customer_id' in df_customer_flags.columns:
+            synced_count = df_customer_flags['shopify_customer_id'].notna().sum()
+            total_flags = len(df_customer_flags)
+
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Synced to Shopify", f"{synced_count:,}")
+            with col2:
+                st.metric("Not Synced", f"{total_flags - synced_count:,}")
+            with col3:
+                sync_pct = (synced_count / total_flags * 100) if total_flags > 0 else 0
+                st.metric("Sync Rate", f"{sync_pct:.1f}%")
+        else:
+            st.info("Shopify sync status not tracked in flags data")
+    else:
+        st.info("No flags data available")
+
+    st.markdown('---')
+
+    # ========== DISTRIBUTION CHANNELS ==========
+    st.subheader('5️⃣ Distribution Channels')
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown('**📧 Group A → SendGrid Emails**')
+        # This would need email send logs - placeholder for now
+        st.info("SendGrid send data not yet integrated")
+        # TODO: Add email send log data when available
+
+    with col2:
+        st.markdown('**📨 Group B → Mailchimp Tags**')
+        # Check mailchimp data for tags
+        if not df_mailchimp.empty and 'tags' in df_mailchimp.columns:
+            # Count contacts with relevant tags
+            st.info("Mailchimp tag breakdown coming soon")
+        else:
+            st.info("Mailchimp tag data not available")
+
+    st.markdown('---')
+
+    # ========== CONVERSION ==========
+    st.subheader('6️⃣ Conversion to Membership')
+    st.markdown('How many flagged customers converted to paid memberships?')
+
+    if not df_customer_flags.empty and not df_memberships.empty:
+        # Get flagged customer IDs
+        flagged_customers = set(df_customer_flags['customer_id'].unique())
+
+        # Get customers with active memberships
+        if 'customer_id' in df_memberships.columns and 'status' in df_memberships.columns:
+            active_members = set(df_memberships[df_memberships['status'] == 'active']['customer_id'].unique())
+
+            # Find overlap
+            converted = flagged_customers.intersection(active_members)
+
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Flagged Customers", f"{len(flagged_customers):,}")
+            with col2:
+                st.metric("Converted to Member", f"{len(converted):,}")
+            with col3:
+                conversion_rate = (len(converted) / len(flagged_customers) * 100) if len(flagged_customers) > 0 else 0
+                st.metric("Conversion Rate", f"{conversion_rate:.1f}%")
+        else:
+            st.info("Membership status data not available for conversion tracking")
+    else:
+        st.info("Insufficient data for conversion analysis")
+
+# ============================================================================
+# TAB 8: EXPENSES (HIDDEN FOR NOW)
+# ============================================================================
+# with tab8:
+#     st.header('Expense Analysis')
+#     st.markdown('Payroll and Marketing expenses from QuickBooks (2025 YTD)')
+# 
+#     if not df_expenses.empty:
+#         # Add expense categories
+#         df_expenses_categorized = categorize_expenses.add_expense_categories(df_expenses)
+# 
+#         # Filter to only Payroll and Marketing
+#         df_display = df_expenses_categorized[df_expenses_categorized['category_group'].isin(['Payroll', 'Marketing'])].copy()
+# 
+#         if not df_display.empty:
+#             # Ensure date is datetime
+#             df_display['date'] = pd.to_datetime(df_display['date'])
+# 
+#             # Calculate summary metrics
+#             total_payroll = df_display[df_display['category_group'] == 'Payroll']['amount'].sum()
+#             total_marketing = df_display[df_display['category_group'] == 'Marketing']['amount'].sum()
+#             total_expenses = total_payroll + total_marketing
+# 
+#             # Summary metrics
+#             col1, col2, col3 = st.columns(3)
+#             with col1:
+#                 st.metric(
+#                     "Total Payroll & Marketing",
+#                     f"${total_expenses:,.0f}",
+#                     help="Combined Payroll and Marketing expenses for 2025 YTD"
+#                 )
+#             with col2:
+#                 st.metric(
+#                     "Payroll Expenses",
+#                     f"${total_payroll:,.0f}",
+#                     help="Salaries, payroll taxes, and employee benefits"
+#                 )
+#             with col3:
+#                 st.metric(
+#                     "Marketing Expenses",
+#                     f"${total_marketing:,.0f}",
+#                     help="Google Ads, social media, website ads, and listing fees"
+#                 )
+# 
+#             # Monthly expense trend
+#             st.subheader('Monthly Expense Trends')
+# 
+#             df_display['year_month'] = df_display['date'].dt.to_period('M').astype(str)
+#             monthly_expenses = df_display.groupby(['year_month', 'category_group'])['amount'].sum().reset_index()
+# 
+#             # Create line chart
+#             fig_monthly = go.Figure()
+# 
+#             for category in ['Payroll', 'Marketing']:
+#                 df_cat = monthly_expenses[monthly_expenses['category_group'] == category]
+#                 color = COLORS['primary'] if category == 'Payroll' else COLORS['secondary']
+# 
+#                 fig_monthly.add_trace(go.Scatter(
+#                     x=df_cat['year_month'],
+#                     y=df_cat['amount'],
+#                     name=category,
+#                     mode='lines+markers',
+#                     line=dict(color=color, width=3),
+#                     marker=dict(size=8),
+#                     hovertemplate='%{x}<br>$%{y:,.0f}<extra></extra>'
+#                 ))
+# 
+#             fig_monthly.update_layout(
+#                 plot_bgcolor=COLORS['background'],
+#                 paper_bgcolor=COLORS['background'],
+#                 font_color=COLORS['text'],
+#                 xaxis_title='Month',
+#                 yaxis_title='Expense Amount ($)',
+#                 hovermode='x unified',
+#                 showlegend=True,
+#                 legend=dict(
+#                     orientation="h",
+#                     yanchor="bottom",
+#                     y=1.02,
+#                     xanchor="right",
+#                     x=1
+#                 )
+#             )
+# 
+#             st.plotly_chart(fig_monthly, use_container_width=True)
+# 
+#             # Category breakdown
+#             st.subheader('Expense Breakdown')
+# 
+#             col1, col2 = st.columns(2)
+# 
+#             with col1:
+#                 # Pie chart
+#                 summary = categorize_expenses.get_category_summary(df_display)
+# 
+#                 fig_pie = go.Figure(data=[go.Pie(
+#                     labels=summary['category_group'],
+#                     values=summary['total_amount'],
+#                     marker=dict(colors=[COLORS['primary'], COLORS['secondary']]),
+#                     textinfo='label+percent',
+#                     hovertemplate='%{label}<br>$%{value:,.0f}<br>%{percent}<extra></extra>'
+#                 )])
+# 
+#                 fig_pie.update_layout(
+#                     plot_bgcolor=COLORS['background'],
+#                     paper_bgcolor=COLORS['background'],
+#                     font_color=COLORS['text'],
+#                     showlegend=False
+#                 )
+# 
+#                 st.plotly_chart(fig_pie, use_container_width=True)
+# 
+#             with col2:
+#                 # Summary table
+#                 st.markdown("**Category Summary**")
+# 
+#                 summary_display = summary.copy()
+#                 summary_display['total_amount'] = summary_display['total_amount'].apply(lambda x: f"${x:,.0f}")
+#                 summary_display['avg_amount'] = summary_display['avg_amount'].apply(lambda x: f"${x:,.0f}")
+#                 summary_display.columns = ['Category', 'Total Amount', 'Transactions', 'Avg Amount']
+# 
+#                 st.dataframe(summary_display, use_container_width=True, hide_index=True)
+# 
+#                 # Key insights
+#                 st.markdown("**Key Insights:**")
+#                 payroll_pct = (total_payroll / total_expenses * 100) if total_expenses > 0 else 0
+#                 st.markdown(f"- Payroll represents **{payroll_pct:.1f}%** of tracked expenses")
+#                 st.markdown(f"- Average payroll transaction: **${summary[summary['category_group'] == 'Payroll']['avg_amount'].values[0]:,.0f}**")
+#                 if len(summary[summary['category_group'] == 'Marketing']) > 0:
+#                     st.markdown(f"- Average marketing transaction: **${summary[summary['category_group'] == 'Marketing']['avg_amount'].values[0]:,.0f}**")
+# 
+#             # Detailed transactions table
+#             with st.expander("📋 View Detailed Transactions"):
+#                 df_table = df_display[['date', 'category_group', 'expense_category', 'vendor', 'description', 'amount']].copy()
+#                 df_table = df_table.sort_values('date', ascending=False)
+#                 df_table['date'] = df_table['date'].dt.strftime('%Y-%m-%d')
+#                 df_table['amount'] = df_table['amount'].apply(lambda x: f"${x:,.2f}")
+#                 df_table.columns = ['Date', 'Category', 'Expense Type', 'Vendor', 'Description', 'Amount']
+# 
+#                 st.dataframe(df_table, use_container_width=True, hide_index=True, height=400)
+# 
+#         else:
+#             st.info('No Payroll or Marketing expense data available')
+# 
+#     else:
+#         st.info('No expense data available. Run the QuickBooks pipeline to fetch data.')
 
 # Footer
 st.markdown('---')
