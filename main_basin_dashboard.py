@@ -286,8 +286,10 @@ with tab0:
 
     # Prepare data with dates
     df_transactions['Date'] = pd.to_datetime(df_transactions['Date'], errors='coerce')
-    df_checkins['checkin_datetime'] = pd.to_datetime(df_checkins['checkin_datetime'], errors='coerce')
-    df_memberships['created_at'] = pd.to_datetime(df_memberships['created_at'], errors='coerce')
+    if 'checkin_datetime' in df_checkins.columns:
+        df_checkins['checkin_datetime'] = pd.to_datetime(df_checkins['checkin_datetime'], errors='coerce')
+    if 'created_at' in df_memberships.columns:
+        df_memberships['created_at'] = pd.to_datetime(df_memberships['created_at'], errors='coerce')
     if 'event_date' in df_events.columns:
         df_events['event_date'] = pd.to_datetime(df_events['event_date'], errors='coerce')
 
@@ -323,24 +325,27 @@ with tab0:
         )
     with col3:
         # Membership growth/churn
-        new_members_last_month = len(df_memberships[
-            (df_memberships['created_at'] >= last_month_start) &
-            (df_memberships['created_at'] <= last_month_end)
-        ])
-        active_members_start = len(df_memberships[
-            (df_memberships['created_at'] < last_month_start) &
-            (df_memberships['status'] == 'active')
-        ])
-        active_members_end = len(df_memberships[
-            (df_memberships['created_at'] <= last_month_end) &
-            (df_memberships['status'] == 'active')
-        ])
-        net_growth = active_members_end - active_members_start
-        st.metric(
-            "Membership Growth (Last Month)",
-            f"+{new_members_last_month}",
-            f"Net: {net_growth:+d}"
-        )
+        if 'created_at' in df_memberships.columns and 'status' in df_memberships.columns:
+            new_members_last_month = len(df_memberships[
+                (df_memberships['created_at'] >= last_month_start) &
+                (df_memberships['created_at'] <= last_month_end)
+            ])
+            active_members_start = len(df_memberships[
+                (df_memberships['created_at'] < last_month_start) &
+                (df_memberships['status'] == 'active')
+            ])
+            active_members_end = len(df_memberships[
+                (df_memberships['created_at'] <= last_month_end) &
+                (df_memberships['status'] == 'active')
+            ])
+            net_growth = active_members_end - active_members_start
+            st.metric(
+                "Membership Growth (Last Month)",
+                f"+{new_members_last_month}",
+                f"Net: {net_growth:+d}"
+            )
+        else:
+            st.metric("Membership Growth (Last Month)", "N/A", "Data unavailable")
 
     st.markdown('---')
 
@@ -391,15 +396,19 @@ with tab0:
     st.subheader('📈 Engagement')
 
     # Check-ins
-    last_week_checkins = len(df_checkins[
-        (df_checkins['checkin_datetime'] >= last_week_start) &
-        (df_checkins['checkin_datetime'] <= last_week_end)
-    ])
+    if 'checkin_datetime' in df_checkins.columns:
+        last_week_checkins = len(df_checkins[
+            (df_checkins['checkin_datetime'] >= last_week_start) &
+            (df_checkins['checkin_datetime'] <= last_week_end)
+        ])
 
-    last_month_checkins = len(df_checkins[
-        (df_checkins['checkin_datetime'] >= last_month_start) &
-        (df_checkins['checkin_datetime'] <= last_month_end)
-    ])
+        last_month_checkins = len(df_checkins[
+            (df_checkins['checkin_datetime'] >= last_month_start) &
+            (df_checkins['checkin_datetime'] <= last_month_end)
+        ])
+    else:
+        last_week_checkins = 0
+        last_month_checkins = 0
 
     # Event/class fill rate
     if not df_events.empty and 'event_date' in df_events.columns:
@@ -439,7 +448,7 @@ with tab0:
     group_event_revenue = group_events_last_month['Total Amount'].sum()
 
     # Team growth (youth team members)
-    if 'membership_type' in df_memberships.columns:
+    if 'membership_type' in df_memberships.columns and 'status' in df_memberships.columns:
         team_members = len(df_memberships[
             (df_memberships['status'] == 'active') &
             (df_memberships['membership_type'].str.contains('team', case=False, na=False))
