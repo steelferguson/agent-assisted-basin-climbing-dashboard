@@ -119,7 +119,7 @@ class CapitanAssociationsEventsFetcher:
         datetime_cols = ['created_at', 'updated_at']
         for col in datetime_cols:
             if col in df.columns:
-                df[col] = pd.to_datetime(df[col], errors='coerce')
+                df[col] = pd.to_datetime(df[col], errors='coerce', utc=True)
 
         return df
 
@@ -204,7 +204,7 @@ class CapitanAssociationsEventsFetcher:
         ]
         for col in datetime_cols:
             if col in df.columns:
-                df[col] = pd.to_datetime(df[col], errors='coerce')
+                df[col] = pd.to_datetime(df[col], errors='coerce', utc=True)
 
         # Convert birthday to date
         if 'customer_birthday' in df.columns:
@@ -329,7 +329,7 @@ class CapitanAssociationsEventsFetcher:
         datetime_cols = ['start_datetime', 'end_datetime', 'created_at', 'updated_at']
         for col in datetime_cols:
             if col in df.columns:
-                df[col] = pd.to_datetime(df[col], errors='coerce')
+                df[col] = pd.to_datetime(df[col], errors='coerce', utc=True)
 
         return df
 

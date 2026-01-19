@@ -7,6 +7,7 @@ Solution: Match by first_name + last_name to identify when team members are also
 
 import pandas as pd
 import os
+from data_pipeline import config, upload_data
 
 
 def normalize_name(name):
@@ -26,8 +27,16 @@ def find_team_member_memberships():
     Returns a dataframe with reconciled membership info.
     """
 
-    # Load members data
-    members_df = pd.read_csv('data/outputs/capitan_members.csv')
+    # Load members data from S3
+    uploader = upload_data.DataUploader()
+    try:
+        csv_content = uploader.download_from_s3(config.aws_bucket_name, config.s3_path_capitan_members)
+        members_df = uploader.convert_csv_to_df(csv_content)
+    except Exception as e:
+        print(f"⚠️  Error loading Capitan members from S3: {e}")
+        print(f"   Attempting to load from local file...")
+        # Fallback to local file if S3 fails
+        members_df = pd.read_csv('data/outputs/capitan_members.csv')
 
     # Get all team members (active only)
     team_members = members_df[
