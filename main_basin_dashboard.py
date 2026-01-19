@@ -813,17 +813,7 @@ with tab2:
         'Special Categories',
         options=list(category_options.keys()),
         default=['founder', 'college', 'corporate', 'mid_day', 'fitness_only', 'has_fitness_addon', 'team_dues', '90_for_90', 'not_special'],
-        format_func=lambda x: category_options[x],
-        xaxis=dict(
-            tickfont=dict(color=COLORS['axis_text'], size=12),
-            gridcolor=COLORS['gridline'],
-            title_font=dict(color=COLORS['text'], size=14)
-        ),
-        yaxis=dict(
-            tickfont=dict(color=COLORS['axis_text'], size=12),
-            gridcolor=COLORS['gridline'],
-            title_font=dict(color=COLORS['text'], size=14)
-        )
+        format_func=lambda x: category_options[x]
     )
 
     # Filter memberships - Status, Frequency, Size
@@ -2509,17 +2499,7 @@ with tab5:
         options=['D', 'W', 'M'],
         format_func=lambda x: {'D': 'Daily', 'W': 'Weekly', 'M': 'Monthly'}[x],
         index=2,  # Default to Monthly
-        key='programming_timeframe',
-        xaxis=dict(
-            tickfont=dict(color=COLORS['axis_text'], size=12),
-            gridcolor=COLORS['gridline'],
-            title_font=dict(color=COLORS['text'], size=14)
-        ),
-        yaxis=dict(
-            tickfont=dict(color=COLORS['axis_text'], size=12),
-            gridcolor=COLORS['gridline'],
-            title_font=dict(color=COLORS['text'], size=14)
-        )
+        key='programming_timeframe'
     )
 
     # Youth Team Revenue
@@ -2856,17 +2836,7 @@ with tab6:
         options=['Day', 'Week', 'Month'],
         index=2,
         key='marketing_timeframe',
-        horizontal=True,
-        xaxis=dict(
-            tickfont=dict(color=COLORS['axis_text'], size=12),
-            gridcolor=COLORS['gridline'],
-            title_font=dict(color=COLORS['text'], size=14)
-        ),
-        yaxis=dict(
-            tickfont=dict(color=COLORS['axis_text'], size=12),
-            gridcolor=COLORS['gridline'],
-            title_font=dict(color=COLORS['text'], size=14)
-        )
+        horizontal=True
     )
 
     timeframe_map = {'Day': 'D', 'Week': 'W', 'Month': 'M'}
