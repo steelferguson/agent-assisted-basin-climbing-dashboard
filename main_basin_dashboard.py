@@ -265,7 +265,17 @@ with tab1:
         paper_bgcolor=COLORS['background'],
         font_color=COLORS['text'],
         yaxis_title='Revenue ($)',
-        xaxis_title='Date'
+        xaxis_title='Date',
+        xaxis=dict(
+            tickfont=dict(color=COLORS['axis_text'], size=12),
+            gridcolor=COLORS['gridline'],
+            title_font=dict(color=COLORS['text'], size=14)
+        ),
+        yaxis=dict(
+            tickfont=dict(color=COLORS['axis_text'], size=12),
+            gridcolor=COLORS['gridline'],
+            title_font=dict(color=COLORS['text'], size=14)
+        )
     )
     fig_line = apply_axis_styling(fig_line)
     st.plotly_chart(fig_line, use_container_width=True)
@@ -288,7 +298,17 @@ with tab1:
         font_color=COLORS['text'],
         yaxis_title='Revenue ($)',
         xaxis_title='Date',
-        legend_title='Category'
+        legend_title='Category',
+        xaxis=dict(
+            tickfont=dict(color=COLORS['axis_text'], size=12),
+            gridcolor=COLORS['gridline'],
+            title_font=dict(color=COLORS['text'], size=14)
+        ),
+        yaxis=dict(
+            tickfont=dict(color=COLORS['axis_text'], size=12),
+            gridcolor=COLORS['gridline'],
+            title_font=dict(color=COLORS['text'], size=14)
+        )
     )
     fig_stacked = apply_axis_styling(fig_stacked)
     st.plotly_chart(fig_stacked, use_container_width=True)
@@ -326,7 +346,17 @@ with tab1:
         font_color=COLORS['text'],
         yaxis_title='Percentage (%)',
         xaxis_title='Date',
-        legend_title='Category'
+        legend_title='Category',
+        xaxis=dict(
+            tickfont=dict(color=COLORS['axis_text'], size=12),
+            gridcolor=COLORS['gridline'],
+            title_font=dict(color=COLORS['text'], size=14)
+        ),
+        yaxis=dict(
+            tickfont=dict(color=COLORS['axis_text'], size=12),
+            gridcolor=COLORS['gridline'],
+            title_font=dict(color=COLORS['text'], size=14)
+        )
     )
     fig_percentage = apply_axis_styling(fig_percentage)
     st.plotly_chart(fig_percentage, use_container_width=True)
@@ -372,7 +402,17 @@ with tab1:
         font_color=COLORS['text'],
         xaxis_title='Refund Rate (%)',
         yaxis_title='Category',
-        height=400
+        height=400,
+        xaxis=dict(
+            tickfont=dict(color=COLORS['axis_text'], size=12),
+            gridcolor=COLORS['gridline'],
+            title_font=dict(color=COLORS['text'], size=14)
+        ),
+        yaxis=dict(
+            tickfont=dict(color=COLORS['axis_text'], size=12),
+            gridcolor=COLORS['gridline'],
+            title_font=dict(color=COLORS['text'], size=14)
+        )
     )
     fig_refund = apply_axis_styling(fig_refund)
     st.plotly_chart(fig_refund, use_container_width=True)
@@ -426,7 +466,17 @@ with tab1:
         font_color=COLORS['text'],
         yaxis_title='Percentage (%)',
         xaxis_title='Date',
-        legend_title='Group'
+        legend_title='Group',
+        xaxis=dict(
+            tickfont=dict(color=COLORS['axis_text'], size=12),
+            gridcolor=COLORS['gridline'],
+            title_font=dict(color=COLORS['text'], size=14)
+        ),
+        yaxis=dict(
+            tickfont=dict(color=COLORS['axis_text'], size=12),
+            gridcolor=COLORS['gridline'],
+            title_font=dict(color=COLORS['text'], size=14)
+        )
     )
     fig_accounting = apply_axis_styling(fig_accounting)
     st.plotly_chart(fig_accounting, use_container_width=True)
@@ -560,7 +610,17 @@ with tab1:
         yaxis_title='Revenue ($)',
         xaxis_title='Month',
         legend_title='Type',
-        showlegend=True
+        showlegend=True,
+        xaxis=dict(
+            tickfont=dict(color=COLORS['axis_text'], size=12),
+            gridcolor=COLORS['gridline'],
+            title_font=dict(color=COLORS['text'], size=14)
+        ),
+        yaxis=dict(
+            tickfont=dict(color=COLORS['axis_text'], size=12),
+            gridcolor=COLORS['gridline'],
+            title_font=dict(color=COLORS['text'], size=14)
+        )
     )
 
     st.plotly_chart(fig_projection, use_container_width=True)
@@ -753,7 +813,17 @@ with tab2:
         'Special Categories',
         options=list(category_options.keys()),
         default=['founder', 'college', 'corporate', 'mid_day', 'fitness_only', 'has_fitness_addon', 'team_dues', '90_for_90', 'not_special'],
-        format_func=lambda x: category_options[x]
+        format_func=lambda x: category_options[x],
+        xaxis=dict(
+            tickfont=dict(color=COLORS['axis_text'], size=12),
+            gridcolor=COLORS['gridline'],
+            title_font=dict(color=COLORS['text'], size=14)
+        ),
+        yaxis=dict(
+            tickfont=dict(color=COLORS['axis_text'], size=12),
+            gridcolor=COLORS['gridline'],
+            title_font=dict(color=COLORS['text'], size=14)
+        )
     )
 
     # Filter memberships - Status, Frequency, Size
@@ -1607,7 +1677,17 @@ with tab3:
         paper_bgcolor=COLORS['background'],
         font_color=COLORS['text'],
         yaxis_title='Number of Day Passes',
-        xaxis_title='Date'
+        xaxis_title='Date',
+        xaxis=dict(
+            tickfont=dict(color=COLORS['axis_text'], size=12),
+            gridcolor=COLORS['gridline'],
+            title_font=dict(color=COLORS['text'], size=14)
+        ),
+        yaxis=dict(
+            tickfont=dict(color=COLORS['axis_text'], size=12),
+            gridcolor=COLORS['gridline'],
+            title_font=dict(color=COLORS['text'], size=14)
+        )
     )
     fig_day_pass_count = apply_axis_styling(fig_day_pass_count)
     st.plotly_chart(fig_day_pass_count, use_container_width=True)
@@ -1639,7 +1719,17 @@ with tab3:
         paper_bgcolor=COLORS['background'],
         font_color=COLORS['text'],
         yaxis_title='Revenue ($)',
-        xaxis_title='Date'
+        xaxis_title='Date',
+        xaxis=dict(
+            tickfont=dict(color=COLORS['axis_text'], size=12),
+            gridcolor=COLORS['gridline'],
+            title_font=dict(color=COLORS['text'], size=14)
+        ),
+        yaxis=dict(
+            tickfont=dict(color=COLORS['axis_text'], size=12),
+            gridcolor=COLORS['gridline'],
+            title_font=dict(color=COLORS['text'], size=14)
+        )
     )
     fig_day_pass_revenue = apply_axis_styling(fig_day_pass_revenue)
     st.plotly_chart(fig_day_pass_revenue, use_container_width=True)
@@ -2260,7 +2350,17 @@ with tab4:
         paper_bgcolor=COLORS['background'],
         font_color=COLORS['text'],
         yaxis_title='Revenue ($)',
-        xaxis_title='Date'
+        xaxis_title='Date',
+        xaxis=dict(
+            tickfont=dict(color=COLORS['axis_text'], size=12),
+            gridcolor=COLORS['gridline'],
+            title_font=dict(color=COLORS['text'], size=14)
+        ),
+        yaxis=dict(
+            tickfont=dict(color=COLORS['axis_text'], size=12),
+            gridcolor=COLORS['gridline'],
+            title_font=dict(color=COLORS['text'], size=14)
+        )
     )
     fig_birthday_revenue = apply_axis_styling(fig_birthday_revenue)
     st.plotly_chart(fig_birthday_revenue, use_container_width=True)
@@ -2294,7 +2394,17 @@ with tab4:
         font_color=COLORS['text'],
         yaxis_title='Revenue ($)',
         xaxis_title='Date',
-        legend_title='Rental Type'
+        legend_title='Rental Type',
+        xaxis=dict(
+            tickfont=dict(color=COLORS['axis_text'], size=12),
+            gridcolor=COLORS['gridline'],
+            title_font=dict(color=COLORS['text'], size=14)
+        ),
+        yaxis=dict(
+            tickfont=dict(color=COLORS['axis_text'], size=12),
+            gridcolor=COLORS['gridline'],
+            title_font=dict(color=COLORS['text'], size=14)
+        )
     )
     fig_all_rentals = apply_axis_styling(fig_all_rentals)
     st.plotly_chart(fig_all_rentals, use_container_width=True)
@@ -2399,7 +2509,17 @@ with tab5:
         options=['D', 'W', 'M'],
         format_func=lambda x: {'D': 'Daily', 'W': 'Weekly', 'M': 'Monthly'}[x],
         index=2,  # Default to Monthly
-        key='programming_timeframe'
+        key='programming_timeframe',
+        xaxis=dict(
+            tickfont=dict(color=COLORS['axis_text'], size=12),
+            gridcolor=COLORS['gridline'],
+            title_font=dict(color=COLORS['text'], size=14)
+        ),
+        yaxis=dict(
+            tickfont=dict(color=COLORS['axis_text'], size=12),
+            gridcolor=COLORS['gridline'],
+            title_font=dict(color=COLORS['text'], size=14)
+        )
     )
 
     # Youth Team Revenue
@@ -2489,7 +2609,17 @@ with tab5:
     df_events_filtered['event_type_name_lower'] = df_events_filtered['event_type_name'].str.lower()
 
     fitness_mask = df_events_filtered['event_type_name_lower'].apply(
-        lambda x: any(keyword.lower() in str(x) for keyword in fitness_event_keywords) if pd.notna(x) else False
+        lambda x: any(keyword.lower() in str(x) for keyword in fitness_event_keywords) if pd.notna(x) else False,
+        xaxis=dict(
+            tickfont=dict(color=COLORS['axis_text'], size=12),
+            gridcolor=COLORS['gridline'],
+            title_font=dict(color=COLORS['text'], size=14)
+        ),
+        yaxis=dict(
+            tickfont=dict(color=COLORS['axis_text'], size=12),
+            gridcolor=COLORS['gridline'],
+            title_font=dict(color=COLORS['text'], size=14)
+        )
     )
     df_events_filtered = df_events_filtered[fitness_mask]
 
@@ -2726,7 +2856,17 @@ with tab6:
         options=['Day', 'Week', 'Month'],
         index=2,
         key='marketing_timeframe',
-        horizontal=True
+        horizontal=True,
+        xaxis=dict(
+            tickfont=dict(color=COLORS['axis_text'], size=12),
+            gridcolor=COLORS['gridline'],
+            title_font=dict(color=COLORS['text'], size=14)
+        ),
+        yaxis=dict(
+            tickfont=dict(color=COLORS['axis_text'], size=12),
+            gridcolor=COLORS['gridline'],
+            title_font=dict(color=COLORS['text'], size=14)
+        )
     )
 
     timeframe_map = {'Day': 'D', 'Week': 'W', 'Month': 'M'}
