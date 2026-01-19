@@ -38,17 +38,26 @@ COLORS = {
 
 # Set default Plotly template for consistent chart styling across all charts
 import plotly.io as pio
-pio.templates["basin"] = pio.templates["plotly"]
-pio.templates["basin"].layout.xaxis.tickfont.color = COLORS['axis_text']
-pio.templates["basin"].layout.xaxis.tickfont.size = 12
-pio.templates["basin"].layout.xaxis.gridcolor = COLORS['gridline']
-pio.templates["basin"].layout.xaxis.title.font.color = COLORS['text']
-pio.templates["basin"].layout.xaxis.title.font.size = 14
-pio.templates["basin"].layout.yaxis.tickfont.color = COLORS['axis_text']
-pio.templates["basin"].layout.yaxis.tickfont.size = 12
-pio.templates["basin"].layout.yaxis.gridcolor = COLORS['gridline']
-pio.templates["basin"].layout.yaxis.title.font.color = COLORS['text']
-pio.templates["basin"].layout.yaxis.title.font.size = 14
+import plotly.graph_objects as go
+
+# Create custom Basin template by copying plotly template
+pio.templates["basin"] = go.layout.Template(
+    layout=go.Layout(
+        xaxis=dict(
+            tickfont=dict(color=COLORS['axis_text'], size=12),
+            gridcolor=COLORS['gridline'],
+            title_font=dict(color=COLORS['text'], size=14)
+        ),
+        yaxis=dict(
+            tickfont=dict(color=COLORS['axis_text'], size=12),
+            gridcolor=COLORS['gridline'],
+            title_font=dict(color=COLORS['text'], size=14)
+        ),
+        plot_bgcolor=COLORS['background'],
+        paper_bgcolor=COLORS['background'],
+        font=dict(color=COLORS['text'])
+    )
+)
 pio.templates.default = "basin"
 
 # Revenue category colors
