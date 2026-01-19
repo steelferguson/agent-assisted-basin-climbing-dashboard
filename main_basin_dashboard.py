@@ -3740,105 +3740,39 @@ with tab7:
 
     st.markdown('---')
 
-    # ========== A/B GROUP SPLIT ==========
-    st.subheader('3️⃣ A/B Group Split')
-    st.markdown('**Group A** (first_time_day_pass_2wk_offer): Direct SendGrid 2-week offer email')
-    st.markdown('**Group B** (second_visit_offer_eligible): Mailchimp journey → earn 2-week after 2nd visit')
-
-    if not df_flags_2026.empty:
-        # The flag type itself indicates the group
-        ab_test_flags = df_flags_2026[df_flags_2026['flag_type'].isin(['first_time_day_pass_2wk_offer', 'second_visit_offer_eligible'])]
-
-        if not ab_test_flags.empty:
-            group_a = len(ab_test_flags[ab_test_flags['flag_type'] == 'first_time_day_pass_2wk_offer'])
-            group_b = len(ab_test_flags[ab_test_flags['flag_type'] == 'second_visit_offer_eligible'])
-            total_ab = group_a + group_b
-
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("Group A (SendGrid)", f"{group_a:,}")
-            with col2:
-                st.metric("Group B (Mailchimp)", f"{group_b:,}")
-            with col3:
-                if total_ab > 0:
-                    split_pct_a = (group_a / total_ab * 100)
-                    split_pct_b = (group_b / total_ab * 100)
-                    st.metric("Split", f"{split_pct_a:.0f}% / {split_pct_b:.0f}%")
-
-            # Show table of customers who entered AB test
-            st.markdown('---')
-            st.markdown('**Customers Entering A/B Test:**')
-
-            # Prepare display table
-            display_cols = ['customer_id', 'flag_type', 'triggered_date', 'flag_added_date']
-            available_cols = [col for col in display_cols if col in ab_test_flags.columns]
-
-            if available_cols:
-                df_ab_display = ab_test_flags[available_cols].copy()
-
-                # Format columns
-                if 'flag_type' in df_ab_display.columns:
-                    df_ab_display['flag_type'] = df_ab_display['flag_type'].map({
-                        'first_time_day_pass_2wk_offer': 'Group A - First-Time Offer',
-                        'second_visit_offer_eligible': 'Group B - 2nd Visit Eligible'
-                    })
-
-                if 'triggered_date' in df_ab_display.columns:
-                    df_ab_display['triggered_date'] = pd.to_datetime(df_ab_display['triggered_date'], errors='coerce').dt.strftime('%Y-%m-%d')
-
-                if 'flag_added_date' in df_ab_display.columns:
-                    df_ab_display['flag_added_date'] = pd.to_datetime(df_ab_display['flag_added_date'], errors='coerce').dt.strftime('%Y-%m-%d %H:%M')
-
-                # Rename columns
-                column_rename = {
-                    'customer_id': 'Customer ID',
-                    'flag_type': 'A/B Group',
-                    'triggered_date': 'Triggered Date',
-                    'flag_added_date': 'Flag Added'
-                }
-                df_ab_display = df_ab_display.rename(columns=column_rename)
-
-                # Sort by most recent
-                if 'Flag Added' in df_ab_display.columns:
-                    df_ab_display = df_ab_display.sort_values('Flag Added', ascending=False)
-
-                st.dataframe(df_ab_display, use_container_width=True, hide_index=True, height=400)
-            else:
-                st.info("Customer details not available")
-        else:
-            st.info("No A/B test flags found")
-    else:
-        st.info("No flags data available")
-
-    st.markdown('---')
-
     # ========== SHOPIFY SYNC ==========
-    st.subheader('4️⃣ Shopify Sync Status')
+    st.subheader('3️⃣ Shopify Sync Status')
     st.markdown('Flags synced to Shopify customer metafields for automated flows')
 
-    if not df_customer_flags.empty:
-        # Check if there's a shopify_synced column or similar
-        if 'shopify_customer_id' in df_customer_flags.columns:
-            synced_count = df_customer_flags['shopify_customer_id'].notna().sum()
-            total_flags = len(df_customer_flags)
+    if not df_flags_2026.empty:
+        # Filter to A/B test flags only
+        ab_test_flags_2026 = df_flags_2026[df_flags_2026['flag_type'].isin(['first_time_day_pass_2wk_offer', 'second_visit_offer_eligible'])]
 
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("Synced to Shopify", f"{synced_count:,}")
-            with col2:
-                st.metric("Not Synced", f"{total_flags - synced_count:,}")
-            with col3:
-                sync_pct = (synced_count / total_flags * 100) if total_flags > 0 else 0
-                st.metric("Sync Rate", f"{sync_pct:.1f}%")
+        if not ab_test_flags_2026.empty:
+            # Check if there's a shopify_customer_id column
+            if 'shopify_customer_id' in ab_test_flags_2026.columns:
+                synced_count = ab_test_flags_2026['shopify_customer_id'].notna().sum()
+                total_flags = len(ab_test_flags_2026)
+
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Synced to Shopify", f"{synced_count:,}")
+                with col2:
+                    st.metric("Not Synced", f"{total_flags - synced_count:,}")
+                with col3:
+                    sync_pct = (synced_count / total_flags * 100) if total_flags > 0 else 0
+                    st.metric("Sync Rate", f"{sync_pct:.1f}%")
+            else:
+                st.info("Shopify sync status not tracked in flags data")
         else:
-            st.info("Shopify sync status not tracked in flags data")
+            st.info("No A/B test flags to sync")
     else:
         st.info("No flags data available")
 
     st.markdown('---')
 
     # ========== DISTRIBUTION CHANNELS ==========
-    st.subheader('5️⃣ Distribution Channels')
+    st.subheader('4️⃣ Distribution Channels')
 
     col1, col2 = st.columns(2)
 
@@ -3850,42 +3784,13 @@ with tab7:
 
     with col2:
         st.markdown('**📨 Group B → Mailchimp Tags**')
-        # Check mailchimp data for tags
-        if not df_mailchimp.empty and 'tags' in df_mailchimp.columns:
-            # Count contacts with relevant tags
-            st.info("Mailchimp tag breakdown coming soon")
-        else:
-            st.info("Mailchimp tag data not available")
+        st.info("📝 Mailchimp tag data needs to be added to data pipeline. Current data is campaign-level only (opens/clicks), not member-level with tags.")
 
     st.markdown('---')
 
-    # ========== CONVERSION ==========
-    st.subheader('6️⃣ Conversion to Membership')
-    st.markdown('How many flagged customers converted to paid memberships?')
-
-    if not df_customer_flags.empty and not df_memberships.empty:
-        # Get flagged customer IDs
-        flagged_customers = set(df_customer_flags['customer_id'].unique())
-
-        # Get customers with active memberships
-        if 'customer_id' in df_memberships.columns and 'status' in df_memberships.columns:
-            active_members = set(df_memberships[df_memberships['status'] == 'active']['customer_id'].unique())
-
-            # Find overlap
-            converted = flagged_customers.intersection(active_members)
-
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("Flagged Customers", f"{len(flagged_customers):,}")
-            with col2:
-                st.metric("Converted to Member", f"{len(converted):,}")
-            with col3:
-                conversion_rate = (len(converted) / len(flagged_customers) * 100) if len(flagged_customers) > 0 else 0
-                st.metric("Conversion Rate", f"{conversion_rate:.1f}%")
-        else:
-            st.info("Membership status data not available for conversion tracking")
-    else:
-        st.info("Insufficient data for conversion analysis")
+    # ========== CONVERSION (TO BE ADDED TO DATA PIPELINE) ==========
+    st.subheader('5️⃣ Conversion to Membership')
+    st.info("📝 Conversion tracking will be added to the data pipeline (not calculated in dashboard)")
 
 # ============================================================================
 # TAB 8: EXPENSES (HIDDEN FOR NOW)
