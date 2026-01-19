@@ -245,7 +245,17 @@ with tab1:
         paper_bgcolor=COLORS['background'],
         font_color=COLORS['text'],
         yaxis_title='Revenue ($)',
-        xaxis_title='Date'
+        xaxis_title='Date',
+        xaxis=dict(
+            tickfont=dict(color=COLORS['axis_text'], size=12),
+            gridcolor=COLORS['gridline'],
+            title_font=dict(color=COLORS['text'], size=14)
+        ),
+        yaxis=dict(
+            tickfont=dict(color=COLORS['axis_text'], size=12),
+            gridcolor=COLORS['gridline'],
+            title_font=dict(color=COLORS['text'], size=14)
+        )
     )
     st.plotly_chart(fig_line, use_container_width=True)
 
