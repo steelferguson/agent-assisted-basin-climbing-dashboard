@@ -948,6 +948,100 @@ class BirthdayPartyHostSixDaysOutFlag(FlagRule):
             return None
 
 
+class FiftyPercentOfferSentFlag(FlagRule):
+    """
+    Flag customers when they receive an email with a 50% off offer.
+
+    Business logic:
+    - Customer received an email_sent event
+    - The email contains an offer with "50%" discount
+    - Hasn't been flagged for this offer in the last 30 days (prevent duplicate flags)
+
+    This flag can be used to:
+    - Track which customers received the 50% offer
+    - Analyze conversion rates for 50% offers
+    - Prevent sending duplicate offers too soon
+    - Dashboard metrics and reporting
+    """
+
+    def __init__(self):
+        super().__init__(
+            flag_type="fifty_percent_offer_sent",
+            description="Customer received email with 50% off offer",
+            priority="medium"
+        )
+
+    def evaluate(self, customer_id: str, events: list, today: datetime, email: str = None, phone: str = None) -> Dict[str, Any]:
+        """
+        Check if customer received an email with 50% offer recently.
+        """
+        import json
+
+        # Look back 3 days for recent email_sent events (daily pipeline runs)
+        lookback_start = today - timedelta(days=3)
+
+        # Find recent email_sent events with 50% offers
+        recent_fifty_pct_emails = []
+        for e in events:
+            if e['event_type'] == 'email_sent' and e['event_date'] >= lookback_start and e['event_date'] <= today:
+                # Parse event_details JSON
+                event_details = e.get('event_details', '{}')
+                if isinstance(event_details, str):
+                    try:
+                        event_details = json.loads(event_details)
+                    except:
+                        continue
+
+                # Check if this email has a 50% offer
+                offer_amount = event_details.get('offer_amount', '')
+                if offer_amount and '50%' in str(offer_amount):
+                    recent_fifty_pct_emails.append(e)
+
+        # If no recent 50% offers, no flag
+        if not recent_fifty_pct_emails:
+            return None
+
+        # Check if already flagged for 50% offer in last 30 days (prevent duplicates)
+        thirty_days_ago = today - timedelta(days=30)
+        recent_flags = [
+            e for e in events
+            if e['event_type'] == 'flag_set'
+            and isinstance(e.get('event_data'), dict)
+            and e.get('event_data', {}).get('flag_type') == self.flag_type
+            and e['event_date'] >= thirty_days_ago
+            and e['event_date'] <= today
+        ]
+
+        if recent_flags:
+            return None  # Already flagged recently
+
+        # Get the most recent 50% offer email
+        most_recent_email = max(recent_fifty_pct_emails, key=lambda e: e['event_date'])
+        event_details = most_recent_email.get('event_details', '{}')
+        if isinstance(event_details, str):
+            event_details = json.loads(event_details)
+
+        # Flag the customer
+        return {
+            'customer_id': customer_id,
+            'flag_type': self.flag_type,
+            'triggered_date': today,
+            'flag_data': {
+                'email_sent_date': most_recent_email['event_date'].isoformat(),
+                'campaign_title': event_details.get('campaign_title', ''),
+                'offer_amount': event_details.get('offer_amount', ''),
+                'offer_type': event_details.get('offer_type', ''),
+                'offer_code': event_details.get('offer_code', ''),
+                'offer_expires': event_details.get('offer_expires', ''),
+                'offer_description': event_details.get('offer_description', ''),
+                'email_subject': event_details.get('email_subject', ''),
+                'days_since_email': (today - most_recent_email['event_date']).days,
+                'description': self.description
+            },
+            'priority': self.priority
+        }
+
+
 # List of all active rules
 ACTIVE_RULES = [
     ReadyForMembershipFlag(),
@@ -958,6 +1052,7 @@ ACTIVE_RULES = [
     BirthdayPartyHostOneWeekOutFlag(),     # Host has party in 7 days
     BirthdayPartyAttendeeOneWeekOutFlag(), # Attendee has party in 7 days
     BirthdayPartyHostSixDaysOutFlag(),     # Host notification (6 days before)
+    FiftyPercentOfferSentFlag(),           # Track 50% offer email sends
 ]
 
 

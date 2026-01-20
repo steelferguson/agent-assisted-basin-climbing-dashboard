@@ -150,8 +150,77 @@ This prevents mixed date format issues that cause silent failures in pandas.
 4. Fetch Instagram posts (last 30 days with AI vision analysis)
 5. Fetch Mailchimp campaigns (last 90 days with AI content analysis)
 6. Fetch Capitan associations & events (all)
+7. Fetch Mailchimp member tags (all subscribers)
 
 **Output:** All data uploaded to S3 with monthly snapshots on 1st of month
+
+### 7. Dashboard Visualization (`main_basin_dashboard.py`)
+
+**Purpose:** Executive dashboard for business metrics and KPIs
+
+**Architecture:** Multi-tab Streamlit application
+
+**Tabs:**
+1. **Overview** - Key metrics for last week and last month
+2. **Revenue** - Revenue analysis by category and time period
+3. **Memberships** - Member lifecycle, retention, at-risk analysis
+4. **Day Passes** - Day pass sales and conversion tracking
+5. **Camps & Events** - Event bookings and attendance
+6. **Marketing** - Ad campaigns, email performance, Instagram engagement
+7. **Lead Flow** - Customer engagement and conversion funnel
+
+**Overview Tab Design (Updated 2026-01-19):**
+
+The Overview tab provides at-a-glance business health metrics:
+
+**A. Membership Growth & Attrition**
+- **Members vs Memberships Distinction:**
+  - **Members:** Unique people (counted only on first membership)
+  - **Memberships:** Total contracts (includes renewals)
+- Shows new/attrited counts for both week and month
+- Calculates net changes and displays active totals
+- First-time membership identified by finding earliest `start_date` per `owner_id`
+
+**B. Most Recent Ad Campaign**
+- Displays lifetime totals for most recently active campaign
+- Filters out zero-spend placeholder campaigns
+- Shows: total spend, impressions, primary conversion metric, cost per result
+- Automatically determines primary metric (purchases > add-to-carts > registrations > leads > clicks)
+
+**C. Day Pass Activity**
+- Structured into week/month columns for easy comparison
+- Each column shows:
+  - Day Passes Purchased (with revenue in tooltip)
+  - Check-ins (Day Pass customers only)
+  - First-Time Visitors (customers with no prior check-ins)
+
+**D. Engagement**
+- Total check-ins for week and month (all customers)
+
+**E. Sales**
+- Birthday party bookings for week and month
+- Shows count with revenue in tooltip
+
+**Key Metrics Calculations:**
+
+```python
+# First-time membership identification
+first_membership_dates = df_memberships.groupby('owner_id')['start_date'].min()
+df['is_first_membership'] = (df['start_date'] == df['first_membership_date'])
+
+# First-time visitor identification
+for customer_id in checkins['customer_id'].unique():
+    prior_checkins = df_checkins[
+        (df_checkins['customer_id'] == customer_id) &
+        (df_checkins['checkin_datetime'] < period_start)
+    ]
+    is_first_time = (len(prior_checkins) == 0)
+```
+
+**Data Loading:**
+- All data cached with `@st.cache_data` decorator
+- Loads from S3 on startup
+- Includes: transactions, memberships, events, check-ins, ads, email campaigns, etc.
 
 ## Data Storage
 
@@ -171,6 +240,8 @@ s3://basin-business-performance-dashboard/
 ├── mailchimp/
 │   ├── campaigns.csv
 │   └── monthly_snapshots/
+├── marketing/
+│   └── mailchimp_member_tags.csv
 ├── instagram/
 │   ├── posts.csv
 │   └── monthly_snapshots/
