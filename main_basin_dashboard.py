@@ -3692,18 +3692,44 @@ with tab7:
             df_day_pass_engagement['latest_day_pass_date'] = pd.to_datetime(df_day_pass_engagement['latest_day_pass_date'], errors='coerce')
             df_day_pass_2026 = df_day_pass_engagement[df_day_pass_engagement['latest_day_pass_date'] >= '2026-01-01']
             total_day_pass_customers = len(df_day_pass_2026)
-            st.metric("Total Day Pass Customers (2026+)", f"{total_day_pass_customers:,}")
 
-            # Show recent activity
-            last_30_days = pd.Timestamp.now() - pd.Timedelta(days=30)
-            recent_day_pass = len(df_day_pass_2026[df_day_pass_2026['latest_day_pass_date'] >= last_30_days])
+            # Calculate engagement metrics
+            # Multiple visits (came back at least once)
+            returning_customers = 0
+            if 'total_day_pass_checkins' in df_day_pass_2026.columns:
+                returning_customers = len(df_day_pass_2026[df_day_pass_2026['total_day_pass_checkins'] > 1])
 
-            col1, col2 = st.columns(2)
+            # 2-week membership purchases (look in transactions)
+            two_week_purchases = 0
+            if not df_transactions.empty and 'customer_id' in df_day_pass_2026.columns and 'customer_id' in df_transactions.columns:
+                day_pass_customer_ids = set(df_day_pass_2026['customer_id'].dropna())
+                two_week_txns = df_transactions[
+                    (df_transactions['customer_id'].isin(day_pass_customer_ids)) &
+                    (df_transactions['Description'].str.contains('2-Week|Two Week|2 Week', case=False, na=False))
+                ]
+                two_week_purchases = two_week_txns['customer_id'].nunique() if not two_week_txns.empty else 0
+
+            # Full membership conversions (look in memberships)
+            membership_conversions = 0
+            if not df_memberships.empty and 'customer_id' in df_day_pass_2026.columns and 'customer_id' in df_memberships.columns:
+                day_pass_customer_ids = set(df_day_pass_2026['customer_id'].dropna())
+                active_members = df_memberships[
+                    (df_memberships['customer_id'].isin(day_pass_customer_ids)) &
+                    (df_memberships['status'] == 'active')
+                ]
+                membership_conversions = len(active_members)
+
+            # Display metrics
+            col1, col2, col3, col4 = st.columns(4)
             with col1:
-                st.metric("Active Last 30 Days", f"{recent_day_pass:,}")
+                st.metric("Total Day Pass Customers", f"{total_day_pass_customers:,}")
             with col2:
-                pct_active = (recent_day_pass / total_day_pass_customers * 100) if total_day_pass_customers > 0 else 0
-                st.metric("% Active", f"{pct_active:.1f}%")
+                st.metric("Returned for 2nd Visit", f"{returning_customers:,}")
+            with col3:
+                st.metric("Bought 2-Week Pass", f"{two_week_purchases:,}")
+            with col4:
+                st.metric("Converted to Membership", f"{membership_conversions:,}")
+
         else:
             st.info("Date information not available")
     else:
@@ -3742,32 +3768,7 @@ with tab7:
 
     # ========== SHOPIFY SYNC ==========
     st.subheader('3️⃣ Shopify Sync Status')
-    st.markdown('Flags synced to Shopify customer metafields for automated flows')
-
-    if not df_flags_2026.empty:
-        # Filter to A/B test flags only
-        ab_test_flags_2026 = df_flags_2026[df_flags_2026['flag_type'].isin(['first_time_day_pass_2wk_offer', 'second_visit_offer_eligible'])]
-
-        if not ab_test_flags_2026.empty:
-            # Check if there's a shopify_customer_id column
-            if 'shopify_customer_id' in ab_test_flags_2026.columns:
-                synced_count = ab_test_flags_2026['shopify_customer_id'].notna().sum()
-                total_flags = len(ab_test_flags_2026)
-
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric("Synced to Shopify", f"{synced_count:,}")
-                with col2:
-                    st.metric("Not Synced", f"{total_flags - synced_count:,}")
-                with col3:
-                    sync_pct = (synced_count / total_flags * 100) if total_flags > 0 else 0
-                    st.metric("Sync Rate", f"{sync_pct:.1f}%")
-            else:
-                st.info("Shopify sync status not tracked in flags data")
-        else:
-            st.info("No A/B test flags to sync")
-    else:
-        st.info("No flags data available")
+    st.info("📝 Shopify sync tracking needs to be added to data pipeline. Current flags data doesn't include sync status (shopify_customer_id, sync timestamp, etc.)")
 
     st.markdown('---')
 
