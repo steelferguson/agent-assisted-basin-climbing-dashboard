@@ -360,11 +360,50 @@ with tab0:
             (df_memberships_calc['start_date'] <= last_week_end)
         ])
 
-        attrited_memberships_week = len(df_memberships_calc[
+        # Get all ended memberships for the week
+        attrited_week_df_calc = df_memberships_calc[
             (df_memberships_calc['status'] == 'END') &
             (df_memberships_calc['end_date'] >= last_week_start) &
             (df_memberships_calc['end_date'] <= last_week_end)
-        ])
+        ].copy()
+        total_ended_memberships_week = len(attrited_week_df_calc)
+
+        # Calculate truly attrited (exclude switches and those with other active memberships)
+        active_owner_ids = df_memberships_calc[
+            df_memberships_calc['status'] == 'ACT'
+        ]['owner_id'].unique() if 'owner_id' in df_memberships_calc.columns else []
+
+        def check_if_switched(row, df_all):
+            """Check if owner started another membership within 30 days of end date."""
+            owner_id = row['owner_id']
+            end_date = pd.to_datetime(row['end_date'])
+            other_memberships = df_all[
+                (df_all['owner_id'] == owner_id) &
+                (df_all.index != row.name)
+            ]
+            if other_memberships.empty:
+                return False
+            for _, other in other_memberships.iterrows():
+                other_start = pd.to_datetime(other['start_date'])
+                days_diff = abs((other_start - end_date).days)
+                if days_diff <= 30:
+                    return True
+            return False
+
+        if not attrited_week_df_calc.empty:
+            attrited_week_df_calc['has_active'] = attrited_week_df_calc['owner_id'].isin(active_owner_ids)
+            attrited_week_df_calc['switched'] = attrited_week_df_calc.apply(
+                lambda row: check_if_switched(row, df_memberships_calc), axis=1
+            )
+            # Truly attrited = no active membership AND didn't switch
+            truly_attrited_week = len(attrited_week_df_calc[
+                (~attrited_week_df_calc['has_active']) & (~attrited_week_df_calc['switched'])
+            ])
+        else:
+            truly_attrited_week = 0
+
+        # Use truly attrited for metrics (not total ended)
+        attrited_memberships_week = truly_attrited_week
 
         # Week: Net change = new - attrited (consistent with Membership tab calculation)
         net_member_change_week = new_members_last_week - attrited_members_week
@@ -391,11 +430,27 @@ with tab0:
             (df_memberships_calc['start_date'] < last_month_end)
         ])
 
-        attrited_memberships_month = len(df_memberships_calc[
+        # Get all ended memberships for the month
+        attrited_month_df_calc = df_memberships_calc[
             (df_memberships_calc['status'] == 'END') &
             (df_memberships_calc['end_date'] >= last_month_start) &
             (df_memberships_calc['end_date'] < last_month_end)
-        ])
+        ].copy()
+        total_ended_memberships_month = len(attrited_month_df_calc)
+
+        if not attrited_month_df_calc.empty:
+            attrited_month_df_calc['has_active'] = attrited_month_df_calc['owner_id'].isin(active_owner_ids)
+            attrited_month_df_calc['switched'] = attrited_month_df_calc.apply(
+                lambda row: check_if_switched(row, df_memberships_calc), axis=1
+            )
+            truly_attrited_month = len(attrited_month_df_calc[
+                (~attrited_month_df_calc['has_active']) & (~attrited_month_df_calc['switched'])
+            ])
+        else:
+            truly_attrited_month = 0
+
+        # Use truly attrited for metrics
+        attrited_memberships_month = truly_attrited_month
 
         # Month: Net change = new - attrited (same calculation as Membership tab)
         # This is simpler and more accurate than comparing snapshots with current status
@@ -447,7 +502,7 @@ with tab0:
                 "Attrited Memberships (Week)",
                 f"{attrited_memberships_week}",
                 delta_color="inverse",
-                help="Total memberships ended"
+                help=f"Truly attrited (excludes switches). Total ended: {total_ended_memberships_week}"
             )
         with col3:
             st.metric(
@@ -461,8 +516,72 @@ with tab0:
                 "Attrited Memberships (Month)",
                 f"{attrited_memberships_month}",
                 delta_color="inverse",
-                help="Total memberships ended"
+                help=f"Truly attrited (excludes switches). Total ended: {total_ended_memberships_month}"
             )
+
+        # Expander showing who attrited this week (uses pre-calculated attrited_week_df_calc)
+        if total_ended_memberships_week > 0:
+            with st.expander(f"View {total_ended_memberships_week} Ended Memberships (Week) - {attrited_memberships_week} Truly Attrited"):
+                # Join with members table to get names (deduplicate members first)
+                if not df_members.empty:
+                    df_members_dedup = df_members[['customer_id', 'member_first_name', 'member_last_name']].drop_duplicates(subset=['customer_id'])
+                    attrited_week_display = attrited_week_df_calc.merge(
+                        df_members_dedup,
+                        left_on='owner_id',
+                        right_on='customer_id',
+                        how='left'
+                    )
+                else:
+                    attrited_week_display = attrited_week_df_calc.copy()
+                    attrited_week_display['member_first_name'] = ''
+                    attrited_week_display['member_last_name'] = ''
+
+                # Prepare display columns
+                display_cols = ['owner_id', 'member_first_name', 'member_last_name', 'name', 'end_date', 'has_active', 'switched']
+                available_cols = [c for c in display_cols if c in attrited_week_display.columns]
+                attrited_week_show = attrited_week_display[available_cols].copy()
+
+                # Rename columns
+                col_rename = {
+                    'owner_id': 'Customer ID',
+                    'member_first_name': 'First Name',
+                    'member_last_name': 'Last Name',
+                    'name': 'Membership Type',
+                    'end_date': 'End Date',
+                    'has_active': 'Has Other Active',
+                    'switched': 'Switched'
+                }
+                attrited_week_show.rename(columns=col_rename, inplace=True)
+
+                # Add Capitan link
+                if 'Customer ID' in attrited_week_show.columns:
+                    attrited_week_show['Capitan Link'] = attrited_week_show['Customer ID'].apply(
+                        lambda x: f"https://app.hellocapitan.com/customers/{int(x)}/check-ins" if pd.notna(x) else ''
+                    )
+
+                # Format end date
+                if 'End Date' in attrited_week_show.columns:
+                    attrited_week_show['End Date'] = pd.to_datetime(attrited_week_show['End Date']).dt.strftime('%Y-%m-%d')
+
+                # Sort by end date descending
+                if 'End Date' in attrited_week_show.columns:
+                    attrited_week_show = attrited_week_show.sort_values('End Date', ascending=False)
+
+                st.dataframe(
+                    attrited_week_show,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        'Capitan Link': st.column_config.LinkColumn('Capitan Link'),
+                        'Has Other Active': st.column_config.CheckboxColumn('Has Other Active'),
+                        'Switched': st.column_config.CheckboxColumn('Switched')
+                    }
+                )
+
+                # Show breakdown
+                switched_count = attrited_week_show['Switched'].sum() if 'Switched' in attrited_week_show.columns else 0
+                has_other_count = total_ended_memberships_week - attrited_memberships_week - switched_count
+                st.caption(f"📊 {attrited_memberships_week} truly attrited | {switched_count} switched memberships | {has_other_count} have other active")
 
         # Active counts
         col1, col2 = st.columns(2)
