@@ -43,6 +43,7 @@ def test_fifty_percent_offer_flag():
     result = flag_rule.evaluate(customer_id, events, today)
     if result:
         print(f"   ✓ Flag triggered: {result['flag_type']}")
+        print(f"   ✓ Flag uses _sent suffix: {result['flag_type'] == 'fifty_percent_offer_sent'}")
         print(f"   ✓ Offer amount: {result['flag_data']['offer_amount']}")
         print(f"   ✓ Campaign: {result['flag_data']['campaign_title']}")
         print(f"   ✓ Days since email: {result['flag_data']['days_since_email']}")

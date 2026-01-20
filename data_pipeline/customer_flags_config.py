@@ -957,11 +957,16 @@ class FiftyPercentOfferSentFlag(FlagRule):
     - The email contains an offer with "50%" discount
     - Hasn't been flagged for this offer in the last 30 days (prevent duplicate flags)
 
+    Flag naming convention:
+    - Base flag: "fifty_percent_offer" (eligibility/offer type)
+    - Sent flag: "fifty_percent_offer_sent" (actual email sent)
+
     This flag can be used to:
     - Track which customers received the 50% offer
     - Analyze conversion rates for 50% offers
     - Prevent sending duplicate offers too soon
     - Dashboard metrics and reporting
+    - Sync to Mailchimp/Shopify for exclusion lists
     """
 
     def __init__(self):
