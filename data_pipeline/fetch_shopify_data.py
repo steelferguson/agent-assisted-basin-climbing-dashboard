@@ -222,8 +222,8 @@ class ShopifyDataFetcher:
 
         title_lower = product_title.lower()
 
-        # Day passes
-        if "day pass" in title_lower or "entry pass" in title_lower:
+        # Day passes (including punch passes, packs, etc.)
+        if "pass" in title_lower and ("day" in title_lower or "punch" in title_lower or "entry" in title_lower or "-pack" in title_lower):
             return "Day Pass"
 
         # Birthday parties
