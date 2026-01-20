@@ -3922,8 +3922,128 @@ with tab7:
 
     st.markdown('---')
 
+    # ========== OFFER RESPONSE: SECOND VISIT AFTER EMAIL ==========
+    st.subheader('5️⃣ Offer Response: Second Visit After Email')
+    st.markdown('Track which customers who received an offer email came back for a second visit')
+
+    if not df_flags_2026.empty and not df_checkins.empty:
+        # Find all customers with "_sent" flags (offers that were actually sent)
+        sent_flags = df_flags_2026[df_flags_2026['flag_type'].str.endswith('_sent', na=False)].copy()
+
+        if not sent_flags.empty and 'flag_added_date' in sent_flags.columns and 'customer_id' in sent_flags.columns:
+            # Ensure dates are datetime
+            sent_flags['flag_added_date'] = pd.to_datetime(sent_flags['flag_added_date'], errors='coerce')
+            sent_flags = sent_flags[sent_flags['flag_added_date'].notna()]
+
+            # Prepare checkins data
+            df_checkins_analysis = df_checkins.copy()
+            if 'checkin_datetime' in df_checkins_analysis.columns:
+                df_checkins_analysis['checkin_datetime'] = pd.to_datetime(df_checkins_analysis['checkin_datetime'], errors='coerce')
+                df_checkins_analysis = df_checkins_analysis[df_checkins_analysis['checkin_datetime'].notna()]
+
+                # For each customer with a sent flag, check if they had a check-in AFTER the offer was sent
+                customers_with_offers = sent_flags['customer_id'].unique()
+                returned_after_offer = []
+
+                for customer_id in customers_with_offers:
+                    # Get the date the offer was sent (most recent _sent flag for this customer)
+                    customer_flags = sent_flags[sent_flags['customer_id'] == customer_id]
+                    offer_sent_date = customer_flags['flag_added_date'].max()
+
+                    # Check if they have any check-ins AFTER the offer was sent
+                    customer_checkins = df_checkins_analysis[
+                        (df_checkins_analysis['customer_id'] == customer_id) &
+                        (df_checkins_analysis['checkin_datetime'] > offer_sent_date)
+                    ]
+
+                    if not customer_checkins.empty:
+                        returned_after_offer.append({
+                            'customer_id': customer_id,
+                            'offer_sent_date': offer_sent_date,
+                            'first_return_date': customer_checkins['checkin_datetime'].min(),
+                            'days_to_return': (customer_checkins['checkin_datetime'].min() - offer_sent_date).days,
+                            'total_visits_after_offer': len(customer_checkins),
+                            'flag_type': customer_flags['flag_type'].iloc[-1]  # Most recent flag
+                        })
+
+                df_returned = pd.DataFrame(returned_after_offer)
+
+                # Calculate metrics
+                total_offers_sent = len(customers_with_offers)
+                total_returned = len(df_returned)
+                conversion_rate = (total_returned / total_offers_sent * 100) if total_offers_sent > 0 else 0
+
+                # Breakdown by flag type
+                flag_type_breakdown = {}
+                if not df_returned.empty:
+                    for flag_type in sent_flags['flag_type'].unique():
+                        customers_with_this_flag = sent_flags[sent_flags['flag_type'] == flag_type]['customer_id'].unique()
+                        returned_with_this_flag = len(df_returned[df_returned['flag_type'] == flag_type])
+                        total_with_this_flag = len(customers_with_this_flag)
+                        flag_conversion = (returned_with_this_flag / total_with_this_flag * 100) if total_with_this_flag > 0 else 0
+
+                        flag_type_breakdown[flag_type] = {
+                            'sent': total_with_this_flag,
+                            'returned': returned_with_this_flag,
+                            'conversion': flag_conversion
+                        }
+
+                # Display summary metrics
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Offers Sent", f"{total_offers_sent:,}")
+                with col2:
+                    st.metric("Returned for Visit", f"{total_returned:,}")
+                with col3:
+                    st.metric("Conversion Rate", f"{conversion_rate:.1f}%")
+
+                # Show breakdown by offer type
+                if flag_type_breakdown:
+                    st.markdown("**Conversion by Offer Type:**")
+
+                    breakdown_data = []
+                    for flag_type, stats in flag_type_breakdown.items():
+                        # Clean up flag name for display
+                        display_name = flag_type.replace('_sent', '').replace('_', ' ').title()
+                        breakdown_data.append({
+                            'Offer Type': display_name,
+                            'Sent': stats['sent'],
+                            'Returned': stats['returned'],
+                            'Conversion': f"{stats['conversion']:.1f}%"
+                        })
+
+                    df_breakdown_display = pd.DataFrame(breakdown_data)
+                    st.dataframe(df_breakdown_display, use_container_width=True, hide_index=True)
+
+                # Show details of customers who returned
+                if not df_returned.empty:
+                    with st.expander(f"View {len(df_returned)} Customers Who Returned"):
+                        df_returned_display = df_returned.copy()
+                        df_returned_display['offer_sent_date'] = df_returned_display['offer_sent_date'].dt.strftime('%Y-%m-%d')
+                        df_returned_display['first_return_date'] = df_returned_display['first_return_date'].dt.strftime('%Y-%m-%d')
+                        df_returned_display['flag_type'] = df_returned_display['flag_type'].str.replace('_sent', '').str.replace('_', ' ').str.title()
+
+                        df_returned_display = df_returned_display[[
+                            'customer_id', 'flag_type', 'offer_sent_date', 'first_return_date',
+                            'days_to_return', 'total_visits_after_offer'
+                        ]]
+                        df_returned_display.columns = [
+                            'Customer ID', 'Offer Type', 'Offer Sent', 'First Return',
+                            'Days to Return', 'Total Visits After'
+                        ]
+
+                        st.dataframe(df_returned_display, use_container_width=True, hide_index=True)
+            else:
+                st.info("Check-in datetime information not available")
+        else:
+            st.info("No offer email sends found for 2026 (looking for flags ending in '_sent')")
+    else:
+        st.info("Customer flags or check-in data not available")
+
+    st.markdown('---')
+
     # ========== CONVERSION (TO BE ADDED TO DATA PIPELINE) ==========
-    st.subheader('5️⃣ Conversion to Membership')
+    st.subheader('6️⃣ Conversion to Membership')
     st.info("📝 Conversion tracking will be added to the data pipeline (not calculated in dashboard)")
 
 # ============================================================================
