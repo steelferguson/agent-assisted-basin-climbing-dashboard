@@ -626,7 +626,8 @@ with tab0:
         (df_transactions['revenue_category'] == 'Day Pass')
     ]
     last_week_day_pass_revenue = df_day_pass_week['Total Amount'].sum()
-    last_week_day_pass_count = len(df_day_pass_week)
+    # Count actual day passes (not transactions) - accounts for multi-packs like 5-packs
+    last_week_day_pass_count = df_day_pass_week['Day Pass Count'].sum() if 'Day Pass Count' in df_day_pass_week.columns else len(df_day_pass_week)
 
     df_day_pass_month = df_transactions[
         (df_transactions['Date'] >= last_month_start) &
@@ -634,7 +635,8 @@ with tab0:
         (df_transactions['revenue_category'] == 'Day Pass')
     ]
     last_month_day_pass_revenue = df_day_pass_month['Total Amount'].sum()
-    last_month_day_pass_count = len(df_day_pass_month)
+    # Count actual day passes (not transactions) - accounts for multi-packs like 5-packs
+    last_month_day_pass_count = df_day_pass_month['Day Pass Count'].sum() if 'Day Pass Count' in df_day_pass_month.columns else len(df_day_pass_month)
 
     # Calculate check-ins and first-time visitors
     if not df_day_pass_engagement.empty and 'customer_id' in df_day_pass_engagement.columns and 'checkin_datetime' in df_checkins.columns and 'customer_id' in df_checkins.columns:
