@@ -285,12 +285,14 @@ with tab0:
     last_week_end = today
 
     # Last month = previous complete calendar month
+    # Use start of THIS month as the exclusive end bound (same approach as Membership tab)
+    # This handles timestamps correctly (e.g., Dec 31 at 3pm < Jan 1 at midnight)
+    this_month_start = pd.Timestamp(year=today.year, month=today.month, day=1)
     if today.month == 1:
         last_month_start = pd.Timestamp(year=today.year - 1, month=12, day=1)
-        last_month_end = pd.Timestamp(year=today.year - 1, month=12, day=calendar.monthrange(today.year - 1, 12)[1])
     else:
         last_month_start = pd.Timestamp(year=today.year, month=today.month - 1, day=1)
-        last_month_end = pd.Timestamp(year=today.year, month=today.month - 1, day=calendar.monthrange(today.year, today.month - 1)[1])
+    last_month_end = this_month_start  # Exclusive end bound
 
     # Display date ranges
     col1, col2 = st.columns(2)
@@ -372,7 +374,7 @@ with tab0:
         # MEMBERS (unique people)
         new_members_last_month = len(df_memberships_calc[
             (df_memberships_calc['start_date'] >= last_month_start) &
-            (df_memberships_calc['start_date'] <= last_month_end) &
+            (df_memberships_calc['start_date'] < last_month_end) &
             (df_memberships_calc['is_first_membership'] == True)
         ])
 
@@ -380,19 +382,19 @@ with tab0:
         attrited_members_month = df_memberships_calc[
             (df_memberships_calc['status'] == 'END') &
             (df_memberships_calc['end_date'] >= last_month_start) &
-            (df_memberships_calc['end_date'] <= last_month_end)
+            (df_memberships_calc['end_date'] < last_month_end)
         ]['owner_id'].nunique() if 'owner_id' in df_memberships_calc.columns else 0
 
         # MEMBERSHIPS (total contracts)
         new_memberships_last_month = len(df_memberships_calc[
             (df_memberships_calc['start_date'] >= last_month_start) &
-            (df_memberships_calc['start_date'] <= last_month_end)
+            (df_memberships_calc['start_date'] < last_month_end)
         ])
 
         attrited_memberships_month = len(df_memberships_calc[
             (df_memberships_calc['status'] == 'END') &
             (df_memberships_calc['end_date'] >= last_month_start) &
-            (df_memberships_calc['end_date'] <= last_month_end)
+            (df_memberships_calc['end_date'] < last_month_end)
         ])
 
         # Month: Net change = new - attrited (same calculation as Membership tab)
@@ -595,7 +597,7 @@ with tab0:
 
     df_day_pass_month = df_transactions[
         (df_transactions['Date'] >= last_month_start) &
-        (df_transactions['Date'] <= last_month_end) &
+        (df_transactions['Date'] < last_month_end) &
         (df_transactions['revenue_category'] == 'Day Pass')
     ]
     last_month_day_pass_revenue = df_day_pass_month['Total Amount'].sum()
@@ -616,7 +618,7 @@ with tab0:
 
         day_pass_checkins_month = df_checkins[
             (df_checkins['checkin_datetime'] >= last_month_start) &
-            (df_checkins['checkin_datetime'] <= last_month_end) &
+            (df_checkins['checkin_datetime'] < last_month_end) &
             (df_checkins['customer_id'].isin(day_pass_customer_ids))
         ]
 
@@ -681,7 +683,7 @@ with tab0:
 
         last_month_checkins = len(df_checkins[
             (df_checkins['checkin_datetime'] >= last_month_start) &
-            (df_checkins['checkin_datetime'] <= last_month_end)
+            (df_checkins['checkin_datetime'] < last_month_end)
         ])
     else:
         last_week_checkins = 0
@@ -709,7 +711,7 @@ with tab0:
 
     group_events_last_month = df_transactions[
         (df_transactions['Date'] >= last_month_start) &
-        (df_transactions['Date'] <= last_month_end) &
+        (df_transactions['Date'] < last_month_end) &
         (df_transactions['revenue_category'] == 'Event Booking')
     ]
     group_event_count_month = len(group_events_last_month)
