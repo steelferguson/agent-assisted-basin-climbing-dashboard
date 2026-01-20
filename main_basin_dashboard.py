@@ -201,6 +201,7 @@ def load_data():
     df_customer_flags = load_df(config.aws_bucket_name, config.s3_path_customer_flags)
     df_day_pass_engagement = load_df(config.aws_bucket_name, 'analytics/day_pass_engagement.csv')
     df_membership_conversion = load_df(config.aws_bucket_name, 'analytics/membership_conversion_metrics.csv')
+    df_mailchimp_member_tags = load_df(config.aws_bucket_name, 'marketing/mailchimp_member_tags.csv')
 
     # Load Shopify orders and convert to transaction format
     df_shopify = load_df(config.aws_bucket_name, config.s3_path_shopify_orders)
@@ -210,7 +211,7 @@ def load_data():
         # Merge with existing transactions
         df_transactions = pd.concat([df_transactions, shopify_transactions], ignore_index=True)
 
-    return df_transactions, df_memberships, df_members, df_projection, df_at_risk, df_new_members, df_facebook_ads, df_events, df_checkins, df_instagram, df_mailchimp, df_failed_payments, df_expenses, df_twilio_messages, df_customer_identifiers, df_customers_master, df_customer_events, df_customer_flags, df_day_pass_engagement, df_membership_conversion
+    return df_transactions, df_memberships, df_members, df_projection, df_at_risk, df_new_members, df_facebook_ads, df_events, df_checkins, df_instagram, df_mailchimp, df_failed_payments, df_expenses, df_twilio_messages, df_customer_identifiers, df_customers_master, df_customer_events, df_customer_flags, df_day_pass_engagement, df_membership_conversion, df_mailchimp_member_tags
 
 
 # TODO: Re-enable password protection after testing
@@ -219,7 +220,7 @@ def load_data():
 
 # Load data
 with st.spinner('Loading data from S3...'):
-    df_transactions, df_memberships, df_members, df_projection, df_at_risk, df_new_members, df_facebook_ads, df_events, df_checkins, df_instagram, df_mailchimp, df_failed_payments, df_expenses, df_twilio_messages, df_customer_identifiers, df_customers_master, df_customer_events, df_customer_flags, df_day_pass_engagement, df_membership_conversion = load_data()
+    df_transactions, df_memberships, df_members, df_projection, df_at_risk, df_new_members, df_facebook_ads, df_events, df_checkins, df_instagram, df_mailchimp, df_failed_payments, df_expenses, df_twilio_messages, df_customer_identifiers, df_customers_master, df_customer_events, df_customer_flags, df_day_pass_engagement, df_membership_conversion, df_mailchimp_member_tags = load_data()
 
 # Prepare at-risk members data
 if not df_at_risk.empty:
@@ -293,111 +294,292 @@ with tab0:
     if 'event_date' in df_events.columns:
         df_events['event_date'] = pd.to_datetime(df_events['event_date'], errors='coerce')
 
-    # ========== REVENUE SECTION ==========
-    st.subheader('💰 Revenue')
+    # ========== MEMBERSHIP METRICS SECTION ==========
+    st.subheader('👥 Membership Growth & Attrition')
 
-    # Calculate revenue metrics
-    last_week_revenue = df_transactions[
-        (df_transactions['Date'] >= last_week_start) &
-        (df_transactions['Date'] <= last_week_end)
-    ]['Total Amount'].sum()
+    # Calculate membership metrics
+    if 'start_date' in df_memberships.columns and 'end_date' in df_memberships.columns and 'status' in df_memberships.columns:
+        # Prepare membership data
+        df_memberships_calc = df_memberships.copy()
+        df_memberships_calc['start_date'] = pd.to_datetime(df_memberships_calc['start_date'], errors='coerce')
+        df_memberships_calc['end_date'] = pd.to_datetime(df_memberships_calc['end_date'], errors='coerce')
 
-    last_month_revenue = df_transactions[
-        (df_transactions['Date'] >= last_month_start) &
-        (df_transactions['Date'] <= last_month_end)
-    ]['Total Amount'].sum()
+        # Remove rows with invalid dates
+        df_memberships_calc = df_memberships_calc[df_memberships_calc['start_date'].notna()]
 
-    # Weekly target
-    weekly_target = 17000
-    week_vs_target = ((last_week_revenue - weekly_target) / weekly_target * 100) if weekly_target > 0 else 0
-
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric(
-            "Last Week Revenue",
-            f"${last_week_revenue:,.0f}",
-            f"{week_vs_target:+.1f}% vs ${weekly_target:,} target"
-        )
-    with col2:
-        st.metric(
-            "Last Month Revenue",
-            f"${last_month_revenue:,.0f}"
-        )
-    with col3:
-        # Membership growth/churn
-        if 'created_at' in df_memberships.columns and 'status' in df_memberships.columns:
-            new_members_last_month = len(df_memberships[
-                (df_memberships['created_at'] >= last_month_start) &
-                (df_memberships['created_at'] <= last_month_end)
-            ])
-            active_members_start = len(df_memberships[
-                (df_memberships['created_at'] < last_month_start) &
-                (df_memberships['status'] == 'active')
-            ])
-            active_members_end = len(df_memberships[
-                (df_memberships['created_at'] <= last_month_end) &
-                (df_memberships['status'] == 'active')
-            ])
-            net_growth = active_members_end - active_members_start
-            st.metric(
-                "Membership Growth (Last Month)",
-                f"+{new_members_last_month}",
-                f"Net: {net_growth:+d}"
+        # Identify first-time memberships (NEW members) by finding each owner's first membership
+        if 'owner_id' in df_memberships_calc.columns:
+            first_membership_dates = df_memberships_calc.groupby('owner_id')['start_date'].min().reset_index()
+            first_membership_dates.columns = ['owner_id', 'first_membership_date']
+            df_memberships_calc = df_memberships_calc.merge(first_membership_dates, on='owner_id', how='left')
+            df_memberships_calc['is_first_membership'] = (
+                df_memberships_calc['start_date'] == df_memberships_calc['first_membership_date']
             )
         else:
-            st.metric("Membership Growth (Last Month)", "N/A", "Data unavailable")
+            # Fallback if no owner_id column
+            df_memberships_calc['is_first_membership'] = True
+
+        # LAST WEEK METRICS
+        # MEMBERS (unique people)
+        new_members_last_week = len(df_memberships_calc[
+            (df_memberships_calc['start_date'] >= last_week_start) &
+            (df_memberships_calc['start_date'] <= last_week_end) &
+            (df_memberships_calc['is_first_membership'] == True)
+        ])
+
+        # Count unique owner_ids who had memberships end (attrited members)
+        attrited_members_week = df_memberships_calc[
+            (df_memberships_calc['status'] == 'END') &
+            (df_memberships_calc['end_date'] >= last_week_start) &
+            (df_memberships_calc['end_date'] <= last_week_end)
+        ]['owner_id'].nunique() if 'owner_id' in df_memberships_calc.columns else 0
+
+        # MEMBERSHIPS (total contracts)
+        new_memberships_last_week = len(df_memberships_calc[
+            (df_memberships_calc['start_date'] >= last_week_start) &
+            (df_memberships_calc['start_date'] <= last_week_end)
+        ])
+
+        attrited_memberships_week = len(df_memberships_calc[
+            (df_memberships_calc['status'] == 'END') &
+            (df_memberships_calc['end_date'] >= last_week_start) &
+            (df_memberships_calc['end_date'] <= last_week_end)
+        ])
+
+        net_member_change_week = new_members_last_week - attrited_members_week
+        net_membership_change_week = new_memberships_last_week - attrited_memberships_week
+
+        # LAST MONTH METRICS
+        # MEMBERS (unique people)
+        new_members_last_month = len(df_memberships_calc[
+            (df_memberships_calc['start_date'] >= last_month_start) &
+            (df_memberships_calc['start_date'] <= last_month_end) &
+            (df_memberships_calc['is_first_membership'] == True)
+        ])
+
+        # Count unique owner_ids who had memberships end (attrited members)
+        attrited_members_month = df_memberships_calc[
+            (df_memberships_calc['status'] == 'END') &
+            (df_memberships_calc['end_date'] >= last_month_start) &
+            (df_memberships_calc['end_date'] <= last_month_end)
+        ]['owner_id'].nunique() if 'owner_id' in df_memberships_calc.columns else 0
+
+        # MEMBERSHIPS (total contracts)
+        new_memberships_last_month = len(df_memberships_calc[
+            (df_memberships_calc['start_date'] >= last_month_start) &
+            (df_memberships_calc['start_date'] <= last_month_end)
+        ])
+
+        attrited_memberships_month = len(df_memberships_calc[
+            (df_memberships_calc['status'] == 'END') &
+            (df_memberships_calc['end_date'] >= last_month_start) &
+            (df_memberships_calc['end_date'] <= last_month_end)
+        ])
+
+        net_member_change_month = new_members_last_month - attrited_members_month
+        net_membership_change_month = new_memberships_last_month - attrited_memberships_month
+
+        # Display metrics - MEMBERS (unique people)
+        st.markdown("**Members (Unique People)**")
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric(
+                "New Members (Week)",
+                f"+{new_members_last_week}",
+                help="First-time memberships"
+            )
+        with col2:
+            st.metric(
+                "Attrited Members (Week)",
+                f"{attrited_members_week}",
+                delta_color="inverse",
+                help="Unique people whose memberships ended"
+            )
+        with col3:
+            st.metric(
+                "New Members (Month)",
+                f"+{new_members_last_month}",
+                help="First-time memberships"
+            )
+        with col4:
+            st.metric(
+                "Attrited Members (Month)",
+                f"{attrited_members_month}",
+                delta_color="inverse",
+                help="Unique people whose memberships ended"
+            )
+
+        # Display metrics - MEMBERSHIPS (total contracts)
+        st.markdown("**Memberships (Total Contracts)**")
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric(
+                "New Memberships (Week)",
+                f"+{new_memberships_last_week}",
+                f"Net: {net_membership_change_week:+d}",
+                help="All memberships started (includes renewals)"
+            )
+        with col2:
+            st.metric(
+                "Attrited Memberships (Week)",
+                f"{attrited_memberships_week}",
+                delta_color="inverse",
+                help="Total memberships ended"
+            )
+        with col3:
+            st.metric(
+                "New Memberships (Month)",
+                f"+{new_memberships_last_month}",
+                f"Net: {net_membership_change_month:+d}",
+                help="All memberships started (includes renewals)"
+            )
+        with col4:
+            st.metric(
+                "Attrited Memberships (Month)",
+                f"{attrited_memberships_month}",
+                delta_color="inverse",
+                help="Total memberships ended"
+            )
+
+        # Active counts
+        col1, col2 = st.columns(2)
+        with col1:
+            # Current active memberships
+            active_memberships_now = len(df_memberships_calc[df_memberships_calc['status'] == 'ACT'])
+            st.metric(
+                "Total Active Memberships",
+                f"{active_memberships_now:,}"
+            )
+        with col2:
+            # Current unique active members
+            if 'owner_id' in df_memberships_calc.columns:
+                active_members_now = df_memberships_calc[df_memberships_calc['status'] == 'ACT']['owner_id'].nunique()
+            else:
+                active_members_now = active_memberships_now
+            st.metric(
+                "Total Active Members",
+                f"{active_members_now:,}",
+                help="Unique people with active memberships"
+            )
+    else:
+        st.info("Membership data not available")
+
+    st.markdown('---')
+
+    # ========== MARKETING - MOST RECENT AD ==========
+    st.subheader('📱 Most Recent Ad Campaign')
+
+    if not df_facebook_ads.empty:
+        # Get most recent ad data
+        df_ads_recent = df_facebook_ads.copy()
+        df_ads_recent['date'] = pd.to_datetime(df_ads_recent['date'], errors='coerce')
+        df_ads_recent = df_ads_recent[df_ads_recent['date'].notna()]
+
+        # Filter to campaigns with actual spend (ignore zero-spend placeholder campaigns)
+        df_ads_recent = df_ads_recent[df_ads_recent['spend'] > 0]
+
+        if df_ads_recent.empty:
+            st.info("No active ad campaigns with spend")
+        else:
+            # Find the most recent campaign name
+            latest_campaign_date = df_ads_recent['date'].max()
+            latest_campaigns = df_ads_recent[df_ads_recent['date'] >= (latest_campaign_date - timedelta(days=2))]
+
+            if not latest_campaigns.empty:
+                # Get the campaign name with most recent activity
+                most_recent_campaign_name = latest_campaigns.groupby('campaign_name')['date'].max().idxmax()
+
+                # Now get ALL data for this campaign (lifetime)
+                campaign_data = df_ads_recent[df_ads_recent['campaign_name'] == most_recent_campaign_name]
+
+                # Add missing columns with default values
+                for col in ['purchases', 'add_to_carts', 'link_clicks', 'leads', 'registrations']:
+                    if col not in campaign_data.columns:
+                        campaign_data[col] = 0
+
+                # Aggregate lifetime totals for this campaign
+                campaign_summary = campaign_data.agg({
+                    'campaign_name': lambda x: x.iloc[0],
+                    'campaign_id': lambda x: x.iloc[0],
+                    'spend': 'sum',
+                    'impressions': 'sum',
+                    'clicks': 'sum',
+                    'purchases': 'sum',
+                    'add_to_carts': 'sum',
+                    'link_clicks': 'sum',
+                    'leads': 'sum',
+                    'registrations': 'sum',
+                    'date': 'max'
+                })
+
+                # Determine primary metric and cost per result
+                if campaign_summary['purchases'] > 0:
+                    metric_name = 'Purchases'
+                    metric_value = int(campaign_summary['purchases'])
+                    cost_per = campaign_summary['spend'] / campaign_summary['purchases']
+                elif campaign_summary.get('add_to_carts', 0) > 0:
+                    metric_name = 'Add to Carts'
+                    metric_value = int(campaign_summary['add_to_carts'])
+                    cost_per = campaign_summary['spend'] / campaign_summary['add_to_carts']
+                elif campaign_summary.get('registrations', 0) > 0:
+                    metric_name = 'Registrations'
+                    metric_value = int(campaign_summary['registrations'])
+                    cost_per = campaign_summary['spend'] / campaign_summary['registrations']
+                elif campaign_summary.get('leads', 0) > 0:
+                    metric_name = 'Leads'
+                    metric_value = int(campaign_summary['leads'])
+                    cost_per = campaign_summary['spend'] / campaign_summary['leads']
+                elif campaign_summary.get('link_clicks', 0) > 0:
+                    metric_name = 'Link Clicks'
+                    metric_value = int(campaign_summary['link_clicks'])
+                    cost_per = campaign_summary['spend'] / campaign_summary['link_clicks']
+                else:
+                    metric_name = 'Clicks'
+                    metric_value = int(campaign_summary['clicks'])
+                    cost_per = campaign_summary['spend'] / campaign_summary['clicks'] if campaign_summary['clicks'] > 0 else 0
+
+                # Display campaign info
+                st.markdown(f"**{campaign_summary['campaign_name']}**")
+                st.caption(f"Last active: {campaign_summary['date'].strftime('%Y-%m-%d')}")
+
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("Total Spend", f"${campaign_summary['spend']:.2f}")
+                with col2:
+                    st.metric("Impressions", f"{int(campaign_summary['impressions']):,}")
+                with col3:
+                    st.metric(metric_name, f"{metric_value:,}")
+                with col4:
+                    st.metric(f"Cost per {metric_name}", f"${cost_per:.2f}")
+            else:
+                st.info("No recent ad campaign data available")
+    else:
+        st.info("No ad campaign data available")
 
     st.markdown('---')
 
     # ========== DAY PASS SECTION ==========
-    st.subheader('🎟️ Day Pass')
+    st.subheader('🎟️ Day Pass Activity')
+    st.caption("Metrics for customers who purchased day passes")
 
-    # Day pass purchases
-    last_week_day_pass = df_transactions[
+    # Day pass purchases - revenue and count
+    df_day_pass_week = df_transactions[
         (df_transactions['Date'] >= last_week_start) &
         (df_transactions['Date'] <= last_week_end) &
         (df_transactions['revenue_category'] == 'Day Pass')
-    ]['Total Amount'].sum()
+    ]
+    last_week_day_pass_revenue = df_day_pass_week['Total Amount'].sum()
+    last_week_day_pass_count = len(df_day_pass_week)
 
-    last_month_day_pass = df_transactions[
+    df_day_pass_month = df_transactions[
         (df_transactions['Date'] >= last_month_start) &
         (df_transactions['Date'] <= last_month_end) &
         (df_transactions['revenue_category'] == 'Day Pass')
-    ]['Total Amount'].sum()
+    ]
+    last_month_day_pass_revenue = df_day_pass_month['Total Amount'].sum()
+    last_month_day_pass_count = len(df_day_pass_month)
 
-    # First timers - using day pass engagement data
-    if not df_day_pass_engagement.empty and 'purchase_date' in df_day_pass_engagement.columns and 'total_passes_purchased' in df_day_pass_engagement.columns:
-        df_day_pass_engagement['purchase_date'] = pd.to_datetime(df_day_pass_engagement['purchase_date'], errors='coerce')
-        first_timers_week = len(df_day_pass_engagement[
-            (df_day_pass_engagement['purchase_date'] >= last_week_start) &
-            (df_day_pass_engagement['purchase_date'] <= last_week_end) &
-            (df_day_pass_engagement['total_passes_purchased'] == 1)
-        ])
-        first_timers_month = len(df_day_pass_engagement[
-            (df_day_pass_engagement['purchase_date'] >= last_month_start) &
-            (df_day_pass_engagement['purchase_date'] <= last_month_end) &
-            (df_day_pass_engagement['total_passes_purchased'] == 1)
-        ])
-    else:
-        first_timers_week = 0
-        first_timers_month = 0
-
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Day Pass Revenue (Last Week)", f"${last_week_day_pass:,.0f}")
-    with col2:
-        st.metric("Day Pass Revenue (Last Month)", f"${last_month_day_pass:,.0f}")
-    with col3:
-        st.metric("First Timers (Last Month)", f"{first_timers_month}")
-
-    # Day pass check-ins analysis
-    st.markdown("**Day Pass Check-ins**")
-
-    # Debug: show available columns
-    with st.expander("Debug: Available Columns"):
-        st.write("df_day_pass_engagement columns:", df_day_pass_engagement.columns.tolist() if not df_day_pass_engagement.empty else "EMPTY")
-        st.write("df_checkins columns:", df_checkins.columns.tolist() if not df_checkins.empty else "EMPTY")
-
+    # Calculate check-ins and first-time visitors
     if not df_day_pass_engagement.empty and 'customer_id' in df_day_pass_engagement.columns and 'checkin_datetime' in df_checkins.columns and 'customer_id' in df_checkins.columns:
         # Get day pass customer IDs
         day_pass_customer_ids = set(df_day_pass_engagement['customer_id'].dropna())
@@ -415,32 +597,52 @@ with tab0:
             (df_checkins['customer_id'].isin(day_pass_customer_ids))
         ]
 
-        # Count first-time vs returning (based on whether they had checkins before the period)
-        first_time_customers_month = []
-        returning_customers_month = []
+        # Count first-time visitors for WEEK
+        first_time_customers_week = []
+        for customer_id in day_pass_checkins_week['customer_id'].unique():
+            prior_checkins = df_checkins[
+                (df_checkins['customer_id'] == customer_id) &
+                (df_checkins['checkin_datetime'] < last_week_start)
+            ]
+            if len(prior_checkins) == 0:
+                first_time_customers_week.append(customer_id)
 
+        # Count first-time visitors for MONTH
+        first_time_customers_month = []
         for customer_id in day_pass_checkins_month['customer_id'].unique():
-            # Check if customer had any checkins before last month start
             prior_checkins = df_checkins[
                 (df_checkins['customer_id'] == customer_id) &
                 (df_checkins['checkin_datetime'] < last_month_start)
             ]
             if len(prior_checkins) == 0:
                 first_time_customers_month.append(customer_id)
-            else:
-                returning_customers_month.append(customer_id)
 
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("Check-ins (Last Week)", f"{len(day_pass_checkins_week):,}")
-        with col2:
-            st.metric("Check-ins (Last Month)", f"{len(day_pass_checkins_month):,}")
-        with col3:
-            st.metric("First-Time Visitors (Month)", f"{len(first_time_customers_month)}")
-        with col4:
-            st.metric("Returning Visitors (Month)", f"{len(returning_customers_month)}")
+        week_checkins = len(day_pass_checkins_week)
+        week_first_time = len(first_time_customers_week)
+        month_checkins = len(day_pass_checkins_month)
+        month_first_time = len(first_time_customers_month)
     else:
-        st.info("Day pass check-in data not available")
+        week_checkins = 0
+        week_first_time = 0
+        month_checkins = 0
+        month_first_time = 0
+
+    # Display in aligned columns
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown("**Last Week**")
+        st.metric("Day Passes Purchased", f"{last_week_day_pass_count:,}",
+                 help=f"Revenue: ${last_week_day_pass_revenue:,.0f}")
+        st.metric("Check-ins (Day Pass)", f"{week_checkins:,}")
+        st.metric("First-Time Visitors", f"{week_first_time:,}")
+
+    with col2:
+        st.markdown("**Last Month**")
+        st.metric("Day Passes Purchased", f"{last_month_day_pass_count:,}",
+                 help=f"Revenue: ${last_month_day_pass_revenue:,.0f}")
+        st.metric("Check-ins (Day Pass)", f"{month_checkins:,}")
+        st.metric("First-Time Visitors", f"{month_first_time:,}")
 
     st.markdown('---')
 
@@ -462,28 +664,11 @@ with tab0:
         last_week_checkins = 0
         last_month_checkins = 0
 
-    # Event/class fill rate
-    if not df_events.empty and 'event_date' in df_events.columns:
-        events_last_month = df_events[
-            (df_events['event_date'] >= last_month_start) &
-            (df_events['event_date'] <= last_month_end)
-        ]
-        if len(events_last_month) > 0 and 'capacity' in events_last_month.columns and 'attendees' in events_last_month.columns:
-            total_capacity = events_last_month['capacity'].sum()
-            total_attendees = events_last_month['attendees'].sum()
-            fill_rate = (total_attendees / total_capacity * 100) if total_capacity > 0 else 0
-        else:
-            fill_rate = 0
-    else:
-        fill_rate = 0
-
-    col1, col2, col3 = st.columns(3)
+    col1, col2 = st.columns(2)
     with col1:
         st.metric("Check-ins (Last Week)", f"{last_week_checkins:,}")
     with col2:
         st.metric("Check-ins (Last Month)", f"{last_month_checkins:,}")
-    with col3:
-        st.metric("Event Fill Rate (Last Month)", f"{fill_rate:.1f}%")
 
     st.markdown('---')
 
@@ -491,83 +676,31 @@ with tab0:
     st.subheader('💼 Sales')
 
     # Group event pipeline (birthday parties, etc.)
+    group_events_last_week = df_transactions[
+        (df_transactions['Date'] >= last_week_start) &
+        (df_transactions['Date'] <= last_week_end) &
+        (df_transactions['revenue_category'] == 'Event Booking')
+    ]
+    group_event_count_week = len(group_events_last_week)
+    group_event_revenue_week = group_events_last_week['Total Amount'].sum()
+
     group_events_last_month = df_transactions[
         (df_transactions['Date'] >= last_month_start) &
         (df_transactions['Date'] <= last_month_end) &
         (df_transactions['revenue_category'] == 'Event Booking')
     ]
-    group_event_count = len(group_events_last_month)
-    group_event_revenue = group_events_last_month['Total Amount'].sum()
+    group_event_count_month = len(group_events_last_month)
+    group_event_revenue_month = group_events_last_month['Total Amount'].sum()
 
-    # Team growth (youth team members)
-    if 'membership_type' in df_memberships.columns and 'status' in df_memberships.columns:
-        team_members = len(df_memberships[
-            (df_memberships['status'] == 'active') &
-            (df_memberships['membership_type'].str.contains('team', case=False, na=False))
-        ])
-    else:
-        team_members = 0
-
-    col1, col2, col3 = st.columns(3)
+    col1, col2 = st.columns(2)
     with col1:
-        st.metric("Group Events (Last Month)", f"{group_event_count}")
+        st.markdown("**Birthday Bookings**")
+        st.metric("Last Week", f"{group_event_count_week}",
+                 help=f"Revenue: ${group_event_revenue_week:,.0f}")
     with col2:
-        st.metric("Group Event Revenue", f"${group_event_revenue:,.0f}")
-    with col3:
-        st.metric("Team Members (Active)", f"{team_members}")
-
-    st.markdown('---')
-
-    # ========== MARKETING SECTION ==========
-    st.subheader('📱 Marketing')
-
-    # Facebook/Instagram ads
-    if not df_facebook_ads.empty and 'date' in df_facebook_ads.columns:
-        df_facebook_ads['date'] = pd.to_datetime(df_facebook_ads['date'], errors='coerce')
-        # Remove timezone info for comparison
-        if df_facebook_ads['date'].dt.tz is not None:
-            df_facebook_ads['date'] = df_facebook_ads['date'].dt.tz_localize(None)
-        ads_last_month = df_facebook_ads[
-            (df_facebook_ads['date'] >= last_month_start) &
-            (df_facebook_ads['date'] <= last_month_end)
-        ]
-        ad_spend = ads_last_month['spend'].sum() if 'spend' in ads_last_month.columns else 0
-        ad_impressions = ads_last_month['impressions'].sum() if 'impressions' in ads_last_month.columns else 0
-        ad_clicks = ads_last_month['clicks'].sum() if 'clicks' in ads_last_month.columns else 0
-    else:
-        ad_spend = 0
-        ad_impressions = 0
-        ad_clicks = 0
-
-    # Email/text journey metrics
-    if not df_mailchimp.empty and 'send_time' in df_mailchimp.columns:
-        df_mailchimp['send_time'] = pd.to_datetime(df_mailchimp['send_time'], errors='coerce')
-        # Remove timezone info for comparison
-        if df_mailchimp['send_time'].dt.tz is not None:
-            df_mailchimp['send_time'] = df_mailchimp['send_time'].dt.tz_localize(None)
-        campaigns_last_month = df_mailchimp[
-            (df_mailchimp['send_time'] >= last_month_start) &
-            (df_mailchimp['send_time'] <= last_month_end)
-        ]
-        emails_sent = campaigns_last_month['emails_sent'].sum() if 'emails_sent' in campaigns_last_month.columns else 0
-        open_rate = campaigns_last_month['open_rate'].mean() if 'open_rate' in campaigns_last_month.columns and len(campaigns_last_month) > 0 else 0
-    else:
-        emails_sent = 0
-        open_rate = 0
-
-    # Conversions (day pass to membership)
-    if not df_membership_conversion.empty and 'conversion_rate' in df_membership_conversion.columns:
-        conversion_rate = df_membership_conversion['conversion_rate'].iloc[-1] if len(df_membership_conversion) > 0 else 0
-    else:
-        conversion_rate = 0
-
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Ad Spend (Last Month)", f"${ad_spend:,.0f}", f"{ad_impressions:,} impressions")
-    with col2:
-        st.metric("Email Open Rate", f"{open_rate:.1f}%", f"{emails_sent:,} sent")
-    with col3:
-        st.metric("Day Pass → Member Conversion", f"{conversion_rate:.1f}%")
+        st.markdown("**Birthday Bookings**")
+        st.metric("Last Month", f"{group_event_count_month}",
+                 help=f"Revenue: ${group_event_revenue_month:,.0f}")
 
     st.markdown('---')
 

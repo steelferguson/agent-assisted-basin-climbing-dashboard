@@ -1182,13 +1182,16 @@ def upload_new_facebook_ads_data(save_local=False, days_back=90):
         raise
 
 
-def upload_new_capitan_checkins(save_local=False, days_back=90):
+def upload_new_capitan_checkins(save_local=False, days_back=7):
     """
-    Fetches Capitan check-in data for the last N days and uploads to S3.
+    Fetches Capitan check-in data for the last N days and merges with existing data in S3.
+
+    IMPORTANT: This function MERGES with existing data to preserve historical check-ins.
+    Historical data is critical for "New Customer" analysis in the dashboard.
 
     Args:
         save_local: Whether to save CSV files locally
-        days_back: Number of days of check-in data to fetch (default: 90)
+        days_back: Number of days of check-in data to fetch (default: 7 for daily updates)
     """
     print(f"\n=== Fetching Capitan Check-in Data (last {days_back} days) ===")
 
@@ -1203,40 +1206,68 @@ def upload_new_capitan_checkins(save_local=False, days_back=90):
         capitan_token=capitan_token
     )
 
-    # Fetch check-in data
+    # Fetch recent check-in data
     new_checkins_df = fetcher.fetch_and_prepare_data(days_back=days_back)
 
     if new_checkins_df.empty:
-        print("No Capitan check-in data found")
+        print("No new Capitan check-in data found")
         return
 
-    print(f"Fetched {len(new_checkins_df)} check-in records")
+    print(f"Fetched {len(new_checkins_df)} new check-in records")
 
     # Upload to S3
     uploader = upload_data.DataUploader()
 
     try:
-        # Upload to S3
+        # Download existing check-ins from S3
+        print("\nMerging with existing check-in data...")
+        try:
+            csv_content = uploader.download_from_s3(
+                config.aws_bucket_name,
+                config.s3_path_capitan_checkins
+            )
+            existing_checkins_df = uploader.convert_csv_to_df(csv_content)
+            print(f"   Found {len(existing_checkins_df):,} existing check-ins in S3")
+
+            # Combine new and existing data
+            combined_df = pd.concat([existing_checkins_df, new_checkins_df], ignore_index=True)
+
+            # Deduplicate by checkin_id (keep most recent record in case of updates)
+            if 'checkin_id' in combined_df.columns:
+                combined_df = combined_df.drop_duplicates(subset=['checkin_id'], keep='last')
+                print(f"   Combined dataset has {len(combined_df):,} unique check-ins")
+            else:
+                print("   Warning: No checkin_id column found, deduplicating by customer_id + datetime")
+                combined_df = combined_df.drop_duplicates(
+                    subset=['customer_id', 'checkin_datetime'],
+                    keep='last'
+                )
+
+        except Exception as e:
+            print(f"   No existing check-ins found (first upload?): {e}")
+            combined_df = new_checkins_df
+
+        # Upload merged data to S3
         uploader.upload_to_s3(
-            new_checkins_df,
+            combined_df,
             config.aws_bucket_name,
             config.s3_path_capitan_checkins
         )
-        print(f"✓ Uploaded to S3: {config.s3_path_capitan_checkins}")
+        print(f"✓ Uploaded {len(combined_df):,} check-ins to S3: {config.s3_path_capitan_checkins}")
 
         # Save locally if requested
         if save_local:
             local_path = "data/outputs/capitan_checkins.csv"
             os.makedirs(os.path.dirname(local_path), exist_ok=True)
-            new_checkins_df.to_csv(local_path, index=False)
+            combined_df.to_csv(local_path, index=False)
             print(f"✓ Saved locally: {local_path}")
 
-        # Monthly snapshots
+        # Monthly snapshots (save the full combined dataset)
         today = datetime.datetime.now()
         if today.day == config.snapshot_day_of_month:
             print("\nCreating monthly check-in snapshot (1st of month)...")
             uploader.upload_to_s3(
-                new_checkins_df,
+                combined_df,
                 config.aws_bucket_name,
                 config.s3_path_capitan_checkins_snapshot + f'_{today.strftime("%Y-%m-%d")}'
             )
@@ -2062,6 +2093,82 @@ def upload_new_sendgrid_data(save_local=False, days_back=7):
     except Exception as e:
         print(f"⚠️  Error fetching SendGrid data: {e}")
         print("   (Skipping SendGrid - may be authentication issue or API limit)")
+
+
+def upload_new_mailchimp_member_tags(save_local=False):
+    """
+    Fetch Mailchimp audience members with their tags and upload to S3.
+
+    This data tracks which customers are in which email journeys
+    based on their Mailchimp tags.
+
+    Args:
+        save_local: Whether to save CSV file locally
+    """
+    print(f"\n=== Fetching Mailchimp Member Tags ===")
+
+    from data_pipeline import fetch_mailchimp_member_tags
+
+    # Check if Mailchimp credentials are configured
+    if not config.mailchimp_api_key or not config.mailchimp_server_prefix:
+        print("⚠️  Mailchimp credentials not found in environment")
+        print("   Skipping Mailchimp member tags fetch")
+        return
+
+    if not config.mailchimp_audience_id:
+        print("⚠️  MAILCHIMP_AUDIENCE_ID not found in environment")
+        print("   Skipping Mailchimp member tags fetch")
+        return
+
+    try:
+        fetcher = fetch_mailchimp_member_tags.MailchimpMemberTagsFetcher(
+            audience_id=config.mailchimp_audience_id
+        )
+
+        # Fetch members with tags
+        df_members = fetcher.fetch_members_with_tags()
+
+        if df_members.empty:
+            print("No Mailchimp members found")
+            return
+
+        print(f"Fetched {len(df_members)} Mailchimp members")
+        print(f"Members with tags: {len(df_members[df_members['tags'] != ''])}")
+
+        # Show summary
+        print(f"\n📊 Summary:")
+        print(f"   Total members: {len(df_members)}")
+        print(f"   Subscribed: {len(df_members[df_members['status'] == 'subscribed'])}")
+        print(f"   Unsubscribed: {len(df_members[df_members['status'] == 'unsubscribed'])}")
+        print(f"   Members with tags: {len(df_members[df_members['tags'] != ''])}")
+
+        # Save to S3 using the fetcher's save method
+        fetcher.save_to_s3(df_members)
+
+        # Save locally if requested
+        if save_local:
+            local_path = "data/outputs/mailchimp_member_tags.csv"
+            os.makedirs(os.path.dirname(local_path), exist_ok=True)
+            df_members.to_csv(local_path, index=False)
+            print(f"✓ Saved locally: {local_path}")
+
+        # Monthly snapshots
+        today = datetime.datetime.now()
+        if today.day == config.snapshot_day_of_month:
+            print("\nCreating monthly Mailchimp member tags snapshot (1st of month)...")
+            uploader = upload_data.DataUploader()
+            uploader.upload_to_s3(
+                df_members,
+                config.aws_bucket_name,
+                'marketing/mailchimp_member_tags_snapshot_' + today.strftime("%Y-%m-%d") + '.csv'
+            )
+            print("✓ Monthly snapshot saved")
+
+        print("✓ Mailchimp member tags upload complete!")
+
+    except Exception as e:
+        print(f"⚠️  Error fetching Mailchimp member tags: {e}")
+        print("   (Skipping Mailchimp member tags - may be authentication issue or API limit)")
 
 
 if __name__ == "__main__":
