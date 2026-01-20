@@ -1751,10 +1751,15 @@ with tab2:
     # New Members & Attrition
     st.subheader('New Memberships & Attrition Over Time')
 
-    # Calculate new memberships and attrition by month - use filtered dataframe
-    df_memberships_dates = df_memberships_filtered.copy()
+    # Calculate new memberships and attrition by month - use FULL dataframe (not filtered)
+    # This ensures numbers match the Overview tab
+    df_memberships_dates = df_memberships.copy()
 
-    # Remove rows with invalid dates (dates already processed in df_memberships_filtered)
+    # Process dates
+    df_memberships_dates['start_date'] = pd.to_datetime(df_memberships_dates['start_date'], errors='coerce')
+    df_memberships_dates['end_date'] = pd.to_datetime(df_memberships_dates['end_date'], errors='coerce')
+
+    # Remove rows with invalid dates
     df_memberships_dates = df_memberships_dates[df_memberships_dates['start_date'].notna()]
 
     # Get date range
