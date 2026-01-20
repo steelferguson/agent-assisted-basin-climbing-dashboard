@@ -90,6 +90,7 @@ s3_path_customer_events = "customers/customer_events.csv"
 s3_path_customer_events_snapshot = "customers/snapshots/customer_events.csv"
 s3_path_customer_flags = "customers/customer_flags.csv"
 s3_path_customer_flags_snapshot = "customers/snapshots/customer_flags.csv"
+s3_path_day_pass_checkin_recency = "analytics/day_pass_checkin_recency.csv"  # Per-checkin recency data
 s3_path_ga4_page_views = "ga4/page_views.csv"
 s3_path_ga4_events = "ga4/events.csv"
 s3_path_ga4_user_activity = "ga4/user_activity.csv"
@@ -102,6 +103,8 @@ s3_path_ga4_product_views_snapshot = "ga4/snapshots/product_views.csv"
 # Shopify paths
 s3_path_shopify_orders = "shopify/orders.csv"
 s3_path_shopify_orders_snapshot = "shopify/snapshots/orders.csv"
+s3_path_shopify_synced_flags = "shopify/synced_flags.csv"  # Tracks which flags have been synced to Shopify
+s3_path_experiment_entries = "experiments/customer_experiment_entries.csv"  # AB test group assignments
 
 # Twilio paths
 s3_path_twilio_messages = "twilio/messages.csv"

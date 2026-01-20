@@ -199,6 +199,15 @@ def run_daily_pipeline():
     except Exception as e:
         print(f"❌ Error building day pass engagement table: {e}\n")
 
+    # 9b2. Build day pass check-in recency table (pre-computed for dashboard performance)
+    print("11b2. Building day pass check-in recency table...")
+    try:
+        from data_pipeline.build_day_pass_engagement_table import upload_day_pass_checkin_recency_table
+        upload_day_pass_checkin_recency_table(save_local=False)
+        print("✅ Day pass check-in recency table updated\n")
+    except Exception as e:
+        print(f"❌ Error building day pass check-in recency table: {e}\n")
+
     # 9c. Build membership conversion metrics
     print("11c. Building membership conversion metrics...")
     try:

@@ -37,6 +37,7 @@ import time
 from io import StringIO
 from typing import Dict, List, Optional
 from datetime import datetime
+from data_pipeline import config
 
 
 class ShopifyFlagSyncer:
@@ -135,6 +136,104 @@ class ShopifyFlagSyncer:
         except Exception as e:
             print(f"⚠️  Error loading customers: {e}")
             return pd.DataFrame()
+
+    def load_synced_flags_tracking(self) -> pd.DataFrame:
+        """
+        Load the tracking file that records which flags have been synced to Shopify.
+
+        This enables efficient cleanup - we only need to check customers in this file,
+        not all 11k+ customers in the database.
+
+        Returns:
+            DataFrame with columns: capitan_customer_id, shopify_customer_id, tag_name,
+                                    flagged_at, synced_at
+        """
+        try:
+            obj = self.s3_client.get_object(
+                Bucket=self.bucket_name,
+                Key=config.s3_path_shopify_synced_flags
+            )
+            df = pd.read_csv(StringIO(obj['Body'].read().decode('utf-8')))
+            print(f"✅ Loaded {len(df)} synced flag records from tracking file")
+            return df
+        except self.s3_client.exceptions.NoSuchKey:
+            print("ℹ️  No synced flags tracking file found (first sync)")
+            return pd.DataFrame(columns=[
+                'capitan_customer_id', 'shopify_customer_id', 'tag_name',
+                'flagged_at', 'synced_at'
+            ])
+        except Exception as e:
+            print(f"⚠️  Error loading synced flags tracking: {e}")
+            return pd.DataFrame(columns=[
+                'capitan_customer_id', 'shopify_customer_id', 'tag_name',
+                'flagged_at', 'synced_at'
+            ])
+
+    def save_synced_flags_tracking(self, df: pd.DataFrame):
+        """
+        Save the synced flags tracking file to S3.
+
+        Args:
+            df: DataFrame with tracking records
+        """
+        try:
+            csv_buffer = StringIO()
+            df.to_csv(csv_buffer, index=False)
+            self.s3_client.put_object(
+                Bucket=self.bucket_name,
+                Key=config.s3_path_shopify_synced_flags,
+                Body=csv_buffer.getvalue()
+            )
+            print(f"✅ Saved {len(df)} synced flag records to tracking file")
+        except Exception as e:
+            print(f"⚠️  Error saving synced flags tracking: {e}")
+
+    def track_synced_flag(
+        self,
+        tracking_df: pd.DataFrame,
+        capitan_customer_id: str,
+        shopify_customer_id: str,
+        tag_name: str,
+        flagged_at: str
+    ) -> pd.DataFrame:
+        """
+        Add or update a record in the tracking DataFrame.
+
+        Args:
+            tracking_df: Current tracking DataFrame
+            capitan_customer_id: Capitan customer ID
+            shopify_customer_id: Shopify customer ID
+            tag_name: Tag that was added
+            flagged_at: When the flag was originally created
+
+        Returns:
+            Updated tracking DataFrame
+        """
+        now = datetime.now().isoformat()
+
+        # Check if this customer+tag combo already exists
+        mask = (
+            (tracking_df['capitan_customer_id'].astype(str) == str(capitan_customer_id)) &
+            (tracking_df['tag_name'] == tag_name)
+        )
+
+        if mask.any():
+            # Update existing record
+            tracking_df.loc[mask, 'shopify_customer_id'] = shopify_customer_id
+            tracking_df.loc[mask, 'flagged_at'] = flagged_at
+            tracking_df.loc[mask, 'synced_at'] = now
+        else:
+            # Add new record
+            new_record = pd.DataFrame([{
+                'capitan_customer_id': str(capitan_customer_id),
+                'shopify_customer_id': shopify_customer_id,
+                'tag_name': tag_name,
+                'flagged_at': flagged_at,
+                'synced_at': now
+            }])
+            tracking_df = pd.concat([tracking_df, new_record], ignore_index=True)
+
+        return tracking_df
 
     def search_shopify_customer(self, email: Optional[str] = None, phone: Optional[str] = None) -> Optional[str]:
         """
@@ -446,6 +545,8 @@ class ShopifyFlagSyncer:
         """
         Main sync function: Read flags from S3 and update Shopify customer tags.
 
+        Now includes tracking of synced flags to enable efficient cleanup.
+
         Args:
             dry_run: If True, only print what would be done without making changes
         """
@@ -459,9 +560,16 @@ class ShopifyFlagSyncer:
         # Load data
         flags_df = self.load_flags_from_s3()
         customers_df = self.load_customers_from_s3()
+        tracking_df = self.load_synced_flags_tracking()
 
         if len(flags_df) == 0:
             print("\nℹ️  No flags to sync")
+            # Still run cleanup in case there are stale tags from previous syncs
+            if not tracking_df.empty:
+                print(f"\n🧹 Cleaning up stale tags...")
+                tracking_df = self.cleanup_stale_tags(flags_df, tracking_df, dry_run=dry_run)
+                if not dry_run:
+                    self.save_synced_flags_tracking(tracking_df)
             return
 
         # Ensure customer_id is the same type in both DataFrames (convert to string)
@@ -498,6 +606,7 @@ class ShopifyFlagSyncer:
                 phone = row.get('phone')
                 first_name = row.get('first_name', 'Unknown')
                 last_name = row.get('last_name', 'Unknown')
+                flagged_at = row.get('flagged_at', '')
 
                 # Search for customer in Shopify
                 shopify_id = self.search_shopify_customer(email=email, phone=phone)
@@ -538,6 +647,14 @@ class ShopifyFlagSyncer:
                     if success:
                         synced += 1
                         print(f"   ✅ Added tag '{tag_name}' to customer {capitan_id} (Shopify ID: {shopify_id})")
+                        # Track the sync
+                        tracking_df = self.track_synced_flag(
+                            tracking_df=tracking_df,
+                            capitan_customer_id=capitan_id,
+                            shopify_customer_id=shopify_id,
+                            tag_name=tag_name,
+                            flagged_at=str(flagged_at) if pd.notna(flagged_at) else ''
+                        )
                     else:
                         errors += 1
                 else:
@@ -551,86 +668,94 @@ class ShopifyFlagSyncer:
             print(f"      Errors: {errors}")
 
         # Clean up stale tags (tags that exist in Shopify but not in current flags)
-        # Pass the FULL flags DataFrame, not just flags_with_contact
         print(f"\n🧹 Cleaning up stale tags...")
-        self.cleanup_stale_tags(flags_df, dry_run=dry_run)
+        tracking_df = self.cleanup_stale_tags(flags_df, tracking_df, dry_run=dry_run)
+
+        # Save the tracking file
+        if not dry_run:
+            self.save_synced_flags_tracking(tracking_df)
 
         print("\n" + "="*80)
         print("✅ SYNC COMPLETE")
         print("="*80)
 
-    def cleanup_stale_tags(self, active_flags_df: pd.DataFrame, dry_run: bool = False):
+    def cleanup_stale_tags(
+        self,
+        active_flags_df: pd.DataFrame,
+        tracking_df: pd.DataFrame,
+        dry_run: bool = False
+    ) -> pd.DataFrame:
         """
         Remove flag tags from Shopify customers who no longer have active flags.
 
-        OPTIMIZATION: Only checks customers who are already in Shopify (previously synced),
-        not all 11k+ customers in the database.
+        Uses the tracking file for efficient cleanup - only checks customers who
+        have previously had flags synced to Shopify, not all 11k+ customers.
 
         Args:
             active_flags_df: DataFrame of currently active flags
+            tracking_df: DataFrame of previously synced flags (from tracking file)
             dry_run: If True, only print what would be done
+
+        Returns:
+            Updated tracking DataFrame with stale records removed
         """
-        # Get list of flag tag prefixes to look for
-        # Note: Tags are flag names with underscores replaced by hyphens (NO "flag-" prefix)
-        # Includes both standard flags and _child variants (for customers using parent contact)
-        flag_tag_prefixes = [
-            'ready-for-membership',
-            'ready-for-membership-child',
-            'first-time-day-pass-2wk-offer',
-            'first-time-day-pass-2wk-offer-child',
-            'second-visit-offer-eligible',
-            'second-visit-offer-eligible-child',
-            'second-visit-2wk-offer',
-            'second-visit-2wk-offer-child',
-            '2-week-pass-purchase',
-            '2-week-pass-purchase-child'
-        ]
+        if tracking_df.empty:
+            print("   ℹ️  No previously synced flags to check for cleanup")
+            return tracking_df
 
-        # Create mapping of customer_id -> set of their current flag types
-        active_flags_by_customer = {}
+        # Build a set of active (customer_id, tag_name) combinations for fast lookup
+        # Convert flag_name to tag format (underscores to hyphens)
+        active_flag_set = set()
         for _, flag in active_flags_df.iterrows():
-            customer_id = flag['customer_id']
-            flag_name = flag['flag_name']  # Fixed: was 'flag_type' but column is renamed to 'flag_name'
-            if customer_id not in active_flags_by_customer:
-                active_flags_by_customer[customer_id] = set()
-            active_flags_by_customer[customer_id].add(flag_name)
+            customer_id = str(flag['customer_id'])
+            tag_name = flag['flag_name'].replace('_', '-')
+            active_flag_set.add((customer_id, tag_name))
 
-        # Load customer data
-        customers_df = self.load_customers_from_s3()
+        print(f"   📊 Checking {len(tracking_df)} tracked syncs against {len(active_flag_set)} active flags")
 
         removed_count = 0
         checked_count = 0
+        indices_to_remove = []
 
-        # OPTIMIZATION: Only check customers who previously had flags synced to Shopify
-        # We can identify these by loading from a cache or by checking only flagged customers
-        # For now, we'll check only customers who either:
-        # 1. Currently have active flags, OR
-        # 2. Previously had flags (would need to track this separately)
+        for idx, row in tracking_df.iterrows():
+            capitan_id = str(row['capitan_customer_id'])
+            shopify_id = str(row['shopify_customer_id'])
+            tag_name = row['tag_name']
+            checked_count += 1
 
-        # Since we don't have historical flag data easily accessible, we'll use a simpler approach:
-        # Only check customers who currently have flags OR were flagged in the past 30 days
-        # This is much faster than checking all 11k+ customers
+            # Check if this flag is still active
+            if (capitan_id, tag_name) in active_flag_set:
+                continue  # Still active, skip
 
-        # For now: SKIP CLEANUP ENTIRELY to avoid the performance issue
-        # TODO: Implement efficient cleanup by tracking previously-flagged customers
-        print(f"\n   ⚠️  Cleanup temporarily disabled for performance (would check 11k+ customers)")
-        print(f"   TODO: Implement efficient cleanup by tracking Shopify-synced customers")
-        return
+            # Flag is no longer active - remove tag from Shopify
+            print(f"   🗑️  Removing stale tag '{tag_name}' from customer {capitan_id} (Shopify ID: {shopify_id})")
 
-        # OLD SLOW CODE (checking all customers):
-        # for _, customer in customers_df.iterrows():
-        #     customer_id = customer['customer_id']
-        #     email = customer.get('email')
-        #     phone = customer.get('phone')
-        #
-        #     # Skip if customer has active flags
-        #     if customer_id in active_customer_ids:
-        #         continue
-        #     ...
+            if not dry_run:
+                success = self.remove_customer_tag(
+                    shopify_customer_id=shopify_id,
+                    tag=tag_name
+                )
+                if success:
+                    removed_count += 1
+                    indices_to_remove.append(idx)
+                    print(f"      ✅ Removed tag '{tag_name}'")
+                else:
+                    print(f"      ⚠️  Failed to remove tag '{tag_name}'")
+            else:
+                removed_count += 1
+                indices_to_remove.append(idx)
+                print(f"      [DRY RUN] Would remove tag '{tag_name}'")
+
+        # Remove stale records from tracking DataFrame
+        if indices_to_remove:
+            tracking_df = tracking_df.drop(indices_to_remove).reset_index(drop=True)
 
         print(f"\n   Cleanup summary:")
-        print(f"      Customers checked: {checked_count}")
+        print(f"      Tracked syncs checked: {checked_count}")
         print(f"      Stale tags removed: {removed_count}")
+        print(f"      Remaining tracked syncs: {len(tracking_df)}")
+
+        return tracking_df
 
 
 def main():
