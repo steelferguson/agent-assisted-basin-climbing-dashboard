@@ -79,6 +79,8 @@ class CustomerFlagsEngine:
                     df_family = pd.DataFrame()
 
             # Build initial email and phone lookup dicts
+            # IMPORTANT: Convert customer_id to string to match events DataFrame type
+            df_customers['customer_id'] = df_customers['customer_id'].astype(str)
             self.customer_emails = df_customers.set_index('customer_id')['email'].to_dict()
             self.customer_phones = df_customers.set_index('customer_id')['phone'].to_dict()
             self.is_using_parent_contact = {cid: False for cid in df_customers['customer_id']}
@@ -89,6 +91,10 @@ class CustomerFlagsEngine:
             # Enrich with parent contact info for customers without their own
             parent_contact_added = 0
             if not df_family.empty:
+                # Convert family relationship IDs to string to match dictionary keys
+                df_family['child_customer_id'] = df_family['child_customer_id'].astype(str)
+                df_family['parent_customer_id'] = df_family['parent_customer_id'].astype(str)
+
                 for _, row in df_family.iterrows():
                     child_id = row['child_customer_id']
                     parent_id = row['parent_customer_id']
