@@ -519,25 +519,30 @@ with tab0:
                 help=f"Truly attrited (excludes switches). Total ended: {total_ended_memberships_month}"
             )
 
-        # Expander showing who attrited this week (uses pre-calculated attrited_week_df_calc)
-        if total_ended_memberships_week > 0:
-            with st.expander(f"View {total_ended_memberships_week} Ended Memberships (Week) - {attrited_memberships_week} Truly Attrited"):
+        # Expander showing truly attrited members (excludes switches and those with other active)
+        if attrited_memberships_week > 0:
+            with st.expander(f"View {attrited_memberships_week} Attrited Memberships (Week)"):
+                # Filter to only truly attrited (no active, didn't switch)
+                truly_attrited_df = attrited_week_df_calc[
+                    (~attrited_week_df_calc['has_active']) & (~attrited_week_df_calc['switched'])
+                ].copy()
+
                 # Join with members table to get names (deduplicate members first)
                 if not df_members.empty:
                     df_members_dedup = df_members[['customer_id', 'member_first_name', 'member_last_name']].drop_duplicates(subset=['customer_id'])
-                    attrited_week_display = attrited_week_df_calc.merge(
+                    attrited_week_display = truly_attrited_df.merge(
                         df_members_dedup,
                         left_on='owner_id',
                         right_on='customer_id',
                         how='left'
                     )
                 else:
-                    attrited_week_display = attrited_week_df_calc.copy()
+                    attrited_week_display = truly_attrited_df.copy()
                     attrited_week_display['member_first_name'] = ''
                     attrited_week_display['member_last_name'] = ''
 
-                # Prepare display columns
-                display_cols = ['owner_id', 'member_first_name', 'member_last_name', 'name', 'end_date', 'has_active', 'switched']
+                # Prepare display columns (no longer need has_active/switched since all are truly attrited)
+                display_cols = ['owner_id', 'member_first_name', 'member_last_name', 'name', 'start_date', 'end_date']
                 available_cols = [c for c in display_cols if c in attrited_week_display.columns]
                 attrited_week_show = attrited_week_display[available_cols].copy()
 
@@ -547,9 +552,8 @@ with tab0:
                     'member_first_name': 'First Name',
                     'member_last_name': 'Last Name',
                     'name': 'Membership Type',
-                    'end_date': 'End Date',
-                    'has_active': 'Has Other Active',
-                    'switched': 'Switched'
+                    'start_date': 'Start Date',
+                    'end_date': 'End Date'
                 }
                 attrited_week_show.rename(columns=col_rename, inplace=True)
 
@@ -559,7 +563,9 @@ with tab0:
                         lambda x: f"https://app.hellocapitan.com/customers/{int(x)}/check-ins" if pd.notna(x) else ''
                     )
 
-                # Format end date
+                # Format dates
+                if 'Start Date' in attrited_week_show.columns:
+                    attrited_week_show['Start Date'] = pd.to_datetime(attrited_week_show['Start Date']).dt.strftime('%Y-%m-%d')
                 if 'End Date' in attrited_week_show.columns:
                     attrited_week_show['End Date'] = pd.to_datetime(attrited_week_show['End Date']).dt.strftime('%Y-%m-%d')
 
@@ -572,16 +578,14 @@ with tab0:
                     use_container_width=True,
                     hide_index=True,
                     column_config={
-                        'Capitan Link': st.column_config.LinkColumn('Capitan Link'),
-                        'Has Other Active': st.column_config.CheckboxColumn('Has Other Active'),
-                        'Switched': st.column_config.CheckboxColumn('Switched')
+                        'Capitan Link': st.column_config.LinkColumn('Capitan Link')
                     }
                 )
 
-                # Show breakdown
-                switched_count = attrited_week_show['Switched'].sum() if 'Switched' in attrited_week_show.columns else 0
-                has_other_count = total_ended_memberships_week - attrited_memberships_week - switched_count
-                st.caption(f"📊 {attrited_memberships_week} truly attrited | {switched_count} switched memberships | {has_other_count} have other active")
+                # Show context
+                switched_count = attrited_week_df_calc['switched'].sum() if 'switched' in attrited_week_df_calc.columns else 0
+                has_other_count = attrited_week_df_calc['has_active'].sum() if 'has_active' in attrited_week_df_calc.columns else 0
+                st.caption(f"Note: {total_ended_memberships_week} memberships ended total, but {switched_count} switched to new memberships and {has_other_count} have other active memberships")
 
         # Active counts
         col1, col2 = st.columns(2)
