@@ -346,8 +346,38 @@ with tab0:
             (df_memberships_calc['end_date'] <= last_week_end)
         ])
 
-        net_member_change_week = new_members_last_week - attrited_members_week
-        net_membership_change_week = new_memberships_last_week - attrited_memberships_week
+        # Calculate ACTUAL net change by comparing active counts at start vs end of period
+        # This gives the true change in active membership, not just new minus attrited
+
+        # Week: Active members at start vs end
+        active_members_week_start = df_memberships_calc[
+            (df_memberships_calc['start_date'] <= last_week_start) &
+            ((df_memberships_calc['end_date'].isna()) | (df_memberships_calc['end_date'] >= last_week_start)) &
+            (df_memberships_calc['status'].isin(['ACT', 'FRZ']))
+        ]['owner_id'].nunique() if 'owner_id' in df_memberships_calc.columns else 0
+
+        active_members_week_end = df_memberships_calc[
+            (df_memberships_calc['start_date'] <= last_week_end) &
+            ((df_memberships_calc['end_date'].isna()) | (df_memberships_calc['end_date'] >= last_week_end)) &
+            (df_memberships_calc['status'].isin(['ACT', 'FRZ']))
+        ]['owner_id'].nunique() if 'owner_id' in df_memberships_calc.columns else 0
+
+        net_member_change_week = active_members_week_end - active_members_week_start
+
+        # Week: Active memberships at start vs end
+        active_memberships_week_start = len(df_memberships_calc[
+            (df_memberships_calc['start_date'] <= last_week_start) &
+            ((df_memberships_calc['end_date'].isna()) | (df_memberships_calc['end_date'] >= last_week_start)) &
+            (df_memberships_calc['status'].isin(['ACT', 'FRZ']))
+        ])
+
+        active_memberships_week_end = len(df_memberships_calc[
+            (df_memberships_calc['start_date'] <= last_week_end) &
+            ((df_memberships_calc['end_date'].isna()) | (df_memberships_calc['end_date'] >= last_week_end)) &
+            (df_memberships_calc['status'].isin(['ACT', 'FRZ']))
+        ])
+
+        net_membership_change_week = active_memberships_week_end - active_memberships_week_start
 
         # LAST MONTH METRICS
         # MEMBERS (unique people)
@@ -376,8 +406,35 @@ with tab0:
             (df_memberships_calc['end_date'] <= last_month_end)
         ])
 
-        net_member_change_month = new_members_last_month - attrited_members_month
-        net_membership_change_month = new_memberships_last_month - attrited_memberships_month
+        # Month: Active members at start vs end
+        active_members_month_start = df_memberships_calc[
+            (df_memberships_calc['start_date'] <= last_month_start) &
+            ((df_memberships_calc['end_date'].isna()) | (df_memberships_calc['end_date'] >= last_month_start)) &
+            (df_memberships_calc['status'].isin(['ACT', 'FRZ']))
+        ]['owner_id'].nunique() if 'owner_id' in df_memberships_calc.columns else 0
+
+        active_members_month_end = df_memberships_calc[
+            (df_memberships_calc['start_date'] <= last_month_end) &
+            ((df_memberships_calc['end_date'].isna()) | (df_memberships_calc['end_date'] >= last_month_end)) &
+            (df_memberships_calc['status'].isin(['ACT', 'FRZ']))
+        ]['owner_id'].nunique() if 'owner_id' in df_memberships_calc.columns else 0
+
+        net_member_change_month = active_members_month_end - active_members_month_start
+
+        # Month: Active memberships at start vs end
+        active_memberships_month_start = len(df_memberships_calc[
+            (df_memberships_calc['start_date'] <= last_month_start) &
+            ((df_memberships_calc['end_date'].isna()) | (df_memberships_calc['end_date'] >= last_month_start)) &
+            (df_memberships_calc['status'].isin(['ACT', 'FRZ']))
+        ])
+
+        active_memberships_month_end = len(df_memberships_calc[
+            (df_memberships_calc['start_date'] <= last_month_end) &
+            ((df_memberships_calc['end_date'].isna()) | (df_memberships_calc['end_date'] >= last_month_end)) &
+            (df_memberships_calc['status'].isin(['ACT', 'FRZ']))
+        ])
+
+        net_membership_change_month = active_memberships_month_end - active_memberships_month_start
 
         # Display metrics - MEMBERS (unique people)
         st.markdown("**Members (Unique People)**")
