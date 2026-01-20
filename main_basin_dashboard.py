@@ -140,6 +140,15 @@ def convert_shopify_to_transactions(df_shopify: pd.DataFrame) -> pd.DataFrame:
     if df_shopify.empty:
         return pd.DataFrame()
 
+    # Map Shopify categories to dashboard revenue categories
+    # Shopify uses "Birthday Party" but dashboard uses "Event Booking"
+    category_map = {
+        'Day Pass': 'Day Pass',
+        'Birthday Party': 'Event Booking',
+        'Other': 'Other'
+    }
+    mapped_category = df_shopify['category'].map(category_map).fillna('Other')
+
     # Create transactions dataframe from Shopify orders
     shopify_transactions = pd.DataFrame({
         'transaction_id': df_shopify['line_item_id'].astype(str),
@@ -151,7 +160,7 @@ def convert_shopify_to_transactions(df_shopify: pd.DataFrame) -> pd.DataFrame:
         'Name': df_shopify['customer_first_name'].fillna('') + ' ' + df_shopify['customer_last_name'].fillna(''),
         'Date': df_shopify['transaction_date'],
         'payment_intent_status': 'succeeded',  # Shopify orders are completed
-        'revenue_category': df_shopify['category'],  # Already categorized: Day Pass, Birthday Party, Other
+        'revenue_category': mapped_category,  # Mapped to dashboard categories
         'membership_size': None,
         'membership_freq': None,
         'is_founder': False,
