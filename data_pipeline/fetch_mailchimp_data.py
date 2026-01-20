@@ -697,6 +697,104 @@ THEMES: [comma-separated themes]"""
 
         return growth_df
 
+    def fetch_list_members(self, list_id: str) -> pd.DataFrame:
+        """
+        Fetch all members/subscribers from a Mailchimp list.
+
+        Returns subscriber data including:
+        - email_address
+        - status (subscribed, unsubscribed, cleaned, pending, transactional)
+        - email_type (html or text)
+        - timestamp_signup
+        - timestamp_opt_in
+        - source (how they joined)
+
+        Args:
+            list_id: Mailchimp list/audience ID
+
+        Returns:
+            DataFrame with subscriber data
+        """
+        print("\n=== Fetching Mailchimp List Members ===")
+
+        all_members = []
+        offset = 0
+        count = 1000  # Max per request
+
+        while True:
+            try:
+                response = self.client.lists.get_list_members_info(
+                    list_id,
+                    count=count,
+                    offset=offset,
+                    fields=[
+                        'members.id',
+                        'members.email_address',
+                        'members.status',
+                        'members.email_type',
+                        'members.timestamp_signup',
+                        'members.timestamp_opt',
+                        'members.source',
+                        'members.tags',
+                        'total_items'
+                    ]
+                )
+
+                members = response.get('members', [])
+                total = response.get('total_items', 0)
+
+                if not members:
+                    break
+
+                all_members.extend(members)
+                print(f"  Fetched {len(all_members)} / {total} members...")
+
+                if len(all_members) >= total:
+                    break
+
+                offset += count
+
+            except ApiClientError as error:
+                print(f"Error fetching list members: {error.text}")
+                break
+
+        if not all_members:
+            print("No members found")
+            return pd.DataFrame()
+
+        # Process members into DataFrame
+        members_data = []
+        for member in all_members:
+            # Extract tag names
+            tags = member.get('tags', [])
+            tag_names = [t.get('name', '') for t in tags] if tags else []
+
+            members_data.append({
+                'member_id': member.get('id', ''),
+                'email_address': member.get('email_address', '').lower().strip(),
+                'status': member.get('status', ''),  # subscribed, unsubscribed, cleaned, pending
+                'email_type': member.get('email_type', ''),
+                'timestamp_signup': member.get('timestamp_signup', ''),
+                'timestamp_opt_in': member.get('timestamp_opt', ''),
+                'source': member.get('source', ''),
+                'tags': '|'.join(tag_names) if tag_names else ''
+            })
+
+        df = pd.DataFrame(members_data)
+
+        # Convert timestamps
+        for col in ['timestamp_signup', 'timestamp_opt_in']:
+            if col in df.columns:
+                df[col] = pd.to_datetime(df[col], errors='coerce')
+
+        # Summary stats
+        print(f"\n✅ Fetched {len(df)} list members")
+        print(f"\nStatus breakdown:")
+        for status, count in df['status'].value_counts().items():
+            print(f"   {status}: {count}")
+
+        return df
+
     def fetch_recipient_activity(self, days_back: int = 30) -> pd.DataFrame:
         """
         Fetch recipient-level email activity for all recent campaigns.

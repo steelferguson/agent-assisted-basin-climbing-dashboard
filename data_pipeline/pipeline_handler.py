@@ -1610,6 +1610,29 @@ def upload_new_mailchimp_data(save_local=False, enable_content_analysis=True, da
         print("No audience ID configured, skipping audience growth")
 
     # ========================================
+    # 5. SUBSCRIBERS (Email Opt-in Status)
+    # ========================================
+    print("\n--- Processing Subscribers ---")
+
+    if mailchimp_audience_id:
+        subscribers_df = fetcher.fetch_list_members(mailchimp_audience_id)
+
+        if not subscribers_df.empty:
+            uploader.upload_to_s3(
+                subscribers_df,
+                config.aws_bucket_name,
+                config.s3_path_mailchimp_subscribers
+            )
+            print(f"✓ Uploaded {len(subscribers_df)} subscribers to S3")
+
+            if save_local:
+                subscribers_df.to_csv("data/outputs/mailchimp_subscribers.csv", index=False)
+        else:
+            print("No subscriber data found")
+    else:
+        print("No audience ID configured, skipping subscribers")
+
+    # ========================================
     # MONTHLY SNAPSHOTS
     # ========================================
     today = datetime.datetime.now()
@@ -1637,10 +1660,17 @@ def upload_new_mailchimp_data(save_local=False, enable_content_analysis=True, da
                 config.s3_path_mailchimp_landing_pages_snapshot.replace('.csv', f'_{today.strftime("%Y-%m-%d")}.csv')
             )
 
+        if not subscribers_df.empty:
+            uploader.upload_to_s3(
+                subscribers_df,
+                config.aws_bucket_name,
+                config.s3_path_mailchimp_subscribers_snapshot.replace('.csv', f'_{today.strftime("%Y-%m-%d")}.csv')
+            )
+
         print("✓ Monthly snapshots saved")
 
     print(f"\n=== Mailchimp Data Upload Complete ===")
-    print(f"Campaigns: {len(combined_campaigns_df)} | Automations: {len(automations_df)} | Landing Pages: {len(landing_pages_df)}")
+    print(f"Campaigns: {len(combined_campaigns_df)} | Automations: {len(automations_df)} | Landing Pages: {len(landing_pages_df)} | Subscribers: {len(subscribers_df) if 'subscribers_df' in dir() else 0}")
 
 
 def upload_new_capitan_associations_events(save_local=False, events_days_back=None, fetch_activity_log=False):

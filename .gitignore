@@ -202,3 +202,14 @@ INSTAGRAM_CREDENTIALS.md
 .streamlit/secrets.toml
 STREAMLIT_CLOUD_ENV_VARS.md
 STREAMLIT_CLOUD_ENV_VARS.md
+
+# Research and analysis files (not for production)
+project-not-git/
+**/project-not-git/
+
+# Email and log files
+email_send_log.txt
+*.log
+
+*.env.bak
+.env.bak
