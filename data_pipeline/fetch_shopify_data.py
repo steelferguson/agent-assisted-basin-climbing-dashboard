@@ -24,6 +24,7 @@ from datetime import datetime, timedelta
 import boto3
 from io import StringIO
 from typing import Optional
+import re
 
 
 class ShopifyDataFetcher:
@@ -202,6 +203,12 @@ class ShopifyDataFetcher:
             # Add transaction category (Basin-specific)
             df["category"] = df["product_title"].apply(self._categorize_product)
 
+            # Add actual day pass count (pack_size * quantity for multi-packs)
+            df["Day Pass Count"] = df.apply(
+                lambda row: self._get_day_pass_count(row["product_title"], row["quantity"]),
+                axis=1
+            )
+
             # Add date fields for grouping
             df["transaction_date"] = df["created_at"].dt.date
             df["year_month"] = df["created_at"].dt.to_period("M").astype(str)
@@ -232,6 +239,40 @@ class ShopifyDataFetcher:
 
         # Default
         return "Other"
+
+    def _get_day_pass_count(self, product_title: str, quantity: int) -> int:
+        """
+        Calculate actual day pass count from product title and quantity.
+
+        For multi-packs, we need to multiply the pack size by the quantity ordered.
+        For example: "5-Pack of Day Passes" with quantity=2 = 10 day passes
+
+        Args:
+            product_title: The product title (e.g., "5-Pack of Day Passes")
+            quantity: The quantity of products ordered
+
+        Returns:
+            Actual number of day passes (pack_size * quantity)
+        """
+        if not product_title or pd.isna(product_title):
+            return quantity
+
+        title_lower = product_title.lower()
+
+        # Check for X-Pack pattern (2-Pack, 3-Pack, 5-Pack, etc.)
+        match = re.search(r'(\d+)-pack', title_lower)
+        if match:
+            pack_size = int(match.group(1))
+            return pack_size * quantity
+
+        # Check for X-Punch pattern (2-Punch Pass, etc.)
+        match = re.search(r'(\d+)-punch', title_lower)
+        if match:
+            pack_size = int(match.group(1))
+            return pack_size * quantity
+
+        # Single day pass or no pack size specified - treat as 1 pass per quantity
+        return quantity
 
     def load_existing_orders(self) -> pd.DataFrame:
         """
@@ -314,7 +355,11 @@ class ShopifyDataFetcher:
             category_revenue = all_orders.groupby("category")["total_price"].sum()
             for cat, revenue in category_revenue.items():
                 count = len(all_orders[all_orders["category"] == cat])
-                print(f"     {cat}: {count} items, ${revenue:,.2f}")
+                if cat == "Day Pass" and "Day Pass Count" in all_orders.columns:
+                    total_passes = all_orders[all_orders["category"] == cat]["Day Pass Count"].sum()
+                    print(f"     {cat}: {count} items, {total_passes} passes, ${revenue:,.2f}")
+                else:
+                    print(f"     {cat}: {count} items, ${revenue:,.2f}")
 
         return all_orders
 
