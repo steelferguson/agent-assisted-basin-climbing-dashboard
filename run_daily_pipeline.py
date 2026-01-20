@@ -266,6 +266,15 @@ def run_daily_pipeline():
     except Exception as e:
         print(f"❌ Error syncing Twilio opt-ins: {e}\n")
 
+    # 11b. Build unified contact preferences (email + SMS opt-in from all sources)
+    print("13b. Building contact preferences (Capitan + Mailchimp + Twilio)...")
+    try:
+        from data_pipeline.build_contact_preferences import build_contact_preferences
+        preferences, events = build_contact_preferences(save_to_s3=True)
+        print(f"✅ Contact preferences updated: {len(preferences)} records\n")
+    except Exception as e:
+        print(f"❌ Error building contact preferences: {e}\n")
+
     # 12. Fetch SendGrid email activity
     print("14. Fetching SendGrid email activity (last 7 days)...")
     try:

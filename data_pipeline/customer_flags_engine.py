@@ -35,6 +35,10 @@ class CustomerFlagsEngine:
         """
         Load customer emails and phones from S3 for AB group assignment.
 
+        Loads from TWO sources to handle both ID types in the system:
+        1. customers_master.csv - has UUID-based customer_ids (from customer_events.csv)
+        2. capitan/customers.csv - has Capitan numeric IDs (from direct checkin loading)
+
         For customers without their own contact info, looks up parent contact
         from the family relationship graph.
         """
@@ -50,12 +54,21 @@ class CustomerFlagsEngine:
                     aws_secret_access_key=aws_secret_access_key
                 )
 
-                # Load customers
+                # Load customers_master (has UUID customer_ids that match customer_events.csv)
                 obj = s3_client.get_object(
+                    Bucket='basin-climbing-data-prod',
+                    Key='customers/customers_master.csv'
+                )
+                df_customers_master = pd.read_csv(StringIO(obj['Body'].read().decode('utf-8')))
+                print(f"   Loaded {len(df_customers_master)} customers from customers_master.csv (UUIDs)")
+
+                # Also load capitan/customers.csv (has Capitan numeric IDs for direct checkin events)
+                obj_capitan = s3_client.get_object(
                     Bucket='basin-climbing-data-prod',
                     Key='capitan/customers.csv'
                 )
-                df_customers = pd.read_csv(StringIO(obj['Body'].read().decode('utf-8')))
+                df_customers_capitan = pd.read_csv(StringIO(obj_capitan['Body'].read().decode('utf-8')))
+                print(f"   Loaded {len(df_customers_capitan)} customers from capitan/customers.csv (Capitan IDs)")
 
                 # Load family relationships graph
                 try:
@@ -70,7 +83,8 @@ class CustomerFlagsEngine:
                     df_family = pd.DataFrame()
             else:
                 # Fall back to local files
-                df_customers = pd.read_csv('data/outputs/capitan_customers.csv')
+                df_customers_master = pd.read_csv('data/outputs/customers_master.csv')
+                df_customers_capitan = pd.read_csv('data/outputs/capitan_customers.csv')
                 try:
                     df_family = pd.read_csv('data/outputs/family_relationships.csv')
                     print(f"   Loaded {len(df_family)} family relationships from local file")
@@ -78,12 +92,29 @@ class CustomerFlagsEngine:
                     print(f"   ⚠️  No family relationships file found locally")
                     df_family = pd.DataFrame()
 
-            # Build initial email and phone lookup dicts
-            # IMPORTANT: Convert customer_id to string to match events DataFrame type
-            df_customers['customer_id'] = df_customers['customer_id'].astype(str)
-            self.customer_emails = df_customers.set_index('customer_id')['email'].to_dict()
-            self.customer_phones = df_customers.set_index('customer_id')['phone'].to_dict()
-            self.is_using_parent_contact = {cid: False for cid in df_customers['customer_id']}
+            # Build initial email and phone lookup dicts from BOTH sources
+            self.customer_emails = {}
+            self.customer_phones = {}
+            self.is_using_parent_contact = {}
+
+            # First, add customers_master (UUID customer_ids, 'primary_email'/'primary_phone')
+            df_customers_master['customer_id'] = df_customers_master['customer_id'].astype(str)
+            for _, row in df_customers_master.iterrows():
+                cid = row['customer_id']
+                self.customer_emails[cid] = row.get('primary_email')
+                self.customer_phones[cid] = row.get('primary_phone')
+                self.is_using_parent_contact[cid] = False
+
+            # Then, add capitan customers (numeric IDs, 'email'/'phone')
+            # This handles events loaded directly from capitan/checkins.csv
+            df_customers_capitan['customer_id'] = df_customers_capitan['customer_id'].astype(str)
+            for _, row in df_customers_capitan.iterrows():
+                cid = row['customer_id']
+                # Only add if not already present (prefer customers_master)
+                if cid not in self.customer_emails:
+                    self.customer_emails[cid] = row.get('email')
+                    self.customer_phones[cid] = row.get('phone')
+                    self.is_using_parent_contact[cid] = False
 
             initial_with_email = sum(1 for e in self.customer_emails.values() if pd.notna(e) and e != '')
             initial_with_phone = sum(1 for p in self.customer_phones.values() if pd.notna(p) and p != '')
