@@ -341,6 +341,25 @@ def run_daily_pipeline():
     except Exception as e:
         print(f"❌ Error sending birthday party reminders: {e}\n")
 
+    # 17. Sync customer data TO Klaviyo
+    print("19. Syncing customer profiles to Klaviyo...")
+    print("    (Pushes all customers with flags and membership data)")
+    try:
+        from data_pipeline.sync_to_klaviyo import sync_to_klaviyo
+        results = sync_to_klaviyo(profile_limit=None, event_days=7)
+        print(f"✅ Synced {results.get('profiles_created', 0)} profiles to Klaviyo\n")
+    except Exception as e:
+        print(f"❌ Error syncing to Klaviyo: {e}\n")
+
+    # 18. Fetch engagement data FROM Klaviyo
+    print("20. Fetching engagement data from Klaviyo...")
+    try:
+        from data_pipeline.fetch_klaviyo_data import fetch_klaviyo_data
+        klaviyo_data = fetch_klaviyo_data(save_local=False, days_back=30)
+        print(f"✅ Fetched Klaviyo data: {len(klaviyo_data.get('campaigns', []))} campaigns, {len(klaviyo_data.get('events', []))} events\n")
+    except Exception as e:
+        print(f"❌ Error fetching from Klaviyo: {e}\n")
+
     print(f"{'='*80}")
     print(f"PIPELINE COMPLETE - {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"{'='*80}\n")

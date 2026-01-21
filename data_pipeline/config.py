@@ -25,6 +25,7 @@ ga4_credentials_json = os.getenv("GA4_CREDENTIALS_JSON")  # For CI/CD (JSON stri
 shopify_store_domain = os.getenv("SHOPIFY_STORE_DOMAIN")
 shopify_admin_token = os.getenv("SHOPIFY_ADMIN_TOKEN")
 sendgrid_api_key = os.getenv("SENDGRID_API_KEY")
+klaviyo_private_key = os.getenv("KLAVIYO_PRIVATE_KEY")
 df_path_recent_days = "data/outputs/stripe_and_square_combined_data_recent_days.csv"
 df_path_combined = "data/outputs/stripe_and_square_combined_data.csv"
 aws_bucket_name = "basin-climbing-data-prod"
@@ -113,6 +114,15 @@ s3_path_experiment_entries = "experiments/customer_experiment_entries.csv"  # AB
 # Twilio paths
 s3_path_twilio_messages = "twilio/messages.csv"
 s3_path_twilio_messages_snapshot = "twilio/snapshots/messages.csv"
+
+# Klaviyo paths
+s3_path_klaviyo_profiles = "klaviyo/profiles.csv"
+s3_path_klaviyo_lists = "klaviyo/lists.csv"
+s3_path_klaviyo_campaigns = "klaviyo/campaigns.csv"
+s3_path_klaviyo_flows = "klaviyo/flows.csv"
+s3_path_klaviyo_events = "klaviyo/events.csv"
+s3_path_klaviyo_metrics = "klaviyo/metrics.csv"
+s3_path_klaviyo_sync_log = "klaviyo/sync_log.csv"  # Tracks what was synced to Klaviyo
 
 snapshot_day_of_month = 1
 s3_path_text_and_metadata = "agent/text_and_metadata"
