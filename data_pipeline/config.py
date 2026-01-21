@@ -122,6 +122,7 @@ s3_path_klaviyo_campaigns = "klaviyo/campaigns.csv"
 s3_path_klaviyo_flows = "klaviyo/flows.csv"
 s3_path_klaviyo_events = "klaviyo/events.csv"
 s3_path_klaviyo_metrics = "klaviyo/metrics.csv"
+s3_path_klaviyo_recipient_activity = "klaviyo/recipient_activity.csv"  # Who received which email/SMS
 s3_path_klaviyo_sync_log = "klaviyo/sync_log.csv"  # Tracks what was synced to Klaviyo
 
 snapshot_day_of_month = 1

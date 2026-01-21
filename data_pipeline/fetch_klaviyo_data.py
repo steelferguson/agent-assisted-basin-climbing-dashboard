@@ -309,6 +309,236 @@ class KlaviyoDataFetcher:
         print(f"   Found {len(df)} profiles")
         return df
 
+    def fetch_email_engagement(self, days_back: int = 30) -> pd.DataFrame:
+        """
+        Fetch email engagement events (received, opened, clicked, bounced, unsubscribed).
+
+        Returns a table showing who received which emails and their engagement.
+        """
+        print(f"\nFetching email engagement (last {days_back} days)...")
+
+        # Email-related metrics to fetch
+        email_metrics = [
+            'Received Email',
+            'Opened Email',
+            'Clicked Email',
+            'Bounced Email',
+            'Marked Email as Spam',
+            'Unsubscribed'
+        ]
+
+        all_records = []
+        cutoff = (datetime.now() - timedelta(days=days_back)).strftime('%Y-%m-%dT00:00:00Z')
+
+        for metric in email_metrics:
+            print(f"   Fetching '{metric}' events...")
+
+            params = {
+                "filter": f"greater-or-equal(datetime,{cutoff})",
+                "page[size]": 100,
+                "sort": "-datetime"
+            }
+
+            page_count = 0
+            metric_events = []
+
+            while True:
+                result = self._make_request("events", params)
+                if not result or 'data' not in result:
+                    break
+
+                # Filter by metric name in the response
+                for event in result['data']:
+                    attrs = event.get('attributes', {})
+                    event_props = attrs.get('event_properties', {})
+
+                    # Check if this is the metric we want
+                    metric_data = attrs.get('metric', {})
+                    if isinstance(metric_data, dict):
+                        event_metric = metric_data.get('data', {}).get('attributes', {}).get('name', '')
+                    else:
+                        event_metric = ''
+
+                    # Get profile info
+                    profile_data = attrs.get('profile', {})
+                    if isinstance(profile_data, dict):
+                        profile_id = profile_data.get('data', {}).get('id', '')
+                    else:
+                        profile_id = ''
+
+                    record = {
+                        'event_id': event.get('id'),
+                        'event_type': metric,
+                        'profile_id': profile_id,
+                        'timestamp': attrs.get('datetime'),
+                        'campaign_name': event_props.get('Campaign Name', ''),
+                        'subject': event_props.get('Subject', ''),
+                        'flow_name': event_props.get('$flow', ''),
+                        'email_id': event_props.get('$message', ''),
+                        'url_clicked': event_props.get('URL', '') if metric == 'Clicked Email' else ''
+                    }
+                    metric_events.append(record)
+
+                page_count += 1
+                if page_count >= 50:  # Limit pages per metric
+                    break
+
+                next_link = result.get('links', {}).get('next')
+                if not next_link:
+                    break
+
+                if 'page[cursor]' in next_link:
+                    cursor = next_link.split('page[cursor]=')[1].split('&')[0]
+                    params['page[cursor]'] = cursor
+                else:
+                    break
+
+                time.sleep(0.1)
+
+            print(f"      Found {len(metric_events)} events")
+            all_records.extend(metric_events)
+
+        df = pd.DataFrame(all_records)
+        print(f"   Total email engagement events: {len(df)}")
+        return df
+
+    def fetch_sms_engagement(self, days_back: int = 30) -> pd.DataFrame:
+        """
+        Fetch SMS engagement events (received, clicked, unsubscribed).
+
+        Returns a table showing who received which SMS and their engagement.
+        """
+        print(f"\nFetching SMS engagement (last {days_back} days)...")
+
+        sms_metrics = [
+            'Received SMS',
+            'Clicked SMS',
+            'Unsubscribed from SMS',
+            'Sent SMS'
+        ]
+
+        all_records = []
+        cutoff = (datetime.now() - timedelta(days=days_back)).strftime('%Y-%m-%dT00:00:00Z')
+
+        for metric in sms_metrics:
+            print(f"   Fetching '{metric}' events...")
+
+            params = {
+                "filter": f"greater-or-equal(datetime,{cutoff})",
+                "page[size]": 100,
+                "sort": "-datetime"
+            }
+
+            page_count = 0
+            metric_events = []
+
+            while True:
+                result = self._make_request("events", params)
+                if not result or 'data' not in result:
+                    break
+
+                for event in result['data']:
+                    attrs = event.get('attributes', {})
+                    event_props = attrs.get('event_properties', {})
+
+                    profile_data = attrs.get('profile', {})
+                    if isinstance(profile_data, dict):
+                        profile_id = profile_data.get('data', {}).get('id', '')
+                    else:
+                        profile_id = ''
+
+                    record = {
+                        'event_id': event.get('id'),
+                        'event_type': metric,
+                        'profile_id': profile_id,
+                        'timestamp': attrs.get('datetime'),
+                        'campaign_name': event_props.get('Campaign Name', ''),
+                        'flow_name': event_props.get('$flow', ''),
+                        'message_body': event_props.get('Message Body', '')[:100] if event_props.get('Message Body') else '',
+                        'url_clicked': event_props.get('URL', '') if metric == 'Clicked SMS' else ''
+                    }
+                    metric_events.append(record)
+
+                page_count += 1
+                if page_count >= 50:
+                    break
+
+                next_link = result.get('links', {}).get('next')
+                if not next_link:
+                    break
+
+                if 'page[cursor]' in next_link:
+                    cursor = next_link.split('page[cursor]=')[1].split('&')[0]
+                    params['page[cursor]'] = cursor
+                else:
+                    break
+
+                time.sleep(0.1)
+
+            print(f"      Found {len(metric_events)} events")
+            all_records.extend(metric_events)
+
+        df = pd.DataFrame(all_records)
+        print(f"   Total SMS engagement events: {len(df)}")
+        return df
+
+    def fetch_recipient_activity(self, days_back: int = 30) -> pd.DataFrame:
+        """
+        Fetch combined email and SMS recipient activity with profile details.
+
+        Returns a table you can query to see:
+        - Who received which campaigns/flows
+        - Who opened, clicked, bounced, unsubscribed
+        - Email and phone for each recipient
+        """
+        print(f"\nFetching recipient activity (last {days_back} days)...")
+
+        # Fetch email and SMS engagement
+        df_email = self.fetch_email_engagement(days_back)
+        df_sms = self.fetch_sms_engagement(days_back)
+
+        # Combine
+        df_email['channel'] = 'email'
+        df_sms['channel'] = 'sms'
+
+        df_combined = pd.concat([df_email, df_sms], ignore_index=True)
+
+        if df_combined.empty:
+            print("   No recipient activity found")
+            return pd.DataFrame()
+
+        # Fetch profiles to get email/phone
+        print("   Enriching with profile data...")
+        unique_profiles = df_combined['profile_id'].unique()
+
+        # Get profile details in batches
+        profile_info = {}
+        for profile_id in unique_profiles[:1000]:  # Limit for performance
+            if not profile_id:
+                continue
+            try:
+                result = self._make_request(f"profiles/{profile_id}")
+                if result and 'data' in result:
+                    attrs = result['data'].get('attributes', {})
+                    profile_info[profile_id] = {
+                        'email': attrs.get('email', ''),
+                        'phone': attrs.get('phone_number', ''),
+                        'first_name': attrs.get('first_name', ''),
+                        'last_name': attrs.get('last_name', '')
+                    }
+                time.sleep(0.05)
+            except:
+                pass
+
+        # Merge profile info
+        df_combined['email'] = df_combined['profile_id'].map(lambda x: profile_info.get(x, {}).get('email', ''))
+        df_combined['phone'] = df_combined['profile_id'].map(lambda x: profile_info.get(x, {}).get('phone', ''))
+        df_combined['first_name'] = df_combined['profile_id'].map(lambda x: profile_info.get(x, {}).get('first_name', ''))
+        df_combined['last_name'] = df_combined['profile_id'].map(lambda x: profile_info.get(x, {}).get('last_name', ''))
+
+        print(f"   Total recipient activity records: {len(df_combined)}")
+        return df_combined
+
     def fetch_events(self, metric_name: str = None, days_back: int = 30,
                      limit: int = None) -> pd.DataFrame:
         """
@@ -436,6 +666,12 @@ class KlaviyoDataFetcher:
         if not df_events.empty:
             self._save_s3_csv(df_events, 'klaviyo/events.csv')
             results['events'] = df_events
+
+        # Fetch recipient activity (who got which email/SMS)
+        df_recipient_activity = self.fetch_recipient_activity(days_back=30)
+        if not df_recipient_activity.empty:
+            self._save_s3_csv(df_recipient_activity, 'klaviyo/recipient_activity.csv')
+            results['recipient_activity'] = df_recipient_activity
 
         # Save locally if requested
         if save_local:
