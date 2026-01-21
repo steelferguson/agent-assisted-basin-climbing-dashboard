@@ -3,7 +3,7 @@ name: Flag Sync
 on:
   workflow_dispatch:     # allows manual run from GitHub UI
   schedule:
-    - cron: '0 13,19,1 * * *'  # runs at 8 AM, 2 PM, 8 PM CT (13, 19, 1 UTC)
+    - cron: '0 13 * * *'  # runs at 8 AM CT (13 UTC) once per day
 
 jobs:
   sync:
