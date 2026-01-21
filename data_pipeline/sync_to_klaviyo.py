@@ -249,15 +249,20 @@ class KlaviyoSync:
 
         # Merge flags with customers
         if not df_flags.empty:
-            # Pivot flags to get one row per customer with flag columns
+            # Flags have: customer_id, flag_type, flag_data
+            # Pivot to get one column per flag_type (True if flag exists)
+            df_flags['has_flag'] = True
+            df_flags['customer_id'] = df_flags['customer_id'].astype(str)
             flags_pivot = df_flags.pivot_table(
                 index='customer_id',
-                columns='flag_name',
-                values='flag_value',
+                columns='flag_type',
+                values='has_flag',
                 aggfunc='first'
             ).reset_index()
+            flags_pivot = flags_pivot.fillna(False)
+            df_customers['customer_id'] = df_customers['customer_id'].astype(str)
             df_customers = df_customers.merge(flags_pivot, on='customer_id', how='left')
-            print(f"   Merged {len(df_flags)} flags")
+            print(f"   Merged {len(df_flags)} flags ({len(flags_pivot.columns) - 1} flag types)")
 
         # Get active membership info
         if not df_memberships.empty:
