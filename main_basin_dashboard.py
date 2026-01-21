@@ -354,11 +354,20 @@ with tab0:
             (df_memberships_calc['end_date'] <= last_week_end)
         ]['owner_id'].nunique() if 'owner_id' in df_memberships_calc.columns else 0
 
-        # MEMBERSHIPS (total contracts)
+        # MEMBERSHIPS (first-time only, to match new members)
         new_memberships_last_week = len(df_memberships_calc[
             (df_memberships_calc['start_date'] >= last_week_start) &
-            (df_memberships_calc['start_date'] <= last_week_end)
+            (df_memberships_calc['start_date'] <= last_week_end) &
+            (df_memberships_calc['is_first_membership'] == True)
         ])
+
+        # Membership changes (existing members who switched/upgraded)
+        membership_changes_week_df = df_memberships_calc[
+            (df_memberships_calc['start_date'] >= last_week_start) &
+            (df_memberships_calc['start_date'] <= last_week_end) &
+            (df_memberships_calc['is_first_membership'] == False)
+        ].copy()
+        membership_changes_week = len(membership_changes_week_df)
 
         # Get all ended memberships for the week
         attrited_week_df_calc = df_memberships_calc[
@@ -424,11 +433,20 @@ with tab0:
             (df_memberships_calc['end_date'] < last_month_end)
         ]['owner_id'].nunique() if 'owner_id' in df_memberships_calc.columns else 0
 
-        # MEMBERSHIPS (total contracts)
+        # MEMBERSHIPS (first-time only, to match new members)
         new_memberships_last_month = len(df_memberships_calc[
             (df_memberships_calc['start_date'] >= last_month_start) &
-            (df_memberships_calc['start_date'] < last_month_end)
+            (df_memberships_calc['start_date'] < last_month_end) &
+            (df_memberships_calc['is_first_membership'] == True)
         ])
+
+        # Membership changes for month
+        membership_changes_month_df = df_memberships_calc[
+            (df_memberships_calc['start_date'] >= last_month_start) &
+            (df_memberships_calc['start_date'] < last_month_end) &
+            (df_memberships_calc['is_first_membership'] == False)
+        ].copy()
+        membership_changes_month = len(membership_changes_month_df)
 
         # Get all ended memberships for the month
         attrited_month_df_calc = df_memberships_calc[
@@ -487,15 +505,15 @@ with tab0:
                 help="Unique people whose memberships ended"
             )
 
-        # Display metrics - MEMBERSHIPS (total contracts)
-        st.markdown("**Memberships (Total Contracts)**")
+        # Display metrics - MEMBERSHIPS (first-time contracts)
+        st.markdown("**Memberships (First-Time Contracts)**")
         col1, col2, col3, col4 = st.columns(4)
         with col1:
             st.metric(
                 "New Memberships (Week)",
                 f"+{new_memberships_last_week}",
                 f"Net: {net_membership_change_week:+d}",
-                help="All memberships started (includes renewals)"
+                help="First-time memberships only"
             )
         with col2:
             st.metric(
@@ -509,7 +527,7 @@ with tab0:
                 "New Memberships (Month)",
                 f"+{new_memberships_last_month}",
                 f"Net: {net_membership_change_month:+d}",
-                help="All memberships started (includes renewals)"
+                help="First-time memberships only"
             )
         with col4:
             st.metric(
@@ -518,6 +536,91 @@ with tab0:
                 delta_color="inverse",
                 help=f"Truly attrited (excludes switches). Total ended: {total_ended_memberships_month}"
             )
+
+        # Display metrics - MEMBERSHIP CHANGES (upgrades/switches)
+        st.markdown("**Membership Changes (Upgrades/Switches)**")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric(
+                "Membership Changes (Week)",
+                f"{membership_changes_week}",
+                help="Existing members who switched or upgraded memberships"
+            )
+        with col2:
+            st.metric(
+                "Membership Changes (Month)",
+                f"{membership_changes_month}",
+                help="Existing members who switched or upgraded memberships"
+            )
+
+        # Expander showing membership changes with details
+        if membership_changes_week > 0:
+            with st.expander(f"View {membership_changes_week} Membership Changes (Week)"):
+                # Get previous membership for each person who changed
+                changes_display = membership_changes_week_df.copy()
+
+                # For each changed membership, find what they had before
+                def get_previous_membership(owner_id, new_start_date):
+                    previous = df_memberships_calc[
+                        (df_memberships_calc['owner_id'] == owner_id) &
+                        (df_memberships_calc['start_date'] < new_start_date)
+                    ].sort_values('start_date', ascending=False)
+                    if not previous.empty:
+                        return previous.iloc[0]['name']
+                    return 'Unknown'
+
+                changes_display['previous_membership'] = changes_display.apply(
+                    lambda row: get_previous_membership(row['owner_id'], row['start_date']), axis=1
+                )
+
+                # Join with members for names
+                if not df_members.empty:
+                    df_members_dedup = df_members[['customer_id', 'member_first_name', 'member_last_name']].drop_duplicates(subset=['customer_id'])
+                    changes_display = changes_display.merge(
+                        df_members_dedup,
+                        left_on='owner_id',
+                        right_on='customer_id',
+                        how='left'
+                    )
+                else:
+                    changes_display['member_first_name'] = ''
+                    changes_display['member_last_name'] = ''
+
+                # Prepare display
+                display_cols = ['owner_id', 'member_first_name', 'member_last_name', 'previous_membership', 'name', 'start_date']
+                available_cols = [c for c in display_cols if c in changes_display.columns]
+                changes_show = changes_display[available_cols].copy()
+
+                changes_show.rename(columns={
+                    'owner_id': 'Customer ID',
+                    'member_first_name': 'First Name',
+                    'member_last_name': 'Last Name',
+                    'previous_membership': 'From',
+                    'name': 'To',
+                    'start_date': 'Change Date'
+                }, inplace=True)
+
+                # Add Capitan link
+                if 'Customer ID' in changes_show.columns:
+                    changes_show['Capitan Link'] = changes_show['Customer ID'].apply(
+                        lambda x: f"https://app.hellocapitan.com/customers/{int(x)}/check-ins" if pd.notna(x) else ''
+                    )
+
+                # Format date
+                if 'Change Date' in changes_show.columns:
+                    changes_show['Change Date'] = pd.to_datetime(changes_show['Change Date']).dt.strftime('%Y-%m-%d')
+
+                # Sort by date descending
+                changes_show = changes_show.sort_values('Change Date', ascending=False)
+
+                st.dataframe(
+                    changes_show,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        'Capitan Link': st.column_config.LinkColumn('Capitan Link')
+                    }
+                )
 
         # Expander showing truly attrited members (excludes switches and those with other active)
         if attrited_memberships_week > 0:
