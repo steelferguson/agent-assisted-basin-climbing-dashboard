@@ -955,9 +955,69 @@ with tab0:
 
     st.markdown('---')
 
-    # ========== OPERATIONS SECTION ==========
-    st.subheader('🔧 Operations')
-    st.info('Operations metrics coming soon...')
+    # ========== REFERRALS SECTION ==========
+    st.subheader('🎯 Member Referrals')
+    st.caption("Members who have referred new memberships")
+
+    # Load referral data
+    try:
+        df_referrals = load_df(bucket, 'capitan/referrals.csv')
+        df_leaderboard = load_df(bucket, 'capitan/referral_leaderboard.csv')
+
+        if df_referrals is not None and not df_referrals.empty:
+            # Summary metrics
+            total_referrals = len(df_referrals)
+            total_referrers = len(df_leaderboard) if df_leaderboard is not None else 0
+            active_referrals = df_referrals[df_referrals['membership_status'] == 'ACT'].shape[0] if 'membership_status' in df_referrals.columns else 0
+
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Total Referrals", total_referrals)
+            with col2:
+                st.metric("Active (Still Members)", active_referrals)
+            with col3:
+                st.metric("Unique Referrers", total_referrers)
+
+            # Leaderboard
+            if df_leaderboard is not None and not df_leaderboard.empty:
+                with st.expander(f"View Referral Leaderboard ({total_referrers} referrers)"):
+                    display_cols = ['referrer_name', 'total_referrals', 'active_referrals', 'referred_names']
+                    available_cols = [c for c in display_cols if c in df_leaderboard.columns]
+                    st.dataframe(
+                        df_leaderboard[available_cols].head(20),
+                        column_config={
+                            'referrer_name': 'Referrer',
+                            'total_referrals': 'Total Referrals',
+                            'active_referrals': 'Still Active',
+                            'referred_names': 'Referred Members'
+                        },
+                        hide_index=True,
+                        use_container_width=True
+                    )
+
+            # Recent referrals
+            with st.expander(f"View All Referrals ({total_referrals} total)"):
+                df_referrals['purchase_date'] = pd.to_datetime(df_referrals['purchase_date']).dt.strftime('%Y-%m-%d')
+                display_cols = ['referrer_name', 'referred_name', 'membership_name', 'membership_status', 'purchase_date']
+                available_cols = [c for c in display_cols if c in df_referrals.columns]
+                st.dataframe(
+                    df_referrals[available_cols].sort_values('purchase_date', ascending=False),
+                    column_config={
+                        'referrer_name': 'Referrer',
+                        'referred_name': 'New Member',
+                        'membership_name': 'Membership',
+                        'membership_status': 'Status',
+                        'purchase_date': 'Date'
+                    },
+                    hide_index=True,
+                    use_container_width=True
+                )
+        else:
+            st.info("No referral data available yet")
+    except Exception as e:
+        st.info(f"Referral data not available: {e}")
+
+    st.markdown('---')
 
 # ============================================================================
 # TAB 1: REVENUE

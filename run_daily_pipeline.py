@@ -149,6 +149,15 @@ def run_daily_pipeline():
     except Exception as e:
         print(f"❌ Error updating Capitan associations & events: {e}\n")
 
+    # 6b. Fetch membership referrals
+    print("8b. Fetching membership referrals from Capitan...")
+    try:
+        from data_pipeline.fetch_capitan_referrals import fetch_capitan_referrals
+        df_referrals, df_leaderboard = fetch_capitan_referrals(save_local=False)
+        print(f"✅ Referrals updated: {len(df_referrals)} referrals, {len(df_leaderboard)} referrers\n")
+    except Exception as e:
+        print(f"❌ Error fetching referrals: {e}\n")
+
     # 7. Parse and upload pass transfers (last 7 days)
     print("9. Parsing pass transfers from check-ins (last 7 days)...")
     try:
