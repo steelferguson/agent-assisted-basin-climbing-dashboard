@@ -4119,6 +4119,73 @@ with tab6:
     else:
         st.info('No customer flags data available')
 
+    # ========== KLAVIYO FLAGS SECTION ==========
+    st.subheader('Klaviyo Flow Triggers')
+    st.markdown('Flags that trigger automated Klaviyo flows (email/SMS sequences)')
+
+    # Flag types that map to Klaviyo lists/flows
+    klaviyo_flag_types = [
+        'membership_cancelled_winback',
+    ]
+
+    if not df_customer_flags.empty:
+        df_klaviyo = df_customer_flags[df_customer_flags['flag_type'].isin(klaviyo_flag_types)].copy()
+
+        if not df_klaviyo.empty:
+            df_klaviyo['triggered_date'] = pd.to_datetime(df_klaviyo['triggered_date'], errors='coerce')
+            df_klaviyo['flag_added_date'] = pd.to_datetime(df_klaviyo['flag_added_date'], errors='coerce')
+
+            # Summary metrics
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric('Total Klaviyo Flags', len(df_klaviyo))
+            with col2:
+                st.metric('Unique Customers', df_klaviyo['customer_id'].nunique())
+            with col3:
+                latest = df_klaviyo['flag_added_date'].max()
+                st.metric('Latest Flag', latest.strftime('%Y-%m-%d') if pd.notna(latest) else 'N/A')
+
+            # Totals by type
+            st.markdown('**Total by Flag Type**')
+            klaviyo_counts = df_klaviyo['flag_type'].value_counts().reset_index()
+            klaviyo_counts.columns = ['Flag Type', 'Count']
+            klaviyo_counts['Flag Type'] = klaviyo_counts['Flag Type'].str.replace('_', ' ').str.title()
+            st.dataframe(klaviyo_counts, use_container_width=True, hide_index=True)
+
+            # Timeline by type
+            st.markdown('**Flags Over Time (by Type)**')
+            date_col = 'flag_added_date' if df_klaviyo['flag_added_date'].notna().any() else 'triggered_date'
+            df_timeline = df_klaviyo.dropna(subset=[date_col]).copy()
+
+            if not df_timeline.empty:
+                df_timeline['date'] = df_timeline[date_col].dt.date
+                df_timeline['Flag Type'] = df_timeline['flag_type'].str.replace('_', ' ').str.title()
+                daily_counts = df_timeline.groupby(['date', 'Flag Type']).size().reset_index(name='Count')
+                daily_counts['date'] = pd.to_datetime(daily_counts['date'])
+
+                import altair as alt
+                chart = alt.Chart(daily_counts).mark_bar().encode(
+                    x=alt.X('date:T', title='Date'),
+                    y=alt.Y('Count:Q', title='Flags Added'),
+                    color=alt.Color('Flag Type:N', title='Flag Type'),
+                    tooltip=['date:T', 'Flag Type:N', 'Count:Q']
+                ).properties(height=300)
+                st.altair_chart(chart, use_container_width=True)
+
+            # Detail table
+            with st.expander('View Klaviyo Flag Details'):
+                detail = df_klaviyo[['customer_id', 'flag_type', 'triggered_date', 'priority', 'flag_added_date']].copy()
+                detail['flag_type'] = detail['flag_type'].str.replace('_', ' ').str.title()
+                detail.columns = ['Customer ID', 'Flag Type', 'Triggered Date', 'Priority', 'Added Date']
+                detail['Triggered Date'] = detail['Triggered Date'].dt.strftime('%Y-%m-%d')
+                detail['Added Date'] = detail['Added Date'].dt.strftime('%Y-%m-%d %H:%M')
+                detail = detail.sort_values('Added Date', ascending=False)
+                st.dataframe(detail, use_container_width=True, hide_index=True)
+        else:
+            st.info('No Klaviyo flow trigger flags found yet. The membership win-back flag will appear here when members cancel.')
+    else:
+        st.info('No customer flags data available')
+
 # ============================================================================
 # TAB 7: LEAD FLOW (Day Pass → Membership Conversion Funnel)
 # ============================================================================

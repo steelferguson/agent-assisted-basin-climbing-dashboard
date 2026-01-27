@@ -3,7 +3,8 @@ name: Flag Sync
 on:
   workflow_dispatch:     # allows manual run from GitHub UI
   schedule:
-    - cron: '0 13 * * *'  # runs at 8 AM CT (13 UTC) once per day
+    - cron: '0 21 * * *'  # runs at 3 PM CT (21 UTC)
+    - cron: '0 13 * * *'  # runs at 8 AM CT (13 UTC)
 
 jobs:
   sync:
@@ -33,4 +34,5 @@ jobs:
           MAILCHIMP_SERVER_PREFIX: ${{ secrets.MAILCHIMP_SERVER_PREFIX }}
           MAILCHIMP_AUDIENCE_ID: ${{ secrets.MAILCHIMP_AUDIENCE_ID }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          KLAVIYO_PRIVATE_KEY: ${{ secrets.KLAVIYO_PRIVATE_KEY }}
         run: python run_flag_sync.py

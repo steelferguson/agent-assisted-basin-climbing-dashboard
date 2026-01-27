@@ -30,6 +30,7 @@ Environment Variables:
 """
 
 import os
+import json
 import pandas as pd
 import boto3
 import requests
@@ -75,8 +76,73 @@ class ShopifyFlagSyncer:
         self.min_delay_between_calls = 0.6  # 600ms between calls = ~1.6 calls/sec (safe margin)
         self.last_api_call_time = 0
 
+        # Track synced events to log to customer_events.csv
+        self.synced_events = []
+
+        # Klaviyo integration for flow triggers
+        self.klaviyo_private_key = os.getenv("KLAVIYO_PRIVATE_KEY")
+        self.klaviyo_headers = {
+            "Authorization": f"Klaviyo-API-Key {self.klaviyo_private_key}",
+            "revision": "2025-01-15",
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+        } if self.klaviyo_private_key else None
+
+        # Map flag types to Klaviyo list IDs for flow triggers
+        # When a flag is synced to Shopify, also add the member to the Klaviyo list
+        self.klaviyo_flag_list_map = {
+            'membership_cancelled_winback': 'VbbZSy',  # Membership Win-Back flow
+        }
+
         print("✅ Shopify Flag Syncer initialized")
         print(f"   Store: {self.store_domain}")
+        if self.klaviyo_private_key:
+            print(f"   Klaviyo: enabled ({len(self.klaviyo_flag_list_map)} flag-to-list mappings)")
+
+    def add_to_klaviyo_list(self, email: str, list_id: str, flag_name: str) -> bool:
+        """
+        Add a profile to a Klaviyo list to trigger a flow.
+
+        Args:
+            email: Customer email address
+            list_id: Klaviyo list ID
+            flag_name: Flag name (for logging)
+
+        Returns:
+            True if successful
+        """
+        if not self.klaviyo_headers:
+            return False
+
+        if not email or pd.isna(email):
+            return False
+
+        data = {
+            "data": [{
+                "type": "profile",
+                "attributes": {
+                    "email": str(email).strip()
+                }
+            }]
+        }
+
+        try:
+            response = requests.post(
+                f"https://a.klaviyo.com/api/lists/{list_id}/relationships/profiles",
+                headers=self.klaviyo_headers,
+                json=data
+            )
+
+            if response.status_code in [200, 201, 202, 204]:
+                print(f"   ✅ Added to Klaviyo list {list_id} for flag '{flag_name}'")
+                return True
+            else:
+                print(f"   ⚠️  Klaviyo list add failed ({response.status_code}): {response.text[:200]}")
+                return False
+
+        except Exception as e:
+            print(f"   ⚠️  Klaviyo list add error: {e}")
+            return False
 
     def _rate_limit(self):
         """
@@ -187,6 +253,79 @@ class ShopifyFlagSyncer:
             print(f"✅ Saved {len(df)} synced flag records to tracking file")
         except Exception as e:
             print(f"⚠️  Error saving synced flags tracking: {e}")
+
+    def log_sync_event(self, capitan_customer_id: str, tag_name: str, shopify_customer_id: str):
+        """
+        Record a flag_synced_to_shopify event for later saving to customer_events.csv.
+
+        This creates an event that flag rules can check to implement cooldown periods,
+        preventing duplicate emails/SMS being sent on consecutive days.
+
+        Args:
+            capitan_customer_id: Capitan customer ID
+            tag_name: Tag that was synced (e.g., 'first-time-day-pass-2wk-offer')
+            shopify_customer_id: Shopify customer ID
+        """
+        self.synced_events.append({
+            'customer_id': str(capitan_customer_id),
+            'event_type': 'flag_synced_to_shopify',
+            'event_date': datetime.now().isoformat(),
+            'event_data': json.dumps({
+                'flag_type': tag_name.replace('-', '_'),  # Convert back to flag format
+                'tag_name': tag_name,
+                'shopify_customer_id': shopify_customer_id,
+                'synced_at': datetime.now().isoformat()
+            })
+        })
+
+    def save_synced_events_to_customer_events(self):
+        """
+        Save all accumulated sync events to customer_events.csv in S3.
+
+        This allows flag rules to check for recent syncs and implement cooldown periods.
+        """
+        if not self.synced_events:
+            print("   ℹ️  No sync events to save")
+            return
+
+        try:
+            # Load existing customer events
+            obj = self.s3_client.get_object(
+                Bucket=self.bucket_name,
+                Key='customers/customer_events.csv'
+            )
+            df_existing = pd.read_csv(StringIO(obj['Body'].read().decode('utf-8')))
+
+            # Create DataFrame from new sync events
+            df_new_events = pd.DataFrame(self.synced_events)
+
+            # Merge and deduplicate
+            df_all = pd.concat([df_existing, df_new_events], ignore_index=True)
+
+            # Deduplicate based on customer_id, event_type, and event_date (to the minute)
+            # This prevents duplicate sync events if the script is run multiple times
+            df_all['event_date_minute'] = pd.to_datetime(df_all['event_date']).dt.floor('min')
+            df_all = df_all.drop_duplicates(
+                subset=['customer_id', 'event_type', 'event_date_minute'],
+                keep='last'
+            )
+            df_all = df_all.drop('event_date_minute', axis=1)
+
+            # Save back to S3
+            csv_buffer = StringIO()
+            df_all.to_csv(csv_buffer, index=False)
+            self.s3_client.put_object(
+                Bucket=self.bucket_name,
+                Key='customers/customer_events.csv',
+                Body=csv_buffer.getvalue()
+            )
+            print(f"   ✅ Saved {len(self.synced_events)} flag_synced_to_shopify events to customer_events.csv")
+
+            # Clear the events list
+            self.synced_events = []
+
+        except Exception as e:
+            print(f"   ⚠️  Error saving sync events to customer_events: {e}")
 
     def track_synced_flag(
         self,
@@ -647,7 +786,19 @@ class ShopifyFlagSyncer:
                     if success:
                         synced += 1
                         print(f"   ✅ Added tag '{tag_name}' to customer {capitan_id} (Shopify ID: {shopify_id})")
-                        # Track the sync
+
+                        # Also add the "-sent" tag to indicate this offer was sent
+                        sent_tag_name = f"{tag_name}-sent"
+                        sent_success = self.add_customer_tag(
+                            shopify_customer_id=shopify_id,
+                            tag=sent_tag_name
+                        )
+                        if sent_success:
+                            print(f"   ✅ Added sent tag '{sent_tag_name}'")
+                        else:
+                            print(f"   ⚠️  Failed to add sent tag '{sent_tag_name}'")
+
+                        # Track the sync in tracking file
                         tracking_df = self.track_synced_flag(
                             tracking_df=tracking_df,
                             capitan_customer_id=capitan_id,
@@ -655,6 +806,21 @@ class ShopifyFlagSyncer:
                             tag_name=tag_name,
                             flagged_at=str(flagged_at) if pd.notna(flagged_at) else ''
                         )
+                        # Also log sync event for cooldown tracking
+                        self.log_sync_event(
+                            capitan_customer_id=capitan_id,
+                            tag_name=tag_name,
+                            shopify_customer_id=shopify_id
+                        )
+
+                        # Sync to Klaviyo list if this flag has a mapping
+                        klaviyo_list_id = self.klaviyo_flag_list_map.get(flag_name)
+                        if klaviyo_list_id and email and pd.notna(email):
+                            self.add_to_klaviyo_list(
+                                email=str(email),
+                                list_id=klaviyo_list_id,
+                                flag_name=flag_name
+                            )
                     else:
                         errors += 1
                 else:
@@ -674,6 +840,9 @@ class ShopifyFlagSyncer:
         # Save the tracking file
         if not dry_run:
             self.save_synced_flags_tracking(tracking_df)
+            # Save sync events to customer_events.csv for cooldown tracking
+            print("\n📝 Logging sync events to customer_events...")
+            self.save_synced_events_to_customer_events()
 
         print("\n" + "="*80)
         print("✅ SYNC COMPLETE")

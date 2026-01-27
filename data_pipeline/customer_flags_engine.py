@@ -415,19 +415,35 @@ class CustomerFlagsEngine:
             # Parse event_details JSON into event_data for purchase events
             # This makes purchase descriptions available to flag rules
             def parse_event_details(row):
+                import ast
+
+                def parse_string_value(val):
+                    """Parse a string value that could be JSON or Python dict repr."""
+                    if not isinstance(val, str):
+                        return val
+                    # Try JSON first (proper format)
+                    try:
+                        return json.loads(val)
+                    except (json.JSONDecodeError, ValueError):
+                        pass
+                    # Fallback: try Python literal (for old data saved with str() instead of json.dumps())
+                    try:
+                        return ast.literal_eval(val)
+                    except (ValueError, SyntaxError):
+                        pass
+                    return {}
+
                 # If event_data is already populated, use it
                 if pd.notna(row.get('event_data')):
-                    try:
-                        return json.loads(row['event_data']) if isinstance(row['event_data'], str) else row['event_data']
-                    except:
-                        pass
+                    result = parse_string_value(row['event_data'])
+                    if result:
+                        return result
 
                 # Otherwise, parse event_details JSON
                 if pd.notna(row.get('event_details')):
-                    try:
-                        return json.loads(row['event_details']) if isinstance(row['event_details'], str) else row['event_details']
-                    except:
-                        return {}
+                    result = parse_string_value(row['event_details'])
+                    if result:
+                        return result
                 return {}
 
             df_events['event_data'] = df_events.apply(parse_event_details, axis=1)
@@ -486,15 +502,18 @@ class CustomerFlagsEngine:
             # Create flag_set events for each new flag
             flag_events = []
             for _, flag in df_flags.iterrows():
+                # Serialize event_data to JSON string for proper CSV storage
+                # (dicts become {'key': 'value'} which json.loads() can't parse)
+                event_data_json = json.dumps({
+                    'flag_type': flag['flag_type'],
+                    'priority': flag['priority'],
+                    'triggered_date': flag['triggered_date'].isoformat() if hasattr(flag['triggered_date'], 'isoformat') else str(flag['triggered_date'])
+                })
                 flag_events.append({
                     'customer_id': flag['customer_id'],
                     'event_type': 'flag_set',
                     'event_date': flag['flag_added_date'],
-                    'event_data': {
-                        'flag_type': flag['flag_type'],
-                        'priority': flag['priority'],
-                        'triggered_date': flag['triggered_date'].isoformat() if hasattr(flag['triggered_date'], 'isoformat') else str(flag['triggered_date'])
-                    }
+                    'event_data': event_data_json
                 })
 
             if flag_events:

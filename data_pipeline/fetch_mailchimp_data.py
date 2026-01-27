@@ -571,6 +571,60 @@ THEMES: [comma-separated themes]"""
 
         return automations_df, emails_df
 
+    def fetch_automation_queue(self, workflow_id: str) -> pd.DataFrame:
+        """
+        Fetch all subscribers currently in an automation workflow queue.
+        Shows which step they're on and when they entered.
+
+        Args:
+            workflow_id: The automation/workflow ID
+
+        Returns:
+            DataFrame with subscriber journey progress
+        """
+        print(f"\n=== Fetching Automation Queue for workflow {workflow_id} ===")
+
+        queue_data = []
+        offset = 0
+        count = 1000
+
+        while True:
+            try:
+                response = self.client.automations.get_workflow_email_subscribers_queue(
+                    workflow_id=workflow_id,
+                    count=count,
+                    offset=offset
+                )
+
+                subscribers = response.get('subscribers', [])
+
+                if not subscribers:
+                    break
+
+                for sub in subscribers:
+                    queue_data.append({
+                        'workflow_id': workflow_id,
+                        'email_address': sub.get('email_address', ''),
+                        'list_id': sub.get('list_id', ''),
+                        'next_send': sub.get('next_send', ''),
+                        'email_id': sub.get('email_id', '')
+                    })
+
+                print(f"  Fetched {len(subscribers)} subscribers (offset {offset})")
+
+                if len(subscribers) < count:
+                    break
+
+                offset += count
+
+            except ApiClientError as error:
+                print(f"Error fetching automation queue: {error.text}")
+                break
+
+        df = pd.DataFrame(queue_data)
+        print(f"✅ Found {len(df)} subscribers in automation queue")
+        return df
+
     def get_landing_pages(self) -> List[Dict]:
         """
         Fetch all landing pages.

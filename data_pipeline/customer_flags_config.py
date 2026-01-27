@@ -8,6 +8,7 @@ Rules are evaluated daily to identify customers who need outreach.
 from datetime import datetime, timedelta
 from typing import Dict, Any, Literal, Optional
 import hashlib
+import json
 
 
 def get_customer_ab_group(customer_id: str, email: Optional[str] = None, phone: Optional[str] = None) -> Literal["A", "B"]:
@@ -277,6 +278,21 @@ class FirstTimeDayPass2WeekOfferFlag(FlagRule):
         if recent_flags:
             return None
 
+        # Criteria 5: Must not have been synced to Shopify in last 30 days
+        # This prevents duplicate emails if the flag_set check somehow missed it
+        sync_lookback_start = today - timedelta(days=30)
+        recent_syncs = [
+            e for e in events
+            if e['event_type'] == 'flag_synced_to_shopify'
+            and isinstance(e.get('event_data'), dict)
+            and e.get('event_data', {}).get('flag_type') == self.flag_type
+            and e['event_date'] >= sync_lookback_start
+            and e['event_date'] <= today
+        ]
+
+        if recent_syncs:
+            return None
+
         # All criteria met - flag this customer
         # Calculate days since their previous checkin (if any)
         days_since_previous_checkin = None
@@ -396,6 +412,21 @@ class SecondVisitOfferEligibleFlag(FlagRule):
         if recent_flags:
             return None
 
+        # Criteria 5: Must not have been synced to Shopify in last 30 days
+        # This prevents duplicate emails if the flag_set check somehow missed it
+        sync_lookback_start = today - timedelta(days=30)
+        recent_syncs = [
+            e for e in events
+            if e['event_type'] == 'flag_synced_to_shopify'
+            and isinstance(e.get('event_data'), dict)
+            and e.get('event_data', {}).get('flag_type') == self.flag_type
+            and e['event_date'] >= sync_lookback_start
+            and e['event_date'] <= today
+        ]
+
+        if recent_syncs:
+            return None
+
         # All criteria met - flag this customer
         # Calculate days since their previous checkin (if any)
         days_since_previous_checkin = None
@@ -493,12 +524,27 @@ class SecondVisit2WeekOfferFlag(FlagRule):
         recent_2wk_flags = [
             e for e in events
             if e['event_type'] == 'flag_set'
+            and isinstance(e.get('event_data'), dict)
             and e.get('event_data', {}).get('flag_type') == self.flag_type
             and e['event_date'] >= lookback_start
             and e['event_date'] <= today
         ]
 
         if recent_2wk_flags:
+            return None
+
+        # Criteria 5: Must not have been synced to Shopify in last 30 days
+        sync_lookback_start = today - timedelta(days=30)
+        recent_syncs = [
+            e for e in events
+            if e['event_type'] == 'flag_synced_to_shopify'
+            and isinstance(e.get('event_data'), dict)
+            and e.get('event_data', {}).get('flag_type') == self.flag_type
+            and e['event_date'] >= sync_lookback_start
+            and e['event_date'] <= today
+        ]
+
+        if recent_syncs:
             return None
 
         # All criteria met - customer returned, trigger 2-week offer!
@@ -1047,6 +1093,130 @@ class FiftyPercentOfferSentFlag(FlagRule):
         }
 
 
+class MembershipCancelledWinbackFlag(FlagRule):
+    """
+    Flag recently cancelled members for win-back outreach.
+
+    Business logic:
+    - Customer has a membership_cancelled event in the last 7 days
+    - Does NOT have any new membership activity (purchase, renewal, started)
+      after the cancellation (filters out membership changes/switches)
+    - No other active membership remains (most recent membership event overall
+      is a cancellation)
+    - Hasn't been flagged for this in the last 180 days
+    - Hasn't been synced to Shopify in the last 30 days
+
+    Shopify Tag: membership-cancelled-winback
+    Klaviyo List: Membership Cancellation - Win Back (VbbZSy)
+    """
+
+    def __init__(self):
+        super().__init__(
+            flag_type="membership_cancelled_winback",
+            description="Recently cancelled member eligible for win-back outreach",
+            priority="high"
+        )
+
+    def evaluate(self, customer_id: str, events: list, today: datetime, email: str = None, phone: str = None) -> Dict[str, Any]:
+        """
+        Check if customer recently cancelled with no other active membership.
+        """
+        # Get all membership cancellation events
+        cancellation_events = [
+            e for e in events
+            if e['event_type'] == 'membership_cancelled'
+        ]
+
+        if not cancellation_events:
+            return None
+
+        # Get the most recent cancellation
+        most_recent_cancellation = max(cancellation_events, key=lambda e: e['event_date'])
+        cancellation_date = most_recent_cancellation['event_date']
+
+        # Criteria 1: Cancellation must be within last 7 days
+        seven_days_ago = today - timedelta(days=7)
+        if cancellation_date < seven_days_ago:
+            return None
+
+        # Criteria 2: No new membership activity AFTER the cancellation
+        # If they started a new membership, this is a switch, not attrition
+        new_membership_after = [
+            e for e in events
+            if e['event_type'] in ['membership_purchase', 'membership_renewal', 'membership_started']
+            and e['event_date'] > cancellation_date
+        ]
+
+        if new_membership_after:
+            return None
+
+        # Criteria 3: No other active membership remains
+        # Check that the most recent membership event overall is a cancellation
+        all_membership_events = [
+            e for e in events
+            if e['event_type'] in ['membership_purchase', 'membership_renewal',
+                                   'membership_cancelled', 'membership_started']
+        ]
+
+        if all_membership_events:
+            most_recent_overall = max(all_membership_events, key=lambda e: e['event_date'])
+            if most_recent_overall['event_type'] != 'membership_cancelled':
+                return None
+
+        # Criteria 4: Not flagged in last 180 days
+        lookback_start = today - timedelta(days=180)
+        recent_flags = [
+            e for e in events
+            if e['event_type'] == 'flag_set'
+            and isinstance(e.get('event_data'), dict)
+            and e.get('event_data', {}).get('flag_type') == self.flag_type
+            and e['event_date'] >= lookback_start
+            and e['event_date'] <= today
+        ]
+
+        if recent_flags:
+            return None
+
+        # Criteria 5: Not synced to Shopify in last 30 days
+        sync_lookback_start = today - timedelta(days=30)
+        recent_syncs = [
+            e for e in events
+            if e['event_type'] == 'flag_synced_to_shopify'
+            and isinstance(e.get('event_data'), dict)
+            and e.get('event_data', {}).get('flag_type') == self.flag_type
+            and e['event_date'] >= sync_lookback_start
+            and e['event_date'] <= today
+        ]
+
+        if recent_syncs:
+            return None
+
+        # Extract cancellation details from event_data
+        cancellation_data = most_recent_cancellation.get('event_data', {})
+        if isinstance(cancellation_data, str):
+            try:
+                cancellation_data = json.loads(cancellation_data)
+            except (json.JSONDecodeError, TypeError):
+                cancellation_data = {}
+        if not isinstance(cancellation_data, dict):
+            cancellation_data = {}
+
+        return {
+            'customer_id': customer_id,
+            'flag_type': self.flag_type,
+            'triggered_date': today,
+            'flag_data': {
+                'cancellation_date': cancellation_date.isoformat(),
+                'days_since_cancellation': (today - cancellation_date).days,
+                'cancelled_membership_name': cancellation_data.get('membership_name', ''),
+                'cancelled_membership_id': cancellation_data.get('membership_id', ''),
+                'total_cancellations': len(cancellation_events),
+                'description': self.description
+            },
+            'priority': self.priority
+        }
+
+
 # List of all active rules
 ACTIVE_RULES = [
     ReadyForMembershipFlag(),
@@ -1058,6 +1228,7 @@ ACTIVE_RULES = [
     BirthdayPartyAttendeeOneWeekOutFlag(), # Attendee has party in 7 days
     BirthdayPartyHostSixDaysOutFlag(),     # Host notification (6 days before)
     FiftyPercentOfferSentFlag(),           # Track 50% offer email sends
+    MembershipCancelledWinbackFlag(),      # Win-back for cancelled members
 ]
 
 
