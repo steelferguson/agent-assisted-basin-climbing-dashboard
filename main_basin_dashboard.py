@@ -3061,8 +3061,39 @@ with tab3:
         # Order days of week
         day_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 
+        # Distinct color palette for days of week
+        day_colors = {
+            'Monday': '#1A2E31',     # Dark teal
+            'Tuesday': '#8B4229',    # Rust
+            'Wednesday': '#BAA052',  # Gold
+            'Thursday': '#96A682',   # Sage
+            'Friday': '#C85A3E',     # Light rust
+            'Saturday': '#2C6B4F',   # Forest green
+            'Sunday': '#5B3A6B',     # Purple
+        }
+
         # Group by day of week and month
         checkins_dow_summary = df_checkins_dow.groupby(['day_of_week', 'month']).size().reset_index(name='count')
+
+        # Summary insights: average check-ins per day of week
+        avg_by_day = df_checkins_dow.groupby('day_of_week').size().reindex(day_order).reset_index()
+        avg_by_day.columns = ['Day', 'Total']
+        num_months = df_checkins_dow['month'].nunique()
+        avg_by_day['Avg per Month'] = (avg_by_day['Total'] / num_months).round(1)
+        busiest_day = avg_by_day.loc[avg_by_day['Total'].idxmax(), 'Day']
+        quietest_day = avg_by_day.loc[avg_by_day['Total'].idxmin(), 'Day']
+
+        # Show insight metrics
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric('Busiest Day', busiest_day, help=f"{avg_by_day[avg_by_day['Day']==busiest_day]['Avg per Month'].iloc[0]:.0f} avg/month")
+        with col2:
+            st.metric('Quietest Day', quietest_day, help=f"{avg_by_day[avg_by_day['Day']==quietest_day]['Avg per Month'].iloc[0]:.0f} avg/month")
+        with col3:
+            weekend_total = avg_by_day[avg_by_day['Day'].isin(['Saturday', 'Sunday'])]['Total'].sum()
+            weekday_total = avg_by_day[~avg_by_day['Day'].isin(['Saturday', 'Sunday'])]['Total'].sum()
+            weekend_pct = (weekend_total / (weekend_total + weekday_total) * 100) if (weekend_total + weekday_total) > 0 else 0
+            st.metric('Weekend Share', f'{weekend_pct:.0f}%', help='Percentage of all check-ins on Sat/Sun')
 
         # Chart 1: Grouped by Day of Week first (x-axis = Day, color = Month)
         fig_checkins_by_day = px.bar(
@@ -3070,7 +3101,7 @@ with tab3:
             x='day_of_week',
             y='count',
             color='month',
-            title='Check-ins by Day of Week (Grouped by Day, Colored by Month)',
+            title='Check-ins by Day of Week (Colored by Month)',
             barmode='group',
             category_orders={'day_of_week': day_order}
         )
@@ -3096,9 +3127,10 @@ with tab3:
             x='month',
             y='count',
             color='day_of_week',
-            title='Check-ins by Month (Grouped by Month, Colored by Day of Week)',
+            title='Check-ins by Month (Colored by Day of Week)',
             barmode='group',
-            category_orders={'day_of_week': day_order}
+            category_orders={'day_of_week': day_order},
+            color_discrete_map=day_colors
         )
         fig_checkins_by_month.update_layout(
             plot_bgcolor=COLORS['background'],
@@ -3110,6 +3142,10 @@ with tab3:
         )
         fig_checkins_by_month = apply_axis_styling(fig_checkins_by_month)
         st.plotly_chart(fig_checkins_by_month, use_container_width=True)
+
+        # Average check-ins by day of week table
+        with st.expander('View Average Check-ins by Day'):
+            st.dataframe(avg_by_day, use_container_width=True, hide_index=True)
     else:
         st.info('No check-in data available')
 
