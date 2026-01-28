@@ -1442,6 +1442,7 @@ with tab1:
         )
     )
 
+    fig_projection = apply_axis_styling(fig_projection)
     st.plotly_chart(fig_projection, use_container_width=True)
 
     # Payment Failure Rates
@@ -1546,6 +1547,7 @@ with tab1:
                 height=400
             )
 
+            fig_failures = apply_axis_styling(fig_failures)
             st.plotly_chart(fig_failures, use_container_width=True)
 
             # Show detailed table
@@ -1744,6 +1746,7 @@ with tab2:
             hovermode='x unified'
         )
 
+        fig_timeline = apply_axis_styling(fig_timeline)
         st.plotly_chart(fig_timeline, use_container_width=True)
 
     # Active Members Over Time
@@ -1833,6 +1836,7 @@ with tab2:
             hovermode='x unified'
         )
 
+        fig_members_timeline = apply_axis_styling(fig_members_timeline)
         st.plotly_chart(fig_members_timeline, use_container_width=True)
     else:
         st.info('No members match the selected filters')
@@ -1897,6 +1901,7 @@ with tab2:
             hovermode='x unified'
         )
 
+        fig_size = apply_axis_styling(fig_size)
         st.plotly_chart(fig_size, use_container_width=True)
     else:
         st.info('No memberships match the selected filters')
@@ -1997,6 +2002,7 @@ with tab2:
             hovermode='x unified'
         )
 
+        fig_category = apply_axis_styling(fig_category)
         st.plotly_chart(fig_category, use_container_width=True)
     else:
         st.info('No memberships match the selected filters')
@@ -2181,6 +2187,7 @@ with tab2:
         # Add horizontal line at y=0
         fig_attrition.add_hline(y=0, line_dash='dash', line_color='gray', opacity=0.5)
 
+        fig_attrition = apply_axis_styling(fig_attrition)
         st.plotly_chart(fig_attrition, use_container_width=True)
 
         # Summary metrics
@@ -2280,6 +2287,7 @@ with tab2:
             )
         )
 
+        fig_composition = apply_axis_styling(fig_composition)
         st.plotly_chart(fig_composition, use_container_width=True)
 
         # Summary metrics
@@ -2689,6 +2697,7 @@ with tab3:
                         )
                     )
 
+                    fig_recency = apply_axis_styling(fig_recency)
                     st.plotly_chart(fig_recency, use_container_width=True)
 
                     # Show summary stats for the most recent period only
@@ -3821,6 +3830,7 @@ with tab6:
             showlegend=True
         )
 
+        fig_ads = apply_axis_styling(fig_ads)
         st.plotly_chart(fig_ads, use_container_width=True)
     else:
         st.info('No Facebook Ads data available')
@@ -3884,6 +3894,7 @@ with tab6:
         fig_ig.update_yaxes(title_text='Number of Posts', secondary_y=False)
         fig_ig.update_yaxes(title_text='Engagement', secondary_y=True)
 
+        fig_ig = apply_axis_styling(fig_ig)
         st.plotly_chart(fig_ig, use_container_width=True)
 
         # Stats summary
@@ -3948,6 +3959,7 @@ with tab6:
                 height=400
             )
 
+            fig_sms = apply_axis_styling(fig_sms)
             st.plotly_chart(fig_sms, use_container_width=True)
 
             # Summary metrics
@@ -4042,6 +4054,7 @@ with tab6:
         fig_email.update_yaxes(title_text='Number of Campaigns', secondary_y=False)
         fig_email.update_yaxes(title_text='Rate (%)', secondary_y=True)
 
+        fig_email = apply_axis_styling(fig_email)
         st.plotly_chart(fig_email, use_container_width=True)
 
         # Stats summary
