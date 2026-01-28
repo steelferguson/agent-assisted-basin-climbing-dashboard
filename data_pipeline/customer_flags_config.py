@@ -20,7 +20,7 @@ import os
 # They persist until the underlying condition changes (e.g., membership ends)
 # ============================================================================
 PERSISTENT_FLAGS: List[str] = [
-    'active_membership',  # Stays until membership ends
+    'active-membership',  # Stays until membership ends
 ]
 
 
@@ -1250,7 +1250,7 @@ class ActiveMembershipFlag(FlagRule):
 
     def __init__(self):
         super().__init__(
-            flag_type="active_membership",
+            flag_type="active-membership",
             description="Customer has an active membership",
             priority="low"  # Low priority since it's a status flag, not an action flag
         )
@@ -1373,7 +1373,7 @@ ACTIVE_RULES = [
     BirthdayPartyHostSixDaysOutFlag(),     # Host notification (6 days before)
     FiftyPercentOfferSentFlag(),           # Track 50% offer email sends
     MembershipCancelledWinbackFlag(),      # Win-back for cancelled members
-    ActiveMembershipFlag(),                # PERSISTENT: Active membership status
+    ActiveMembershipFlag(),                # PERSISTENT: active-membership status
 ]
 
 
