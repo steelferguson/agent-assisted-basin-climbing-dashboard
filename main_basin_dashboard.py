@@ -1917,7 +1917,7 @@ with tab2:
             marker_color=COLORS['secondary'],
             text=df_active_summary['Total'],
             textposition='outside',
-            textfont=dict(size=11)
+            textfont=dict(size=14)
         ))
         fig_active.add_trace(go.Bar(
             x=df_active_summary['Cohort'],
@@ -1926,7 +1926,7 @@ with tab2:
             marker_color=COLORS['quaternary'],
             text=df_active_summary['Still Active'],
             textposition='outside',
-            textfont=dict(size=11)
+            textfont=dict(size=14)
         ))
         fig_active.update_layout(
             title='Cohort Size vs Still Active Members',
@@ -1945,12 +1945,14 @@ with tab2:
         # Retention heatmap
         st.markdown('**Retention Rate by Month Since Joining (%)**')
         month_cols = [f'M{m}' for m in range(1, max_months_to_show + 1)]
-        df_heatmap = df_retention[['Cohort'] + month_cols].tail(18).copy()
+        heatmap_cols = month_cols + ['Still Member']
+        df_heatmap = df_retention[['Cohort'] + month_cols + ['Active %']].tail(18).copy()
+        df_heatmap = df_heatmap.rename(columns={'Active %': 'Still Member'})
         df_heatmap = df_heatmap.set_index('Cohort')
 
         fig_heatmap = go.Figure(data=go.Heatmap(
             z=df_heatmap.values,
-            x=month_cols,
+            x=heatmap_cols,
             y=df_heatmap.index.tolist(),
             colorscale=[
                 [0, '#FFFFFF'],
@@ -1959,19 +1961,20 @@ with tab2:
             ],
             text=df_heatmap.values,
             texttemplate='%{text}%',
-            textfont=dict(size=12),
+            textfont=dict(size=15),
             hoverongaps=False,
-            colorbar=dict(title='Retained %')
+            colorbar=dict(title='Retained %', titlefont=dict(size=14), tickfont=dict(size=13))
         ))
         fig_heatmap.update_layout(
-            title='Cohort Retention Heatmap (% still members at month N)',
+            title=dict(text='Cohort Retention Heatmap (% still members at month N)', font=dict(size=18)),
             plot_bgcolor=COLORS['background'],
             paper_bgcolor=COLORS['background'],
             font_color=COLORS['text'],
-            height=max(400, len(df_heatmap) * 30 + 100),
+            height=max(500, len(df_heatmap) * 38 + 120),
             xaxis_title='Months Since Joining',
             yaxis_title='Join Month',
-            yaxis=dict(autorange='reversed')
+            xaxis=dict(tickfont=dict(size=14), title_font=dict(size=16)),
+            yaxis=dict(autorange='reversed', tickfont=dict(size=14), title_font=dict(size=16))
         )
         fig_heatmap = apply_axis_styling(fig_heatmap)
         st.plotly_chart(fig_heatmap, use_container_width=True)
