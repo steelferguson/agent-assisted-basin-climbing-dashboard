@@ -54,6 +54,7 @@ basin_template.layout.yaxis = AXIS_CONFIG
 basin_template.layout.plot_bgcolor = COLORS['background']
 basin_template.layout.paper_bgcolor = COLORS['background']
 basin_template.layout.font = dict(color=COLORS['text'])
+basin_template.layout.legend = dict(font=dict(color='#000000', size=13))
 
 # Register and set as default
 pio.templates['basin'] = basin_template
@@ -126,6 +127,10 @@ def apply_axis_styling(fig):
             tickfont=dict(color=COLORS['axis_text'], size=12),
             gridcolor=COLORS['gridline'],
             title_font=dict(color=COLORS['text'], size=14)
+        ),
+        legend=dict(
+            font=dict(color='#000000', size=13),
+            title_font=dict(color='#000000', size=13)
         )
     )
     return fig
