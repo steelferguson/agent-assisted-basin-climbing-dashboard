@@ -474,7 +474,7 @@ with tab1:
     fig_line.update_traces(
         line_color=COLORS['primary'],
         textposition='top center',
-        textfont=dict(size=10)
+        textfont=dict(size=14)
     )
     fig_line.update_layout(
         plot_bgcolor=COLORS['background'],
@@ -483,12 +483,12 @@ with tab1:
         yaxis_title='Revenue ($)',
         xaxis_title='Date',
         xaxis=dict(
-            tickfont=dict(color=COLORS['axis_text'], size=12),
+            tickfont=dict(color=COLORS['axis_text'], size=14),
             gridcolor=COLORS['gridline'],
             title_font=dict(color=COLORS['text'], size=14)
         ),
         yaxis=dict(
-            tickfont=dict(color=COLORS['axis_text'], size=12),
+            tickfont=dict(color=COLORS['axis_text'], size=14),
             gridcolor=COLORS['gridline'],
             title_font=dict(color=COLORS['text'], size=14)
         )
@@ -516,12 +516,12 @@ with tab1:
         xaxis_title='Date',
         legend_title='Category',
         xaxis=dict(
-            tickfont=dict(color=COLORS['axis_text'], size=12),
+            tickfont=dict(color=COLORS['axis_text'], size=14),
             gridcolor=COLORS['gridline'],
             title_font=dict(color=COLORS['text'], size=14)
         ),
         yaxis=dict(
-            tickfont=dict(color=COLORS['axis_text'], size=12),
+            tickfont=dict(color=COLORS['axis_text'], size=14),
             gridcolor=COLORS['gridline'],
             title_font=dict(color=COLORS['text'], size=14)
         )
@@ -553,7 +553,7 @@ with tab1:
     )
     fig_percentage.update_traces(
         textposition='outside',  # Always position labels outside for consistent size/visibility
-        textfont=dict(size=11),
+        textfont=dict(size=14),
         cliponaxis=False
     )
     fig_percentage.update_layout(
@@ -564,12 +564,12 @@ with tab1:
         xaxis_title='Date',
         legend_title='Category',
         xaxis=dict(
-            tickfont=dict(color=COLORS['axis_text'], size=12),
+            tickfont=dict(color=COLORS['axis_text'], size=14),
             gridcolor=COLORS['gridline'],
             title_font=dict(color=COLORS['text'], size=14)
         ),
         yaxis=dict(
-            tickfont=dict(color=COLORS['axis_text'], size=12),
+            tickfont=dict(color=COLORS['axis_text'], size=14),
             gridcolor=COLORS['gridline'],
             title_font=dict(color=COLORS['text'], size=14)
         )
@@ -620,12 +620,12 @@ with tab1:
         yaxis_title='Category',
         height=400,
         xaxis=dict(
-            tickfont=dict(color=COLORS['axis_text'], size=12),
+            tickfont=dict(color=COLORS['axis_text'], size=14),
             gridcolor=COLORS['gridline'],
             title_font=dict(color=COLORS['text'], size=14)
         ),
         yaxis=dict(
-            tickfont=dict(color=COLORS['axis_text'], size=12),
+            tickfont=dict(color=COLORS['axis_text'], size=14),
             gridcolor=COLORS['gridline'],
             title_font=dict(color=COLORS['text'], size=14)
         )
@@ -673,7 +673,7 @@ with tab1:
     )
     fig_accounting.update_traces(
         textposition='auto',  # Auto positions text inside when fits, outside when too small
-        textfont=dict(size=11, color='white'),
+        textfont=dict(size=14, color='white'),
         insidetextanchor='middle'
     )
     fig_accounting.update_layout(
@@ -684,12 +684,12 @@ with tab1:
         xaxis_title='Date',
         legend_title='Group',
         xaxis=dict(
-            tickfont=dict(color=COLORS['axis_text'], size=12),
+            tickfont=dict(color=COLORS['axis_text'], size=14),
             gridcolor=COLORS['gridline'],
             title_font=dict(color=COLORS['text'], size=14)
         ),
         yaxis=dict(
-            tickfont=dict(color=COLORS['axis_text'], size=12),
+            tickfont=dict(color=COLORS['axis_text'], size=14),
             gridcolor=COLORS['gridline'],
             title_font=dict(color=COLORS['text'], size=14)
         )
@@ -804,7 +804,7 @@ with tab1:
         marker_color=COLORS['primary'],
         text=df_chart['Realized'].apply(lambda x: f'${x/1000:.1f}K' if x > 0 else ''),
         textposition='inside',
-        textfont=dict(size=11, color='white')
+        textfont=dict(size=14, color='white')
     ))
 
     # Add projected revenue bars
@@ -815,7 +815,7 @@ with tab1:
         marker_color=COLORS['secondary'],
         text=df_chart['Projected'].apply(lambda x: f'${x/1000:.1f}K' if x > 0 else ''),
         textposition='inside',
-        textfont=dict(size=11, color='white')
+        textfont=dict(size=14, color='white')
     ))
 
     fig_projection.update_layout(
@@ -828,12 +828,12 @@ with tab1:
         legend_title='Type',
         showlegend=True,
         xaxis=dict(
-            tickfont=dict(color=COLORS['axis_text'], size=12),
+            tickfont=dict(color=COLORS['axis_text'], size=14),
             gridcolor=COLORS['gridline'],
             title_font=dict(color=COLORS['text'], size=14)
         ),
         yaxis=dict(
-            tickfont=dict(color=COLORS['axis_text'], size=12),
+            tickfont=dict(color=COLORS['axis_text'], size=14),
             gridcolor=COLORS['gridline'],
             title_font=dict(color=COLORS['text'], size=14)
         )
@@ -1540,7 +1540,7 @@ with tab2:
             marker_color=COLORS['secondary'],
             text=df_period['New Memberships'],
             textposition='outside',
-            textfont=dict(size=10)
+            textfont=dict(size=14)
         ))
 
         # Add attrition bars (negative values for visual effect)
@@ -1551,7 +1551,7 @@ with tab2:
             marker_color=COLORS['primary'],
             text=df_period['Attrition'],
             textposition='outside',
-            textfont=dict(size=10)
+            textfont=dict(size=14)
         ))
 
         # Add net change line
@@ -1946,14 +1946,16 @@ with tab2:
         st.markdown('**Retention Rate by Month Since Joining (%)**')
         month_cols = [f'M{m}' for m in range(1, max_months_to_show + 1)]
         heatmap_cols = month_cols + ['Still Member']
-        df_heatmap = df_retention[['Cohort'] + month_cols + ['Active %']].tail(18).copy()
+        df_heatmap = df_retention[['Cohort', 'Total'] + month_cols + ['Active %']].tail(18).copy()
         df_heatmap = df_heatmap.rename(columns={'Active %': 'Still Member'})
-        df_heatmap = df_heatmap.set_index('Cohort')
+        df_heatmap['Cohort Label'] = df_heatmap['Cohort'] + '  (' + df_heatmap['Total'].astype(str) + ' joined)'
+        cohort_labels = df_heatmap['Cohort Label'].tolist()
+        df_heatmap = df_heatmap.drop(columns=['Total', 'Cohort Label']).set_index('Cohort')
 
         fig_heatmap = go.Figure(data=go.Heatmap(
             z=df_heatmap.values,
             x=heatmap_cols,
-            y=df_heatmap.index.tolist(),
+            y=cohort_labels,
             colorscale=[
                 [0, '#FFFFFF'],
                 [0.5, '#BAA052'],
@@ -1972,7 +1974,7 @@ with tab2:
             font_color=COLORS['text'],
             height=max(500, len(df_heatmap) * 38 + 120),
             xaxis_title='Months Since Joining',
-            yaxis_title='Join Month',
+            yaxis_title='Join Month (Cohort Size)',
             xaxis=dict(tickfont=dict(size=14), title_font=dict(size=16)),
             yaxis=dict(autorange='reversed', tickfont=dict(size=14), title_font=dict(size=16))
         )
@@ -2028,7 +2030,7 @@ with tab3:
     fig_day_pass_count.update_traces(
         marker_color=COLORS['quaternary'],
         textposition='outside',
-        textfont=dict(size=11)
+        textfont=dict(size=14)
     )
     fig_day_pass_count.update_layout(
         plot_bgcolor=COLORS['background'],
@@ -2037,12 +2039,12 @@ with tab3:
         yaxis_title='Number of Day Passes',
         xaxis_title='Date',
         xaxis=dict(
-            tickfont=dict(color=COLORS['axis_text'], size=12),
+            tickfont=dict(color=COLORS['axis_text'], size=14),
             gridcolor=COLORS['gridline'],
             title_font=dict(color=COLORS['text'], size=14)
         ),
         yaxis=dict(
-            tickfont=dict(color=COLORS['axis_text'], size=12),
+            tickfont=dict(color=COLORS['axis_text'], size=14),
             gridcolor=COLORS['gridline'],
             title_font=dict(color=COLORS['text'], size=14)
         )
@@ -2070,7 +2072,7 @@ with tab3:
     fig_day_pass_revenue.update_traces(
         marker_color=COLORS['tertiary'],
         textposition='outside',
-        textfont=dict(size=11)
+        textfont=dict(size=14)
     )
     fig_day_pass_revenue.update_layout(
         plot_bgcolor=COLORS['background'],
@@ -2079,12 +2081,12 @@ with tab3:
         yaxis_title='Revenue ($)',
         xaxis_title='Date',
         xaxis=dict(
-            tickfont=dict(color=COLORS['axis_text'], size=12),
+            tickfont=dict(color=COLORS['axis_text'], size=14),
             gridcolor=COLORS['gridline'],
             title_font=dict(color=COLORS['text'], size=14)
         ),
         yaxis=dict(
-            tickfont=dict(color=COLORS['axis_text'], size=12),
+            tickfont=dict(color=COLORS['axis_text'], size=14),
             gridcolor=COLORS['gridline'],
             title_font=dict(color=COLORS['text'], size=14)
         )
@@ -2489,7 +2491,7 @@ with tab3:
         fig_day_pass_used.update_traces(
             marker_color=COLORS['tertiary'],
             textposition='outside',
-            textfont=dict(size=11)
+            textfont=dict(size=14)
         )
         fig_day_pass_used.update_layout(
             plot_bgcolor=COLORS['background'],
@@ -2743,7 +2745,7 @@ with tab4:
         fig_birthday_count.update_traces(
             marker_color=COLORS['secondary'],
             textposition='outside',
-            textfont=dict(size=11)
+            textfont=dict(size=14)
         )
         fig_birthday_count.update_layout(
             plot_bgcolor=COLORS['background'],
@@ -2781,12 +2783,12 @@ with tab4:
         yaxis_title='Revenue ($)',
         xaxis_title='Date',
         xaxis=dict(
-            tickfont=dict(color=COLORS['axis_text'], size=12),
+            tickfont=dict(color=COLORS['axis_text'], size=14),
             gridcolor=COLORS['gridline'],
             title_font=dict(color=COLORS['text'], size=14)
         ),
         yaxis=dict(
-            tickfont=dict(color=COLORS['axis_text'], size=12),
+            tickfont=dict(color=COLORS['axis_text'], size=14),
             gridcolor=COLORS['gridline'],
             title_font=dict(color=COLORS['text'], size=14)
         )
@@ -2815,7 +2817,8 @@ with tab4:
         y='Total Amount',
         color='sub_category',
         title='All Rental Revenue by Type (Birthday Parties, Events, etc.)',
-        barmode='stack'
+        barmode='stack',
+        color_discrete_sequence=[COLORS['primary'], COLORS['secondary'], COLORS['tertiary'], COLORS['quaternary'], '#C85A3E', '#5B3A6B']
     )
     fig_all_rentals.update_layout(
         plot_bgcolor=COLORS['background'],
@@ -2825,12 +2828,12 @@ with tab4:
         xaxis_title='Date',
         legend_title='Rental Type',
         xaxis=dict(
-            tickfont=dict(color=COLORS['axis_text'], size=12),
+            tickfont=dict(color=COLORS['axis_text'], size=14),
             gridcolor=COLORS['gridline'],
             title_font=dict(color=COLORS['text'], size=14)
         ),
         yaxis=dict(
-            tickfont=dict(color=COLORS['axis_text'], size=12),
+            tickfont=dict(color=COLORS['axis_text'], size=14),
             gridcolor=COLORS['gridline'],
             title_font=dict(color=COLORS['text'], size=14)
         )
@@ -2966,7 +2969,7 @@ with tab5:
         fig_team_revenue.update_traces(
             marker_color=COLORS['primary'],
             textposition='outside',
-            textfont=dict(size=11)
+            textfont=dict(size=14)
         )
         fig_team_revenue.update_layout(
             plot_bgcolor=COLORS['background'],
@@ -3005,7 +3008,7 @@ with tab5:
         fig_fitness.update_traces(
             marker_color=COLORS['secondary'],
             textposition='outside',
-            textfont=dict(size=11)
+            textfont=dict(size=14)
         )
         fig_fitness.update_layout(
             plot_bgcolor=COLORS['background'],
@@ -3059,7 +3062,7 @@ with tab5:
             fig_attendance.update_traces(
                 marker_color=COLORS['tertiary'],
                 textposition='outside',
-                textfont=dict(size=11)
+                textfont=dict(size=14)
             )
             fig_attendance.update_layout(
                 plot_bgcolor=COLORS['background'],
