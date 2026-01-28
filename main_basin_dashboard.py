@@ -42,9 +42,9 @@ import plotly.graph_objects as go
 
 # Store axis styling config in one place - single source of truth
 AXIS_CONFIG = {
-    'tickfont': dict(color=COLORS['axis_text'], size=12),
+    'tickfont': dict(color=COLORS['axis_text'], size=14),
     'gridcolor': COLORS['gridline'],
-    'title_font': dict(color=COLORS['text'], size=14)
+    'title_font': dict(color=COLORS['text'], size=16)
 }
 
 # Create custom Basin template - this will apply automatically to ALL charts
@@ -53,8 +53,8 @@ basin_template.layout.xaxis = AXIS_CONFIG
 basin_template.layout.yaxis = AXIS_CONFIG
 basin_template.layout.plot_bgcolor = COLORS['background']
 basin_template.layout.paper_bgcolor = COLORS['background']
-basin_template.layout.font = dict(color=COLORS['text'])
-basin_template.layout.legend = dict(font=dict(color='#000000', size=13))
+basin_template.layout.font = dict(color=COLORS['text'], size=14)
+basin_template.layout.legend = dict(font=dict(color='#000000', size=15))
 
 # Register and set as default
 pio.templates['basin'] = basin_template
@@ -119,18 +119,18 @@ def apply_axis_styling(fig):
     """
     fig.update_layout(
         xaxis=dict(
-            tickfont=dict(color=COLORS['axis_text'], size=12),
+            tickfont=dict(color=COLORS['axis_text'], size=14),
             gridcolor=COLORS['gridline'],
-            title_font=dict(color=COLORS['text'], size=14)
+            title_font=dict(color=COLORS['text'], size=16)
         ),
         yaxis=dict(
-            tickfont=dict(color=COLORS['axis_text'], size=12),
+            tickfont=dict(color=COLORS['axis_text'], size=14),
             gridcolor=COLORS['gridline'],
-            title_font=dict(color=COLORS['text'], size=14)
+            title_font=dict(color=COLORS['text'], size=16)
         ),
         legend=dict(
-            font=dict(color='#000000', size=13),
-            title_font=dict(color='#000000', size=13)
+            font=dict(color='#000000', size=15),
+            title_font=dict(color='#000000', size=15)
         )
     )
     return fig
