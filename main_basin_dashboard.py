@@ -285,31 +285,6 @@ with tab0:
 
     today = pd.Timestamp.now()
 
-    # Last week = last 7 days
-    last_week_start = today - timedelta(days=7)
-    last_week_end = today
-
-    # Last month = previous complete calendar month
-    # Use start of THIS month as the exclusive end bound (same approach as Membership tab)
-    # This handles timestamps correctly (e.g., Dec 31 at 3pm < Jan 1 at midnight)
-    this_month_start = pd.Timestamp(year=today.year, month=today.month, day=1)
-    if today.month == 1:
-        last_month_start = pd.Timestamp(year=today.year - 1, month=12, day=1)
-    else:
-        last_month_start = pd.Timestamp(year=today.year, month=today.month - 1, day=1)
-    last_month_end = this_month_start  # Exclusive end bound
-
-    # Display date ranges
-    col1, col2 = st.columns(2)
-    with col1:
-        st.subheader(f'📅 Last Week')
-        st.caption(f'{last_week_start.strftime("%b %d")} - {last_week_end.strftime("%b %d, %Y")}')
-    with col2:
-        st.subheader(f'📅 Last Month')
-        st.caption(f'{last_month_start.strftime("%B %Y")}')
-
-    st.markdown('---')
-
     # Prepare data with dates
     df_transactions['Date'] = pd.to_datetime(df_transactions['Date'], errors='coerce')
     if 'checkin_datetime' in df_checkins.columns:
@@ -425,7 +400,26 @@ with tab0:
         for metric in ['Day Passes', 'New Members', 'Attrition', 'Birthdays']:
             df_scorecard.loc[metric, col] = f"{int(df_scorecard.loc[metric, col]):,}"
 
-    st.dataframe(df_scorecard, use_container_width=True)
+    # Render as styled HTML table for larger font and centered values
+    header_row = '<tr><th style="text-align:left; padding:10px 16px; font-size:18px; border-bottom:2px solid #213B3F;">Metric</th>'
+    for col in df_scorecard.columns:
+        header_row += f'<th style="text-align:center; padding:10px 16px; font-size:18px; border-bottom:2px solid #213B3F;">{col}</th>'
+    header_row += '</tr>'
+
+    body_rows = ''
+    for metric in df_scorecard.index:
+        body_rows += f'<tr><td style="text-align:left; padding:8px 16px; font-size:17px; font-weight:600; border-bottom:1px solid #E0E0E0;">{metric}</td>'
+        for col in df_scorecard.columns:
+            body_rows += f'<td style="text-align:center; padding:8px 16px; font-size:17px; border-bottom:1px solid #E0E0E0;">{df_scorecard.loc[metric, col]}</td>'
+        body_rows += '</tr>'
+
+    scorecard_html = f'''
+    <table style="width:100%; border-collapse:collapse; background-color:#FFFFFF; border-radius:8px;">
+        <thead>{header_row}</thead>
+        <tbody>{body_rows}</tbody>
+    </table>
+    '''
+    st.markdown(scorecard_html, unsafe_allow_html=True)
 
 # ============================================================================
 # TAB 1: REVENUE
