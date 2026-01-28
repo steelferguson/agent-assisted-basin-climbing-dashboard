@@ -402,8 +402,8 @@ with tab0:
 
     df_scorecard = pd.DataFrame(scorecard_rows)
 
-    # Add 4-week average row
-    avg_row = {
+    # Add 4-week average column
+    avg_col = {
         'Week': '4-Wk Avg',
         'Revenue': df_scorecard['Revenue'].mean(),
         'Day Passes': int(round(df_scorecard['Day Passes'].mean())),
@@ -412,14 +412,20 @@ with tab0:
         'Birthdays': int(round(df_scorecard['Birthdays'].mean())),
         'Fitness $': df_scorecard['Fitness $'].mean()
     }
-    df_scorecard = pd.concat([df_scorecard, pd.DataFrame([avg_row])], ignore_index=True)
+    df_scorecard = pd.concat([df_scorecard, pd.DataFrame([avg_col])], ignore_index=True)
 
-    # Format for display
-    df_display_sc = df_scorecard.copy()
-    df_display_sc['Revenue'] = df_display_sc['Revenue'].apply(lambda x: f'${x:,.0f}')
-    df_display_sc['Fitness $'] = df_display_sc['Fitness $'].apply(lambda x: f'${x:,.0f}')
+    # Transpose: metrics as rows, weeks as columns (trends left to right)
+    df_scorecard = df_scorecard.set_index('Week').T
+    df_scorecard.index.name = 'Metric'
 
-    st.dataframe(df_display_sc, use_container_width=True, hide_index=True)
+    # Format dollar rows
+    for col in df_scorecard.columns:
+        df_scorecard.loc['Revenue', col] = f"${df_scorecard.loc['Revenue', col]:,.0f}"
+        df_scorecard.loc['Fitness $', col] = f"${df_scorecard.loc['Fitness $', col]:,.0f}"
+        for metric in ['Day Passes', 'New Members', 'Attrition', 'Birthdays']:
+            df_scorecard.loc[metric, col] = f"{int(df_scorecard.loc[metric, col]):,}"
+
+    st.dataframe(df_scorecard, use_container_width=True)
 
     st.markdown('---')
 
@@ -2322,6 +2328,7 @@ with tab2:
 
     # Calculate active memberships split by new vs existing for each month
     if not df_memberships_dates.empty:
+        month_range = pd.period_range(start=min_date.to_period('M'), end=max_date.to_period('M'), freq='M')
         results = []
         for month in month_range:
             month_start = month.to_timestamp()
