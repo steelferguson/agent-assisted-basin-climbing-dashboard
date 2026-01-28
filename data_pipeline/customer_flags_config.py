@@ -6,9 +6,27 @@ Rules are evaluated daily to identify customers who need outreach.
 """
 
 from datetime import datetime, timedelta
-from typing import Dict, Any, Literal, Optional
+from typing import Dict, Any, Literal, Optional, List
 import hashlib
 import json
+import pandas as pd
+import boto3
+from io import StringIO
+import os
+
+
+# ============================================================================
+# PERSISTENT FLAGS - These flags do NOT expire after 14 days
+# They persist until the underlying condition changes (e.g., membership ends)
+# ============================================================================
+PERSISTENT_FLAGS: List[str] = [
+    'active_membership',  # Stays until membership ends
+]
+
+
+def is_persistent_flag(flag_type: str) -> bool:
+    """Check if a flag type is persistent (doesn't expire after 14 days)."""
+    return flag_type in PERSISTENT_FLAGS
 
 
 def get_customer_ab_group(customer_id: str, email: Optional[str] = None, phone: Optional[str] = None) -> Literal["A", "B"]:
@@ -1217,6 +1235,98 @@ class MembershipCancelledWinbackFlag(FlagRule):
         }
 
 
+class ActiveMembershipFlag(FlagRule):
+    """
+    Flag customers who have an active membership.
+
+    This is a PERSISTENT flag - it does not expire after 14 days.
+    It stays as long as the customer has an active membership and is
+    removed when all their memberships end.
+
+    Used for:
+    - Shopify tag 'active-membership' for member-only offers/content
+    - Segmentation in marketing platforms
+    """
+
+    def __init__(self):
+        super().__init__(
+            flag_type="active_membership",
+            description="Customer has an active membership",
+            priority="low"  # Low priority since it's a status flag, not an action flag
+        )
+        self._memberships_df = None
+        self._memberships_loaded = False
+
+    def _load_memberships(self):
+        """Load memberships data from S3 (cached for the session)."""
+        if self._memberships_loaded:
+            return
+
+        try:
+            aws_access_key_id = os.getenv("AWS_ACCESS_KEY_ID")
+            aws_secret_access_key = os.getenv("AWS_SECRET_ACCESS_KEY")
+
+            if aws_access_key_id and aws_secret_access_key:
+                s3_client = boto3.client(
+                    's3',
+                    aws_access_key_id=aws_access_key_id,
+                    aws_secret_access_key=aws_secret_access_key
+                )
+
+                obj = s3_client.get_object(
+                    Bucket='basin-climbing-data-prod',
+                    Key='capitan/memberships.csv'
+                )
+                self._memberships_df = pd.read_csv(StringIO(obj['Body'].read().decode('utf-8')))
+                print(f"   [ActiveMembershipFlag] Loaded {len(self._memberships_df)} memberships")
+            else:
+                print("   [ActiveMembershipFlag] AWS credentials not found, skipping")
+                self._memberships_df = pd.DataFrame()
+
+        except Exception as e:
+            print(f"   [ActiveMembershipFlag] Error loading memberships: {e}")
+            self._memberships_df = pd.DataFrame()
+
+        self._memberships_loaded = True
+
+    def evaluate(self, customer_id: str, events: list, today: datetime, **kwargs) -> Dict[str, Any]:
+        """
+        Check if customer has an active membership.
+
+        Uses the memberships table directly (not events) for accuracy.
+        """
+        self._load_memberships()
+
+        if self._memberships_df is None or self._memberships_df.empty:
+            return None
+
+        # Check if customer has any active membership
+        # owner_id in memberships matches customer_id from Capitan
+        customer_memberships = self._memberships_df[
+            (self._memberships_df['owner_id'].astype(str) == str(customer_id)) &
+            (self._memberships_df['status'] == 'ACT')
+        ]
+
+        if customer_memberships.empty:
+            return None
+
+        # Get membership details for context
+        membership_names = customer_memberships['name'].unique().tolist()
+        membership_count = len(customer_memberships)
+
+        return {
+            'customer_id': customer_id,
+            'flag_type': self.flag_type,
+            'triggered_date': today,
+            'flag_data': {
+                'membership_count': membership_count,
+                'membership_names': membership_names,
+                'description': self.description
+            },
+            'priority': self.priority
+        }
+
+
 # List of all active rules
 ACTIVE_RULES = [
     ReadyForMembershipFlag(),
@@ -1229,6 +1339,7 @@ ACTIVE_RULES = [
     BirthdayPartyHostSixDaysOutFlag(),     # Host notification (6 days before)
     FiftyPercentOfferSentFlag(),           # Track 50% offer email sends
     MembershipCancelledWinbackFlag(),      # Win-back for cancelled members
+    ActiveMembershipFlag(),                # PERSISTENT: Active membership status
 ]
 
 

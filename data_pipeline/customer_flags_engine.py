@@ -355,6 +355,9 @@ class CustomerFlagsEngine:
         """
         Remove flags that are older than the expiration period.
 
+        IMPORTANT: Persistent flags (like 'active_membership') are NOT removed
+        by this function. They persist until the underlying condition changes.
+
         Args:
             df_flags: DataFrame of flags
             today: Current date
@@ -372,12 +375,20 @@ class CustomerFlagsEngine:
         from datetime import timedelta
         expiration_date = today - timedelta(days=days_until_expiration)
 
-        # Filter out expired flags
-        df_flags = df_flags[df_flags['triggered_date'] >= expiration_date].copy()
+        # Import the persistent flags check
+        from data_pipeline.customer_flags_config import is_persistent_flag
+
+        # Keep flags that are either:
+        # 1. Not expired (triggered_date >= expiration_date), OR
+        # 2. Persistent flags (they never expire based on time)
+        df_flags = df_flags[
+            (df_flags['triggered_date'] >= expiration_date) |
+            (df_flags['flag_type'].apply(is_persistent_flag))
+        ].copy()
 
         expired_count = initial_count - len(df_flags)
         if expired_count > 0:
-            print(f"   Removed {expired_count} expired flags")
+            print(f"   Removed {expired_count} expired flags (persistent flags preserved)")
         else:
             print(f"   No expired flags found")
 
@@ -566,10 +577,12 @@ class CustomerFlagsEngine:
                 keep='first'  # Keep the most recent
             )
 
-            # Remove expired flags (older than 14 days)
+            # Remove expired flags (older than 14 days), but preserve persistent flags
             today_dt = pd.Timestamp.now().normalize()  # Today at midnight
+            from data_pipeline.customer_flags_config import is_persistent_flag
             df_all_flags = df_all_flags[
-                df_all_flags['flag_added_date'] >= (today_dt - pd.Timedelta(days=14))
+                (df_all_flags['flag_added_date'] >= (today_dt - pd.Timedelta(days=14))) |
+                (df_all_flags['flag_type'].apply(is_persistent_flag))
             ]
 
             print(f"   ✅ Merged to {len(df_all_flags)} total flags (added {len(df_flags)} new, kept non-expired existing)")
