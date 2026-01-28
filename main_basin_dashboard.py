@@ -1858,6 +1858,131 @@ with tab2:
     else:
         st.info('No recently attrited members found')
 
+    # ========== COHORT RETENTION ==========
+    st.subheader('Membership Cohort Retention')
+    st.markdown('For each month cohort (when members joined), how long did they stay? How many are still active?')
+
+    df_cohort = df_memberships.copy()
+    df_cohort['start_date'] = pd.to_datetime(df_cohort.get('start_date'), errors='coerce')
+    df_cohort['end_date'] = pd.to_datetime(df_cohort.get('end_date'), errors='coerce')
+    df_cohort = df_cohort[df_cohort['start_date'].notna()].copy()
+
+    if not df_cohort.empty:
+        cohort_today = pd.Timestamp.now()
+        df_cohort['cohort_month'] = df_cohort['start_date'].dt.to_period('M')
+
+        # Duration in months
+        df_cohort['duration_months'] = df_cohort.apply(
+            lambda r: max(0, (cohort_today - r['start_date']).days / 30.44)
+            if r['status'] == 'ACT'
+            else max(0, (r['end_date'] - r['start_date']).days / 30.44)
+            if pd.notna(r['end_date'])
+            else 0,
+            axis=1
+        )
+
+        # Build retention matrix
+        cohort_months = sorted(df_cohort['cohort_month'].unique())
+        max_months_to_show = 12
+
+        retention_data = []
+        for cm in cohort_months:
+            cohort = df_cohort[df_cohort['cohort_month'] == cm]
+            total = len(cohort)
+            still_active = len(cohort[cohort['status'] == 'ACT'])
+            row = {
+                'Cohort': str(cm),
+                'Total': total,
+                'Still Active': still_active,
+                'Active %': round(still_active / total * 100) if total > 0 else 0
+            }
+            for m in range(1, max_months_to_show + 1):
+                retained = len(cohort[cohort['duration_months'] >= m])
+                row[f'M{m}'] = round(retained / total * 100) if total > 0 else 0
+            retention_data.append(row)
+
+        df_retention = pd.DataFrame(retention_data)
+
+        # Summary: still active by cohort
+        st.markdown('**Members Still Active by Cohort**')
+        df_active_summary = df_retention[['Cohort', 'Total', 'Still Active', 'Active %']].copy()
+        # Only show last 18 months
+        df_active_summary = df_active_summary.tail(18)
+
+        fig_active = go.Figure()
+        fig_active.add_trace(go.Bar(
+            x=df_active_summary['Cohort'],
+            y=df_active_summary['Total'],
+            name='Total Joined',
+            marker_color=COLORS['secondary'],
+            text=df_active_summary['Total'],
+            textposition='outside',
+            textfont=dict(size=11)
+        ))
+        fig_active.add_trace(go.Bar(
+            x=df_active_summary['Cohort'],
+            y=df_active_summary['Still Active'],
+            name='Still Active',
+            marker_color=COLORS['quaternary'],
+            text=df_active_summary['Still Active'],
+            textposition='outside',
+            textfont=dict(size=11)
+        ))
+        fig_active.update_layout(
+            title='Cohort Size vs Still Active Members',
+            plot_bgcolor=COLORS['background'],
+            paper_bgcolor=COLORS['background'],
+            font_color=COLORS['text'],
+            height=450,
+            barmode='group',
+            xaxis_title='Join Month',
+            yaxis_title='Members',
+            legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1)
+        )
+        fig_active = apply_axis_styling(fig_active)
+        st.plotly_chart(fig_active, use_container_width=True)
+
+        # Retention heatmap
+        st.markdown('**Retention Rate by Month Since Joining (%)**')
+        month_cols = [f'M{m}' for m in range(1, max_months_to_show + 1)]
+        df_heatmap = df_retention[['Cohort'] + month_cols].tail(18).copy()
+        df_heatmap = df_heatmap.set_index('Cohort')
+
+        fig_heatmap = go.Figure(data=go.Heatmap(
+            z=df_heatmap.values,
+            x=month_cols,
+            y=df_heatmap.index.tolist(),
+            colorscale=[
+                [0, '#FFFFFF'],
+                [0.5, '#BAA052'],
+                [1, '#1A2E31']
+            ],
+            text=df_heatmap.values,
+            texttemplate='%{text}%',
+            textfont=dict(size=12),
+            hoverongaps=False,
+            colorbar=dict(title='Retained %')
+        ))
+        fig_heatmap.update_layout(
+            title='Cohort Retention Heatmap (% still members at month N)',
+            plot_bgcolor=COLORS['background'],
+            paper_bgcolor=COLORS['background'],
+            font_color=COLORS['text'],
+            height=max(400, len(df_heatmap) * 30 + 100),
+            xaxis_title='Months Since Joining',
+            yaxis_title='Join Month',
+            yaxis=dict(autorange='reversed')
+        )
+        fig_heatmap = apply_axis_styling(fig_heatmap)
+        st.plotly_chart(fig_heatmap, use_container_width=True)
+
+        # Expandable detail table
+        with st.expander('View Retention Data Table'):
+            display_cols = ['Cohort', 'Total', 'Still Active', 'Active %'] + month_cols
+            st.dataframe(df_retention[display_cols].tail(18), use_container_width=True, hide_index=True)
+    else:
+        st.info('No membership data available for cohort analysis')
+
 # ============================================================================
 # TAB 3: DAY PASSES & CHECK-INS
 # ============================================================================
