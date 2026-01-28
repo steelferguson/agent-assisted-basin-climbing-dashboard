@@ -319,6 +319,110 @@ with tab0:
     if 'event_date' in df_events.columns:
         df_events['event_date'] = pd.to_datetime(df_events['event_date'], errors='coerce')
 
+    # ========== WEEKLY SCORECARD ==========
+    st.subheader('Weekly Scorecard')
+
+    # Calculate last 4 complete weeks (Mon-Sun)
+    days_since_monday = today.weekday()
+    current_monday = (today - timedelta(days=days_since_monday)).normalize()
+
+    week_ranges = []
+    for i in range(4, 0, -1):
+        week_start = current_monday - timedelta(weeks=i)
+        week_end = week_start + timedelta(days=6)
+        week_ranges.append((week_start, week_end))
+
+    # Prepare membership dates for scorecard
+    df_mem_sc = df_memberships.copy()
+    df_mem_sc['start_date'] = pd.to_datetime(df_mem_sc.get('start_date'), errors='coerce')
+    df_mem_sc['end_date'] = pd.to_datetime(df_mem_sc.get('end_date'), errors='coerce')
+
+    # Prepare birthday filter
+    bday_mask = (
+        (df_transactions['Description'].str.contains('Birthday Party', case=False, na=False)) |
+        ((df_transactions['revenue_category'] == 'Event Booking') &
+         (df_transactions['Description'].str.contains('birthday', case=False, na=False)))
+    )
+    if 'sub_category' in df_transactions.columns:
+        bday_mask = bday_mask | (
+            (df_transactions['sub_category'] == 'birthday') &
+            (df_transactions['Description'].str.contains('Calendly', case=False, na=False))
+        )
+    df_bday = df_transactions[bday_mask].copy()
+
+    scorecard_rows = []
+    for ws, we in week_ranges:
+        we_exclusive = we + timedelta(days=1)
+
+        # Revenue
+        rev = df_transactions[
+            (df_transactions['Date'] >= ws) & (df_transactions['Date'] < we_exclusive)
+        ]['Total Amount'].sum()
+
+        # Day pass units
+        dp = df_transactions[
+            (df_transactions['Date'] >= ws) & (df_transactions['Date'] < we_exclusive) &
+            (df_transactions['revenue_category'] == 'Day Pass')
+        ]
+        dp_units = dp['Day Pass Count'].sum() if 'Day Pass Count' in dp.columns else len(dp)
+
+        # New memberships
+        new_mem = len(df_mem_sc[
+            (df_mem_sc['start_date'] >= ws) & (df_mem_sc['start_date'] < we_exclusive)
+        ]) if 'start_date' in df_mem_sc.columns else 0
+
+        # Attrited memberships
+        att_mem = len(df_mem_sc[
+            (df_mem_sc['status'] == 'END') &
+            (df_mem_sc['end_date'] >= ws) & (df_mem_sc['end_date'] < we_exclusive)
+        ]) if 'end_date' in df_mem_sc.columns and 'status' in df_mem_sc.columns else 0
+
+        # Birthday parties
+        bday_count = len(df_bday[
+            (df_bday['Date'] >= ws) & (df_bday['Date'] < we_exclusive)
+        ])
+
+        # Fitness dollars
+        fit = 0
+        if 'fitness_amount' in df_transactions.columns:
+            fit = df_transactions[
+                (df_transactions['Date'] >= ws) & (df_transactions['Date'] < we_exclusive) &
+                (df_transactions['fitness_amount'] > 0)
+            ]['fitness_amount'].sum()
+
+        scorecard_rows.append({
+            'Week': f"{ws.strftime('%b %d')} - {we.strftime('%b %d')}",
+            'Revenue': rev,
+            'Day Passes': int(dp_units),
+            'New Members': int(new_mem),
+            'Attrition': int(att_mem),
+            'Birthdays': int(bday_count),
+            'Fitness $': fit
+        })
+
+    df_scorecard = pd.DataFrame(scorecard_rows)
+
+    # Add 4-week average row
+    avg_row = {
+        'Week': '4-Wk Avg',
+        'Revenue': df_scorecard['Revenue'].mean(),
+        'Day Passes': int(round(df_scorecard['Day Passes'].mean())),
+        'New Members': int(round(df_scorecard['New Members'].mean())),
+        'Attrition': int(round(df_scorecard['Attrition'].mean())),
+        'Birthdays': int(round(df_scorecard['Birthdays'].mean())),
+        'Fitness $': df_scorecard['Fitness $'].mean()
+    }
+    df_scorecard = pd.concat([df_scorecard, pd.DataFrame([avg_row])], ignore_index=True)
+
+    # Format for display
+    df_display_sc = df_scorecard.copy()
+    df_display_sc['Revenue'] = df_display_sc['Revenue'].apply(lambda x: f'${x:,.0f}')
+    df_display_sc['Fitness $'] = df_display_sc['Fitness $'].apply(lambda x: f'${x:,.0f}')
+
+    st.dataframe(df_display_sc, use_container_width=True, hide_index=True)
+
+    st.markdown('---')
+
     # ========== MEMBERSHIP METRICS SECTION ==========
     st.subheader('👥 Membership Growth & Attrition')
 
