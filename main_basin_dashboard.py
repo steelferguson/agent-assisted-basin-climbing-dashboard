@@ -2073,7 +2073,14 @@ with tab2:
     # New Members & Attrition
     st.subheader('New Memberships & Attrition Over Time')
 
-    # Calculate new memberships and attrition by month - use FULL dataframe (not filtered)
+    attrition_period = st.radio(
+        'View by:',
+        ['Monthly', 'Weekly'],
+        horizontal=True,
+        key='attrition_period_toggle'
+    )
+
+    # Calculate new memberships and attrition - use FULL dataframe (not filtered)
     # This ensures numbers match the Overview tab
     df_memberships_dates = df_memberships.copy()
 
@@ -2088,70 +2095,72 @@ with tab2:
     min_date = df_memberships_dates['start_date'].min()
     max_date = pd.Timestamp.now()
 
-    # Create monthly periods
-    month_range = pd.period_range(start=min_date.to_period('M'), end=max_date.to_period('M'), freq='M')
+    if attrition_period == 'Monthly':
+        period_range = pd.period_range(start=min_date.to_period('M'), end=max_date.to_period('M'), freq='M')
+    else:
+        period_range = pd.period_range(start=min_date.to_period('W'), end=max_date.to_period('W'), freq='W')
 
-    monthly_data = []
-    for month in month_range:
-        month_start = month.to_timestamp()
-        month_end = (month + 1).to_timestamp()
+    period_data = []
+    for period in period_range:
+        period_start = period.to_timestamp()
+        period_end = (period + 1).to_timestamp()
 
-        # Count new memberships that started in this month
+        # Count new memberships that started in this period
         new_members = len(df_memberships_dates[
-            (df_memberships_dates['start_date'] >= month_start) &
-            (df_memberships_dates['start_date'] < month_end)
+            (df_memberships_dates['start_date'] >= period_start) &
+            (df_memberships_dates['start_date'] < period_end)
         ])
 
-        # Count memberships that ended in this month (attrition)
+        # Count memberships that ended in this period (attrition)
         # ONLY count memberships with status='END' to avoid counting active memberships' billing dates
         attrited = len(df_memberships_dates[
             (df_memberships_dates['status'] == 'END') &
-            (df_memberships_dates['end_date'] >= month_start) &
-            (df_memberships_dates['end_date'] < month_end)
+            (df_memberships_dates['end_date'] >= period_start) &
+            (df_memberships_dates['end_date'] < period_end)
         ])
 
         # Net change
         net_change = new_members - attrited
 
-        monthly_data.append({
-            'month': month.to_timestamp(),
+        period_data.append({
+            'period': period.to_timestamp(),
             'New Memberships': new_members,
             'Attrition': attrited,
             'Net Change': net_change
         })
 
-    df_monthly = pd.DataFrame(monthly_data)
+    df_period = pd.DataFrame(period_data)
 
-    if not df_monthly.empty:
+    if not df_period.empty:
         # Create figure with secondary y-axis
         fig_attrition = go.Figure()
 
         # Add new memberships bars
         fig_attrition.add_trace(go.Bar(
-            x=df_monthly['month'],
-            y=df_monthly['New Memberships'],
+            x=df_period['period'],
+            y=df_period['New Memberships'],
             name='New Memberships',
             marker_color=COLORS['secondary'],
-            text=df_monthly['New Memberships'],
+            text=df_period['New Memberships'],
             textposition='outside',
             textfont=dict(size=10)
         ))
 
         # Add attrition bars (negative values for visual effect)
         fig_attrition.add_trace(go.Bar(
-            x=df_monthly['month'],
-            y=-df_monthly['Attrition'],  # Negative to show below axis
+            x=df_period['period'],
+            y=-df_period['Attrition'],  # Negative to show below axis
             name='Attrition',
             marker_color=COLORS['primary'],
-            text=df_monthly['Attrition'],
+            text=df_period['Attrition'],
             textposition='outside',
             textfont=dict(size=10)
         ))
 
         # Add net change line
         fig_attrition.add_trace(go.Scatter(
-            x=df_monthly['month'],
-            y=df_monthly['Net Change'],
+            x=df_period['period'],
+            y=df_period['Net Change'],
             name='Net Change',
             mode='lines+markers',
             line=dict(color=COLORS['quaternary'], width=3),
@@ -2159,13 +2168,14 @@ with tab2:
             yaxis='y2'
         ))
 
+        period_label = 'Month' if attrition_period == 'Monthly' else 'Week'
         fig_attrition.update_layout(
-            title='Monthly New Memberships & Attrition',
+            title=f'{attrition_period} New Memberships & Attrition',
             plot_bgcolor=COLORS['background'],
             paper_bgcolor=COLORS['background'],
             font_color=COLORS['text'],
             height=500,
-            xaxis_title='Month',
+            xaxis_title=period_label,
             yaxis_title='Count',
             yaxis2=dict(
                 title='Net Change',
@@ -2193,11 +2203,11 @@ with tab2:
         # Summary metrics
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.metric('Total New Memberships', df_monthly['New Memberships'].sum())
+            st.metric('Total New Memberships', df_period['New Memberships'].sum())
         with col2:
-            st.metric('Total Attrition', df_monthly['Attrition'].sum())
+            st.metric('Total Attrition', df_period['Attrition'].sum())
         with col3:
-            net_total = df_monthly['Net Change'].sum()
+            net_total = df_period['Net Change'].sum()
             st.metric('Net Growth', net_total, delta=None)
     else:
         st.info('No membership data available for attrition analysis')
