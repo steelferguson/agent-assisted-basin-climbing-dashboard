@@ -1255,11 +1255,12 @@ class ActiveMembershipFlag(FlagRule):
             priority="low"  # Low priority since it's a status flag, not an action flag
         )
         self._memberships_df = None
-        self._memberships_loaded = False
+        self._uuid_to_capitan_id = {}  # Map UUID customer_id -> Capitan numeric ID
+        self._data_loaded = False
 
-    def _load_memberships(self):
-        """Load memberships data from S3 (cached for the session)."""
-        if self._memberships_loaded:
+    def _load_data(self):
+        """Load memberships and customer ID mapping from S3 (cached for the session)."""
+        if self._data_loaded:
             return
 
         try:
@@ -1273,37 +1274,69 @@ class ActiveMembershipFlag(FlagRule):
                     aws_secret_access_key=aws_secret_access_key
                 )
 
+                # Load memberships
                 obj = s3_client.get_object(
                     Bucket='basin-climbing-data-prod',
                     Key='capitan/memberships.csv'
                 )
                 self._memberships_df = pd.read_csv(StringIO(obj['Body'].read().decode('utf-8')))
-                print(f"   [ActiveMembershipFlag] Loaded {len(self._memberships_df)} memberships")
+                active_count = len(self._memberships_df[self._memberships_df['status'] == 'ACT'])
+                print(f"   [ActiveMembershipFlag] Loaded {len(self._memberships_df)} memberships ({active_count} active)")
+
+                # Load customer_identifiers to build UUID -> Capitan ID mapping
+                obj_ids = s3_client.get_object(
+                    Bucket='basin-climbing-data-prod',
+                    Key='customers/customer_identifiers.csv'
+                )
+                df_identifiers = pd.read_csv(StringIO(obj_ids['Body'].read().decode('utf-8')))
+
+                # Build mapping from UUID customer_id to Capitan numeric ID
+                # source_id format is "customer:1834008"
+                for _, row in df_identifiers.iterrows():
+                    uuid_id = str(row['customer_id'])
+                    source_id = str(row.get('source_id', ''))
+                    if source_id.startswith('customer:'):
+                        capitan_id = source_id.replace('customer:', '')
+                        # Only keep first mapping (they should all be the same for a UUID)
+                        if uuid_id not in self._uuid_to_capitan_id:
+                            self._uuid_to_capitan_id[uuid_id] = capitan_id
+
+                print(f"   [ActiveMembershipFlag] Built UUID->Capitan mapping for {len(self._uuid_to_capitan_id)} customers")
             else:
                 print("   [ActiveMembershipFlag] AWS credentials not found, skipping")
                 self._memberships_df = pd.DataFrame()
 
         except Exception as e:
-            print(f"   [ActiveMembershipFlag] Error loading memberships: {e}")
+            print(f"   [ActiveMembershipFlag] Error loading data: {e}")
             self._memberships_df = pd.DataFrame()
 
-        self._memberships_loaded = True
+        self._data_loaded = True
 
     def evaluate(self, customer_id: str, events: list, today: datetime, **kwargs) -> Dict[str, Any]:
         """
         Check if customer has an active membership.
 
         Uses the memberships table directly (not events) for accuracy.
+        Handles both UUID customer_ids (from customer_events) and Capitan numeric IDs.
         """
-        self._load_memberships()
+        self._load_data()
 
         if self._memberships_df is None or self._memberships_df.empty:
             return None
 
+        # Try to find the Capitan ID for this customer
+        # First check if customer_id is already a Capitan numeric ID
+        capitan_id = str(customer_id)
+
+        # If it looks like a UUID, look up the Capitan ID
+        if '-' in capitan_id:
+            capitan_id = self._uuid_to_capitan_id.get(capitan_id)
+            if not capitan_id:
+                return None  # No Capitan ID mapping found
+
         # Check if customer has any active membership
-        # owner_id in memberships matches customer_id from Capitan
         customer_memberships = self._memberships_df[
-            (self._memberships_df['owner_id'].astype(str) == str(customer_id)) &
+            (self._memberships_df['owner_id'].astype(str) == capitan_id) &
             (self._memberships_df['status'] == 'ACT')
         ]
 
@@ -1321,6 +1354,7 @@ class ActiveMembershipFlag(FlagRule):
             'flag_data': {
                 'membership_count': membership_count,
                 'membership_names': membership_names,
+                'capitan_id': capitan_id,
                 'description': self.description
             },
             'priority': self.priority
