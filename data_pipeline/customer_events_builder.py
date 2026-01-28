@@ -106,6 +106,7 @@ class CustomerEventsBuilder:
         events_added = 0
         matched = 0
         matched_by_membership = 0
+        matched_by_email = 0
         unmatched = 0
 
         for _, row in df_transactions.iterrows():
@@ -123,6 +124,8 @@ class CustomerEventsBuilder:
             source = row.get('Data Source', '').lower()
             customer_name = row.get('Name', '')
             transaction_id = row.get('transaction_id', '')
+            receipt_email = row.get('receipt_email', '')
+            billing_email = row.get('billing_email', '')
 
             # Determine event type based on revenue category
             event_type = None
@@ -169,6 +172,16 @@ class CustomerEventsBuilder:
                             confidence = 'high'  # Membership ID match is high confidence
                             matched_by_membership += 1
 
+            # If still unmatched, try email matching (receipt_email or billing_email)
+            if not customer_id:
+                for email in [receipt_email, billing_email]:
+                    lookup = self._lookup_customer(email)
+                    if lookup:
+                        customer_id = lookup['customer_id']
+                        confidence = 'high'  # Email match is high confidence
+                        matched_by_email += 1
+                        break
+
             if not customer_id:
                 # Skip events we can't match to customers
                 unmatched += 1
@@ -193,6 +206,7 @@ class CustomerEventsBuilder:
         print(f"✅ Added {events_added} transaction events")
         print(f"   - {matched} matched by name")
         print(f"   - {matched_by_membership} matched by membership ID")
+        print(f"   - {matched_by_email} matched by email")
         print(f"   - {unmatched} unmatched")
 
     def add_checkin_events(self, df_checkins: pd.DataFrame):
@@ -526,6 +540,70 @@ class CustomerEventsBuilder:
 
         print(f"✅ Added {events_added} pass sharing events ({shared_count} shared, {received_count} received)")
 
+    def add_shopify_events(self, df_shopify: pd.DataFrame):
+        """
+        Add events from Shopify order data.
+        Matches customers by email (high confidence).
+
+        Event types:
+        - shopify_purchase
+        """
+        print(f"\n🛒 Processing Shopify order events ({len(df_shopify)} records)...")
+
+        if df_shopify.empty:
+            print("⚠️  No Shopify data")
+            return
+
+        events_added = 0
+        matched = 0
+        unmatched = 0
+
+        for _, row in df_shopify.iterrows():
+            date = pd.to_datetime(row.get('transaction_date') or row.get('created_at'), errors='coerce')
+            if pd.isna(date):
+                continue
+
+            customer_email = row.get('customer_email')
+            product_title = row.get('product_title', '')
+            category = row.get('category', '')
+            amount = row.get('total_price', 0)
+            order_id = row.get('order_id', '')
+            customer_name = f"{row.get('customer_first_name', '')} {row.get('customer_last_name', '')}".strip()
+
+            # Match by email
+            customer_id = None
+            confidence = 'unmatched'
+            lookup = self._lookup_customer(customer_email)
+            if lookup:
+                customer_id = lookup['customer_id']
+                confidence = 'high'
+                matched += 1
+
+            if not customer_id:
+                unmatched += 1
+                continue
+
+            self.events.append({
+                'customer_id': customer_id,
+                'event_date': date,
+                'event_type': 'shopify_purchase',
+                'event_source': 'shopify',
+                'source_confidence': confidence,
+                'event_details': json.dumps({
+                    'order_id': str(order_id),
+                    'product_title': product_title,
+                    'category': category,
+                    'amount': float(amount) if amount else 0,
+                    'customer_name': customer_name,
+                    'customer_email': customer_email
+                })
+            })
+            events_added += 1
+
+        print(f"✅ Added {events_added} Shopify events")
+        print(f"   - {matched} matched by email")
+        print(f"   - {unmatched} unmatched")
+
     def build_events_dataframe(self) -> pd.DataFrame:
         """
         Build final customer events DataFrame.
@@ -587,6 +665,7 @@ def build_customer_events(
     df_transfers: pd.DataFrame = None,
     df_mailchimp: pd.DataFrame = None,
     df_memberships: pd.DataFrame = None,
+    df_shopify: pd.DataFrame = None,
     mailchimp_fetcher = None,
     anthropic_api_key: str = None
 ) -> pd.DataFrame:
@@ -601,6 +680,7 @@ def build_customer_events(
         df_transfers: Pass transfer data (with purchaser_customer_id)
         df_mailchimp: Mailchimp campaign data
         df_memberships: Capitan memberships data (for transaction matching)
+        df_shopify: Shopify orders data
         mailchimp_fetcher: MailchimpDataFetcher instance for recipient fetching
         anthropic_api_key: API key for template analysis
 
@@ -628,6 +708,9 @@ def build_customer_events(
 
     if df_mailchimp is not None and not df_mailchimp.empty and mailchimp_fetcher is not None:
         builder.add_mailchimp_events(mailchimp_fetcher, df_mailchimp, anthropic_api_key)
+
+    if df_shopify is not None and not df_shopify.empty:
+        builder.add_shopify_events(df_shopify)
 
     # Build final DataFrame
     df_events = builder.build_events_dataframe()
