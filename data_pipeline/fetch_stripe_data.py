@@ -190,6 +190,9 @@ class StripeFetcher:
             description = charge.get("description", "No Description")
             name = charge.get("billing_details", {}).get("name", "No Name")
             transaction_id = charge.get("id", None)
+            receipt_email = charge.get("receipt_email")
+            billing_email = charge.get("billing_details", {}).get("email")
+            stripe_customer_id = charge.get("customer")
 
             data.append(
                 {
@@ -201,6 +204,9 @@ class StripeFetcher:
                     "Discount Amount": discount_money,
                     "Name": name,
                     "Date": created_at.date(),
+                    "receipt_email": receipt_email,
+                    "billing_email": billing_email,
+                    "stripe_customer_id": stripe_customer_id,
                 }
             )
 
@@ -228,23 +234,29 @@ class StripeFetcher:
             currency = payment_intent["currency"]
             description = payment_intent.get("description", "No Description")
             
-            # Get customer name from latest charge if available
+            # Get customer name and email from latest charge if available
             name = "No Name"
+            receipt_email = None
+            billing_email = None
             if payment_intent.get("latest_charge"):
                 try:
                     charge = stripe.Charge.retrieve(payment_intent["latest_charge"])
                     if charge.get("billing_details", {}).get("name"):
                         name = charge["billing_details"]["name"]
+                    receipt_email = charge.get("receipt_email")
+                    billing_email = charge.get("billing_details", {}).get("email")
                 except:
-                    pass  # Keep default name if charge retrieval fails
-            
+                    pass  # Keep defaults if charge retrieval fails
+
+            stripe_customer_id = payment_intent.get("customer")
+
             # Calculate tax (using same estimation as old method for consistency)
             pre_tax_money = total_money / (1 + 0.0825)  # ESTIMATED
             tax_money = total_money - pre_tax_money
-            
+
             # Discount amount (Payment Intents don't directly track discounts like charges)
             discount_money = 0  # Could be enhanced later with invoice line items
-            
+
             transaction_id = payment_intent.get("id", None)
 
             data.append(
@@ -257,7 +269,10 @@ class StripeFetcher:
                     "Discount Amount": discount_money,
                     "Name": name,
                     "Date": created_at.date(),
-                    "payment_intent_status": payment_intent["status"],  # Track for debugging
+                    "payment_intent_status": payment_intent["status"],
+                    "receipt_email": receipt_email,
+                    "billing_email": billing_email,
+                    "stripe_customer_id": stripe_customer_id,
                 }
             )
 
