@@ -3,9 +3,7 @@ import os
 from . import config
 import pandas as pd
 import io
-from langchain_core.documents import Document
 import json
-from datetime import date
 
 
 class DataUploader:
@@ -26,40 +24,6 @@ class DataUploader:
         df.to_csv(csv_buffer, index=False)
         self.s3.put_object(
             Bucket=bucket_name, Key=file_name, Body=csv_buffer.getvalue()
-        )
-
-    def upload_json_to_s3(
-        self, doc: Document, bucket_name: str, file_name: str
-    ) -> None:
-        """
-        Uploads a LangChain Document object to S3 as a JSON file with metadata and text.
-        Converts non-serializable types like datetime.date to strings.
-        """
-
-        def serialize(obj):
-            if isinstance(obj, date):
-                return obj.isoformat()
-            raise TypeError(f"Type {type(obj)} not serializable")
-
-        content = {"metadata": doc.metadata, "text": doc.page_content}
-
-        body = json.dumps(content, indent=2, default=serialize)
-        self.s3.put_object(Bucket=bucket_name, Key=file_name, Body=body)
-
-    def upload_multiple_documents_objects_to_s3(
-        self,
-        docs: list[Document],
-        bucket_name: str = config.aws_bucket_name,
-        file_name: str = config.s3_path_text_and_metadata,
-    ) -> None:
-        for doc in docs:
-            start = doc.metadata["start_date"]
-            end = doc.metadata["end_date"]
-            cat = doc.metadata["category"].replace(" ", "_").lower()
-            filename = f"{start}_to_{end}_{cat}.json"
-            self.upload_json_to_s3(doc, bucket_name, file_name + "/" + filename)
-        print(
-            f"Uploaded {len(docs)} documents to S3 bucket {bucket_name} at {file_name}/"
         )
 
     def list_keys(self, bucket: str, prefix: str = "") -> list[str]:
