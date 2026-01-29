@@ -206,6 +206,39 @@ def check_twilio_opt_in_status(phone_numbers: list) -> dict:
         return {phone: False for phone in phone_numbers}
 
 
+def save_sent_reminders_to_s3(sent_records: list):
+    """
+    Save sent reminder records to S3, appending to existing file.
+
+    Args:
+        sent_records: List of dicts with sent message info
+    """
+    print(f"\n💾 Saving {len(sent_records)} sent records to S3...")
+
+    uploader = upload_data.DataUploader()
+    s3_path = 'twilio/birthday_reminders_sent.csv'
+
+    # Try to load existing records
+    try:
+        csv_content = uploader.download_from_s3(config.aws_bucket_name, s3_path)
+        df_existing = uploader.convert_csv_to_df(csv_content)
+        print(f"   📂 Loaded {len(df_existing)} existing records")
+    except Exception as e:
+        print(f"   📂 No existing file, creating new")
+        df_existing = pd.DataFrame()
+
+    # Append new records
+    df_new = pd.DataFrame(sent_records)
+    df_combined = pd.concat([df_existing, df_new], ignore_index=True)
+
+    # Save to S3
+    try:
+        uploader.upload_to_s3(df_combined, config.aws_bucket_name, s3_path)
+        print(f"   ✅ Saved {len(df_combined)} total records to s3://{config.aws_bucket_name}/{s3_path}")
+    except Exception as e:
+        print(f"   ❌ Failed to save to S3: {e}")
+
+
 def send_sms_reminders(df_attendees, dry_run=True):
     """
     Send SMS reminders to party attendees.
@@ -281,6 +314,7 @@ def send_sms_reminders(df_attendees, dry_run=True):
     sent_count = 0
     failed_count = 0
     failed_messages = []
+    sent_records = []  # Track sent messages for S3
 
     for _, row in df_opted_in.iterrows():
         message_text = create_attendee_message(row['name'], row['child_name'], row['party_date'])
@@ -295,6 +329,18 @@ def send_sms_reminders(df_attendees, dry_run=True):
             if message.sid:
                 sent_count += 1
                 print(f"✅ Sent to {row['name']} ({row['phone']})")
+                # Track for S3
+                sent_records.append({
+                    'sent_at': datetime.now().isoformat(),
+                    'customer_id': row['customer_id'],
+                    'name': row['name'],
+                    'phone': row['phone'],
+                    'child_name': row['child_name'],
+                    'party_date': row['party_date'],
+                    'party_id': row.get('party_id', ''),
+                    'twilio_sid': message.sid,
+                    'status': 'sent'
+                })
             else:
                 failed_count += 1
                 failed_messages.append((row['name'], row['phone'], "No SID returned"))
@@ -304,6 +350,10 @@ def send_sms_reminders(df_attendees, dry_run=True):
             failed_count += 1
             failed_messages.append((row['name'], row['phone'], str(e)))
             print(f"❌ Failed to {row['name']} ({row['phone']}): {str(e)[:50]}")
+
+    # Save sent records to S3
+    if sent_records:
+        save_sent_reminders_to_s3(sent_records)
 
     # Summary
     print(f"\n" + "=" * 70)
