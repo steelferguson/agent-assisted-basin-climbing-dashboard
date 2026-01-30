@@ -312,43 +312,25 @@ def run_daily_pipeline():
     except Exception as e:
         print(f"❌ Error generating new members report: {e}\n")
 
-    # 15. Fetch birthday party RSVPs
+    # 15. Fetch birthday party RSVPs (via Cloud Functions API)
     print("17. Fetching birthday party RSVPs from Firebase...")
     try:
-        from data_pipeline.fetch_birthday_parties import fetch_birthday_party_data_from_firestore, BirthdayPartyFetcher
-        parties_df, rsvps_df = fetch_birthday_party_data_from_firestore()
-
-        if parties_df is not None and len(parties_df) > 0:
-            fetcher = BirthdayPartyFetcher()
-            fetcher.save_to_bigquery(parties_df, rsvps_df, dataset_id='basin_data')
-            print(f"✅ Uploaded {len(parties_df)} parties and {len(rsvps_df)} RSVPs to BigQuery\n")
-        else:
-            print("ℹ️  No birthday party data found\n")
+        from data_pipeline.fetch_birthday_parties import fetch_and_save_birthday_parties
+        parties_df, rsvps_df = fetch_and_save_birthday_parties(save_to_s3=True, save_local=False)
+        print(f"✅ Synced {len(parties_df)} parties and {len(rsvps_df)} RSVPs to S3\n")
     except Exception as e:
         print(f"❌ Error fetching birthday party data: {e}\n")
 
-    # NOTE: Flags are evaluated separately via run_flag_sync.py (runs at 8 AM, 2 PM, 8 PM CT)
-    # After flags are set, birthday party reminders are sent automatically
-
-    # 16. Send birthday party attendee reminders (via SMS)
-    print("18. Sending birthday party attendee reminders...")
-    print("    (Runs automatically when birthday_party_attendee_one_week_out flag is set)")
+    # 15a. Send birthday party reminders (email 7 days, text 1 day before)
+    print("17a. Sending birthday party reminders...")
+    print("     - Email: 7 days before party")
+    print("     - Text: 1 day before party")
     try:
-        import subprocess
-        # Run in auto-send mode (not dry-run) since this is automated
-        result = subprocess.run(
-            ['python', 'send_birthday_party_attendee_reminders.py', '--send'],
-            capture_output=True,
-            text=True
-        )
-        if result.returncode == 0:
-            print("✅ Birthday party reminders sent successfully\n")
-        else:
-            print(f"⚠️  Birthday party reminders completed with warnings\n")
-            if result.stdout:
-                print(result.stdout)
+        from send_birthday_reminders import run_birthday_reminders
+        run_birthday_reminders(dry_run=False)
+        print("✅ Birthday reminders processed\n")
     except Exception as e:
-        print(f"❌ Error sending birthday party reminders: {e}\n")
+        print(f"❌ Error sending birthday reminders: {e}\n")
 
     # 17. Sync customer data TO Klaviyo
     print("19. Syncing customer profiles to Klaviyo...")

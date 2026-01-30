@@ -1,11 +1,15 @@
 """
 Send Birthday Party Attendee Reminders via Twilio SMS
 
-Sends reminder texts to customers who RSVP'd yes to a birthday party happening in 1 week.
+Sends reminder texts to guests who RSVP'd yes to upcoming birthday parties.
 Includes waiver link so they can complete it before the party.
 
 Usage:
+    # Send to all attendees flagged today (7 days before party)
     python send_birthday_party_attendee_reminders.py [--send]
+
+    # Send to all attendees for a specific party
+    python send_birthday_party_attendee_reminders.py --party PARTY_ID [--send]
 
 Without --send flag: Runs in dry-run mode (shows preview, doesn't send)
 With --send flag: Actually sends the SMS messages
@@ -14,6 +18,7 @@ With --send flag: Actually sends the SMS messages
 import pandas as pd
 import sys
 import os
+import json
 from datetime import datetime
 from twilio.rest import Client
 
@@ -24,14 +29,15 @@ from data_pipeline import config, upload_data
 WAIVER_URL = "https://climber.hellocapitan.com/basin/documents/fill/init/273/"
 
 
-def create_attendee_message(guest_name: str, child_name: str, party_date: str) -> str:
+def create_attendee_message(guest_name: str, child_name: str, party_date: str, days_until: int = None) -> str:
     """
     Create personalized SMS message for party attendee.
 
     Args:
         guest_name: Name of the person attending (first name preferred)
         child_name: Name of the birthday child
-        party_date: Date of the party (YYYY-MM-DD format)
+        party_date: Date of the party
+        days_until: Days until party (for message customization)
 
     Returns:
         SMS message text
@@ -39,14 +45,15 @@ def create_attendee_message(guest_name: str, child_name: str, party_date: str) -
     # Parse name to get first name
     first_name = guest_name.split()[0] if guest_name else "there"
 
-    # Format date nicely
-    try:
-        date_obj = datetime.strptime(party_date, '%Y-%m-%d')
-        formatted_date = date_obj.strftime('%A, %B %d')  # e.g., "Saturday, January 20"
-    except:
-        formatted_date = party_date
+    # Customize timing language
+    if days_until == 0:
+        timing = "TODAY"
+    elif days_until == 1:
+        timing = "TOMORROW"
+    else:
+        timing = f"on {party_date}"
 
-    message = f"""Hi {first_name}! Reminder: You RSVP'd yes to {child_name}'s birthday party at Basin Climbing on {formatted_date}! 🎉
+    message = f"""Hi {first_name}! Reminder: You RSVP'd to {child_name}'s birthday party at Basin Climbing {timing}! 🎉
 
 Please fill out your waiver before the party: {WAIVER_URL}
 
@@ -55,33 +62,41 @@ Can't wait to see you!"""
     return message
 
 
-def get_attendees_to_remind():
+def normalize_phone(phone):
+    """Normalize phone number to E.164 format."""
+    if not phone or pd.isna(phone):
+        return None
+
+    phone_str = str(phone).replace('.0', '').strip()
+    phone_digits = ''.join(c for c in phone_str if c.isdigit())
+
+    if len(phone_digits) < 10:
+        return None
+
+    if len(phone_digits) == 10:
+        return f"+1{phone_digits}"
+    elif len(phone_digits) == 11 and phone_digits[0] == '1':
+        return f"+{phone_digits}"
+    else:
+        return None
+
+
+def get_attendees_from_flags():
     """
-    Load customers flagged with birthday_party_attendee_one_week_out flag.
+    Load attendees from birthday party flags (for scheduled 7-day reminders).
 
     Returns:
-        DataFrame with columns: customer_id, name, email, phone, child_name, party_date, party_id
+        DataFrame with attendee info
     """
-    print("\n📥 Loading customer and flag data from S3...")
-
+    print("\n📥 Loading flags from S3...")
     uploader = upload_data.DataUploader()
 
-    # Load customer master (for phone numbers)
-    try:
-        csv_content = uploader.download_from_s3(config.aws_bucket_name, config.s3_path_customers_master)
-        df_master = uploader.convert_csv_to_df(csv_content)
-        print(f"   ✅ Loaded {len(df_master)} customers")
-    except Exception as e:
-        print(f"   ❌ Error loading customer_master: {e}")
-        return pd.DataFrame()
-
-    # Load customer flags
     try:
         csv_content = uploader.download_from_s3(config.aws_bucket_name, config.s3_path_customer_flags)
         df_flags = uploader.convert_csv_to_df(csv_content)
-        print(f"   ✅ Loaded {len(df_flags)} flags")
+        print(f"   ✓ Loaded {len(df_flags)} flags")
     except Exception as e:
-        print(f"   ❌ Error loading customer_flags: {e}")
+        print(f"   ❌ Error loading flags: {e}")
         return pd.DataFrame()
 
     # Filter to today's birthday_party_attendee_one_week_out flags
@@ -94,149 +109,104 @@ def get_attendees_to_remind():
     ].copy()
 
     if attendee_flags.empty:
-        print(f"   ℹ️  No birthday_party_attendee_one_week_out flags triggered today")
+        print(f"   ℹ️  No attendee flags triggered today")
         return pd.DataFrame()
 
-    print(f"   ✅ Found {len(attendee_flags)} attendee flags triggered today")
+    print(f"   ✓ Found {len(attendee_flags)} attendee flags for today")
 
-    # Extract flag data (contains party details)
-    import json
-    attendee_flags['flag_data_parsed'] = attendee_flags['flag_data'].apply(
-        lambda x: json.loads(x) if isinstance(x, str) else x
-    )
-
-    # Build list of attendees to remind
+    # Build attendee list from flags
     attendees = []
     for _, flag in attendee_flags.iterrows():
-        customer_id = flag['customer_id']
-        flag_data = flag['flag_data_parsed']
+        flag_data = json.loads(flag['flag_data']) if isinstance(flag['flag_data'], str) else flag['flag_data']
 
-        # Get customer info
-        customer = df_master[df_master['customer_id'] == customer_id]
-
-        if customer.empty:
-            print(f"   ⚠️  Customer {customer_id} not found in master")
-            continue
-
-        customer_row = customer.iloc[0]
-        name = customer_row.get('primary_name', '')
-        email = customer_row.get('primary_email', '')
-        phone = customer_row.get('primary_phone', '')
-
-        # Must have phone number to send SMS
-        if not phone or pd.isna(phone) or str(phone).strip() == '':
-            print(f"   ⚠️  Customer {customer_id} ({name}) has no phone number - skipping")
-            continue
-
-        # Normalize phone
-        phone_str = str(phone).replace('.0', '').strip()
-        phone_digits = ''.join(c for c in phone_str if c.isdigit())
-
-        if len(phone_digits) < 10:
-            print(f"   ⚠️  Customer {customer_id} ({name}) has invalid phone: {phone} - skipping")
-            continue
-
-        # Format to E.164 (US numbers)
-        if len(phone_digits) == 10:
-            formatted_phone = f"+1{phone_digits}"
-        elif len(phone_digits) == 11 and phone_digits[0] == '1':
-            formatted_phone = f"+{phone_digits}"
-        else:
-            print(f"   ⚠️  Customer {customer_id} ({name}) has invalid phone length: {phone_digits} - skipping")
+        phone = normalize_phone(flag.get('guest_phone'))
+        if not phone:
+            print(f"   ⚠️  No valid phone for {flag.get('guest_name', 'Unknown')}")
             continue
 
         attendees.append({
-            'customer_id': customer_id,
-            'name': name,
-            'email': email,
-            'phone': formatted_phone,
+            'name': flag.get('guest_name', ''),
+            'email': flag.get('guest_email', ''),
+            'phone': phone,
             'child_name': flag_data.get('child_name', ''),
             'party_date': flag_data.get('party_date', ''),
-            'party_time': flag_data.get('party_time', ''),
             'party_id': flag_data.get('party_id', ''),
-            'host_email': flag_data.get('host_email', ''),
+            'days_until': 7,  # Flag is triggered 7 days before
         })
 
     return pd.DataFrame(attendees)
 
 
-def check_twilio_opt_in_status(phone_numbers: list) -> dict:
+def get_attendees_for_party(party_id: str):
     """
-    Check which phone numbers have opted in to receive SMS.
+    Load all attending guests for a specific party.
 
     Args:
-        phone_numbers: List of phone numbers in E.164 format
+        party_id: The party ID to get attendees for
 
     Returns:
-        Dict mapping phone -> opt_in status (True/False)
+        DataFrame with attendee info
     """
-    print("\n📱 Checking Twilio opt-in status...")
-
+    print(f"\n📥 Loading party {party_id} data from S3...")
     uploader = upload_data.DataUploader()
 
     try:
-        csv_content = uploader.download_from_s3(config.aws_bucket_name, 'twilio/opt_in_status.csv')
-        df_opt_ins = uploader.convert_csv_to_df(csv_content)
-        print(f"   ✅ Loaded {len(df_opt_ins)} phone opt-in records")
+        parties_csv = uploader.download_from_s3(config.aws_bucket_name, 'birthday/parties.csv')
+        parties_df = uploader.convert_csv_to_df(parties_csv)
 
-        # Build mapping
-        opt_in_map = {}
-        for phone in phone_numbers:
-            # Normalize phone for matching
-            phone_digits = ''.join(c for c in phone if c.isdigit())
-
-            # Check if this phone is in opt-in list
-            matching = df_opt_ins[df_opt_ins['phone'].str.replace(r'\D', '', regex=True) == phone_digits]
-
-            if not matching.empty:
-                status = matching.iloc[0].get('opt_in_status', 'opted_out')
-                opt_in_map[phone] = (status == 'opted_in')
-            else:
-                # If not in list, assume opted out (safe default)
-                opt_in_map[phone] = False
-
-        opted_in_count = sum(1 for v in opt_in_map.values() if v)
-        print(f"   ✅ {opted_in_count}/{len(phone_numbers)} phones are opted in")
-
-        return opt_in_map
-
+        rsvps_csv = uploader.download_from_s3(config.aws_bucket_name, 'birthday/rsvps.csv')
+        rsvps_df = uploader.convert_csv_to_df(rsvps_csv)
     except Exception as e:
-        print(f"   ⚠️  Could not load opt-in status: {e}")
-        print(f"   ⚠️  Will NOT send messages (safety)")
-        return {phone: False for phone in phone_numbers}
+        print(f"   ❌ Error loading birthday data: {e}")
+        return pd.DataFrame()
 
+    # Find the party
+    party = parties_df[parties_df['party_id'] == party_id]
+    if party.empty:
+        print(f"   ❌ Party {party_id} not found")
+        return pd.DataFrame()
 
-def save_sent_reminders_to_s3(sent_records: list):
-    """
-    Save sent reminder records to S3, appending to existing file.
+    party = party.iloc[0]
+    child_name = party['child_name']
+    party_date = party['party_date']
 
-    Args:
-        sent_records: List of dicts with sent message info
-    """
-    print(f"\n💾 Saving {len(sent_records)} sent records to S3...")
+    print(f"   ✓ Found {child_name}'s party on {party_date}")
 
-    uploader = upload_data.DataUploader()
-    s3_path = 'twilio/birthday_reminders_sent.csv'
+    # Calculate days until party
+    from data_pipeline.generate_birthday_party_flags import parse_party_date
+    party_date_parsed = parse_party_date(party_date)
+    if party_date_parsed:
+        days_until = (party_date_parsed - datetime.now().date()).days
+    else:
+        days_until = None
 
-    # Try to load existing records
-    try:
-        csv_content = uploader.download_from_s3(config.aws_bucket_name, s3_path)
-        df_existing = uploader.convert_csv_to_df(csv_content)
-        print(f"   📂 Loaded {len(df_existing)} existing records")
-    except Exception as e:
-        print(f"   📂 No existing file, creating new")
-        df_existing = pd.DataFrame()
+    # Get attending RSVPs
+    attending_rsvps = rsvps_df[
+        (rsvps_df['party_id'] == party_id) &
+        (rsvps_df['attending'] == 'yes')
+    ]
 
-    # Append new records
-    df_new = pd.DataFrame(sent_records)
-    df_combined = pd.concat([df_existing, df_new], ignore_index=True)
+    print(f"   ✓ Found {len(attending_rsvps)} attending guests")
 
-    # Save to S3
-    try:
-        uploader.upload_to_s3(df_combined, config.aws_bucket_name, s3_path)
-        print(f"   ✅ Saved {len(df_combined)} total records to s3://{config.aws_bucket_name}/{s3_path}")
-    except Exception as e:
-        print(f"   ❌ Failed to save to S3: {e}")
+    # Build attendee list
+    attendees = []
+    for _, rsvp in attending_rsvps.iterrows():
+        phone = normalize_phone(rsvp.get('phone'))
+        if not phone:
+            print(f"   ⚠️  No valid phone for {rsvp.get('guest_name', 'Unknown')}")
+            continue
+
+        attendees.append({
+            'name': rsvp.get('guest_name', ''),
+            'email': rsvp.get('email', ''),
+            'phone': phone,
+            'child_name': child_name,
+            'party_date': party_date,
+            'party_id': party_id,
+            'days_until': days_until,
+        })
+
+    return pd.DataFrame(attendees)
 
 
 def send_sms_reminders(df_attendees, dry_run=True):
@@ -251,52 +221,35 @@ def send_sms_reminders(df_attendees, dry_run=True):
         print("\n   ℹ️  No attendees to remind")
         return
 
-    # Check opt-in status
-    phone_list = df_attendees['phone'].tolist()
-    opt_in_status = check_twilio_opt_in_status(phone_list)
-
-    # Filter to only opted-in customers
-    df_opted_in = df_attendees[df_attendees['phone'].map(opt_in_status)].copy()
-    df_opted_out = df_attendees[~df_attendees['phone'].map(opt_in_status)].copy()
-
     print(f"\n📊 SMS Campaign Summary:")
-    print(f"   Total attendees flagged: {len(df_attendees)}")
-    print(f"   Opted in to SMS: {len(df_opted_in)}")
-    print(f"   Opted out / no consent: {len(df_opted_out)}")
-
-    if df_opted_out.empty == False:
-        print(f"\n   ⚠️  Skipping {len(df_opted_out)} attendees (opted out):")
-        for _, row in df_opted_out.iterrows():
-            print(f"      • {row['name']} ({row['phone']})")
-
-    if df_opted_in.empty:
-        print(f"\n   ℹ️  No attendees have opted in to SMS")
-        return
+    print(f"   Total attendees with phones: {len(df_attendees)}")
 
     # Show preview
-    print(f"\n📋 Preview (first 5 messages):")
+    print(f"\n📋 Messages to send:")
     print("=" * 70)
-    for idx, row in df_opted_in.head(5).iterrows():
-        message = create_attendee_message(row['name'], row['child_name'], row['party_date'])
+
+    for idx, row in df_attendees.iterrows():
+        message = create_attendee_message(
+            row['name'],
+            row['child_name'],
+            row['party_date'],
+            row.get('days_until')
+        )
         print(f"\nTo: {row['name']} ({row['phone']})")
         print(f"Party: {row['child_name']} on {row['party_date']}")
         print(f"Message:\n{message}")
         print("-" * 70)
 
-    if len(df_opted_in) > 5:
-        print(f"\n... and {len(df_opted_in) - 5} more messages")
-
     if dry_run:
         print(f"\n" + "=" * 70)
         print(f"DRY RUN MODE - No messages sent")
         print(f"=" * 70)
-        print(f"\nTo send for real, run:")
-        print(f"   python send_birthday_party_attendee_reminders.py --send")
+        print(f"\nTo send for real, add --send flag")
         return
 
     # Send messages
     print(f"\n" + "=" * 70)
-    print(f"Sending {len(df_opted_in)} SMS reminders...")
+    print(f"Sending {len(df_attendees)} SMS reminders...")
     print(f"=" * 70)
 
     # Initialize Twilio client
@@ -306,18 +259,20 @@ def send_sms_reminders(df_attendees, dry_run=True):
 
     if not all([twilio_account_sid, twilio_auth_token, twilio_from_number]):
         print("❌ Twilio credentials not configured")
-        print("   Need: TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER")
         return
 
     client = Client(twilio_account_sid, twilio_auth_token)
 
     sent_count = 0
     failed_count = 0
-    failed_messages = []
-    sent_records = []  # Track sent messages for S3
 
-    for _, row in df_opted_in.iterrows():
-        message_text = create_attendee_message(row['name'], row['child_name'], row['party_date'])
+    for _, row in df_attendees.iterrows():
+        message_text = create_attendee_message(
+            row['name'],
+            row['child_name'],
+            row['party_date'],
+            row.get('days_until')
+        )
 
         try:
             message = client.messages.create(
@@ -329,31 +284,13 @@ def send_sms_reminders(df_attendees, dry_run=True):
             if message.sid:
                 sent_count += 1
                 print(f"✅ Sent to {row['name']} ({row['phone']})")
-                # Track for S3
-                sent_records.append({
-                    'sent_at': datetime.now().isoformat(),
-                    'customer_id': row['customer_id'],
-                    'name': row['name'],
-                    'phone': row['phone'],
-                    'child_name': row['child_name'],
-                    'party_date': row['party_date'],
-                    'party_id': row.get('party_id', ''),
-                    'twilio_sid': message.sid,
-                    'status': 'sent'
-                })
             else:
                 failed_count += 1
-                failed_messages.append((row['name'], row['phone'], "No SID returned"))
-                print(f"❌ Failed to {row['name']} ({row['phone']}): No SID")
+                print(f"❌ Failed to {row['name']} ({row['phone']})")
 
         except Exception as e:
             failed_count += 1
-            failed_messages.append((row['name'], row['phone'], str(e)))
             print(f"❌ Failed to {row['name']} ({row['phone']}): {str(e)[:50]}")
-
-    # Save sent records to S3
-    if sent_records:
-        save_sent_reminders_to_s3(sent_records)
 
     # Summary
     print(f"\n" + "=" * 70)
@@ -362,28 +299,40 @@ def send_sms_reminders(df_attendees, dry_run=True):
     print(f"   ✅ Sent successfully: {sent_count}")
     print(f"   ❌ Failed: {failed_count}")
 
-    if failed_messages:
-        print(f"\n❌ Failed messages:")
-        for name, phone, error in failed_messages:
-            print(f"   • {name} ({phone}): {error}")
-
 
 def main():
-    # Check if --send flag is provided
+    # Load environment
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except ImportError:
+        pass
+
+    # Parse arguments
     dry_run = '--send' not in sys.argv
+    party_id = None
+
+    for i, arg in enumerate(sys.argv):
+        if arg == '--party' and i + 1 < len(sys.argv):
+            party_id = sys.argv[i + 1]
 
     print("\n" + "=" * 70)
     print("Birthday Party Attendee Reminder System")
     print("=" * 70)
 
-    # Get attendees flagged today
-    df_attendees = get_attendees_to_remind()
+    # Get attendees
+    if party_id:
+        print(f"Mode: Send to specific party ({party_id})")
+        df_attendees = get_attendees_for_party(party_id)
+    else:
+        print("Mode: Send to flagged attendees (7 days before party)")
+        df_attendees = get_attendees_from_flags()
 
     if df_attendees.empty:
-        print("\n   ℹ️  No attendees to remind today")
+        print("\n   ℹ️  No attendees to remind")
         return
 
-    # Send SMS reminders
+    # Send reminders
     send_sms_reminders(df_attendees, dry_run=dry_run)
 
 
