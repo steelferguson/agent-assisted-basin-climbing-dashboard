@@ -92,6 +92,9 @@ class ShopifyFlagSyncer:
         # When a flag is synced to Shopify, also add the member to the Klaviyo list
         self.klaviyo_flag_list_map = {
             'membership_cancelled_winback': 'VbbZSy',  # Membership Win-Back flow
+            'first_time_day_pass_2wk_offer': 'RX9TsQ',  # Day Pass - 2 Week Offer list
+            'second_visit_2wk_offer': 'RX9TsQ',  # Day Pass - 2 Week Offer list
+            '2_week_pass_purchase': 'VxZEtN',  # 2 Week Pass - Membership Offer list
         }
 
         print("✅ Shopify Flag Syncer initialized")

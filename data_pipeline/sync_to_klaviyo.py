@@ -28,7 +28,7 @@ class KlaviyoSync:
     """
 
     BASE_URL = "https://a.klaviyo.com/api"
-    API_REVISION = "2024-02-15"  # Klaviyo API revision
+    API_REVISION = "2025-01-15"  # Klaviyo API revision
 
     def __init__(self, private_key: Optional[str] = None):
         self.private_key = private_key or os.getenv("KLAVIYO_PRIVATE_KEY")
@@ -55,6 +55,7 @@ class KlaviyoSync:
             'profiles_created': 0,
             'profiles_updated': 0,
             'profiles_failed': 0,
+            'profiles_subscribed': 0,
             'events_created': 0,
             'events_failed': 0
         }
@@ -166,6 +167,58 @@ class KlaviyoSync:
         if result and result.get("data"):
             return result["data"][0] if result["data"] else None
         return None
+
+    def subscribe_profile(self, email: str = None, phone: str = None) -> bool:
+        """
+        Subscribe a profile to email and SMS marketing.
+
+        Args:
+            email: Email address to subscribe
+            phone: Phone number to subscribe (E.164 format)
+
+        Returns:
+            True if successful
+        """
+        if not email and not phone:
+            return False
+
+        profile_data = {}
+        subscriptions = {}
+
+        if email:
+            profile_data['email'] = email
+            subscriptions['email'] = {'marketing': {'consent': 'SUBSCRIBED'}}
+
+        if phone:
+            profile_data['phone_number'] = phone
+            subscriptions['sms'] = {'marketing': {'consent': 'SUBSCRIBED'}}
+
+        profile_data['subscriptions'] = subscriptions
+
+        payload = {
+            "data": {
+                "type": "profile-subscription-bulk-create-job",
+                "attributes": {
+                    "profiles": {
+                        "data": [
+                            {
+                                "type": "profile",
+                                "attributes": profile_data
+                            }
+                        ]
+                    }
+                }
+            }
+        }
+
+        # Use direct request since this is a different endpoint format
+        url = f"{self.BASE_URL}/profile-subscription-bulk-create-jobs"
+        try:
+            response = requests.post(url, headers=self.headers, json=payload, timeout=30)
+            return response.status_code in [200, 201, 202]
+        except Exception as e:
+            print(f"   Error subscribing profile: {e}")
+            return False
 
     def update_profile(self, profile_id: str, properties: dict) -> bool:
         """Update profile properties."""
@@ -313,6 +366,11 @@ class KlaviyoSync:
                 if profile_id:
                     # Update with full properties
                     self.update_profile(profile_id, properties)
+
+                    # Subscribe to email and SMS marketing
+                    if self.subscribe_profile(email=email, phone=phone):
+                        self.sync_results['profiles_subscribed'] += 1
+
                     synced += 1
                 else:
                     failed += 1
@@ -551,6 +609,7 @@ class KlaviyoSync:
         log_entry = {
             'timestamp': datetime.now().isoformat(),
             'profiles_synced': self.sync_results['profiles_created'],
+            'profiles_subscribed': self.sync_results['profiles_subscribed'],
             'profiles_failed': self.sync_results['profiles_failed'],
             'events_synced': self.sync_results['events_created'],
             'events_failed': self.sync_results['events_failed']
