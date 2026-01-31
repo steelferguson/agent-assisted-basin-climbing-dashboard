@@ -102,6 +102,98 @@ class ShopifyFlagSyncer:
         if self.klaviyo_private_key:
             print(f"   Klaviyo: enabled ({len(self.klaviyo_flag_list_map)} flag-to-list mappings)")
 
+    def add_tag_to_klaviyo_profile(self, email: str, tag_name: str) -> bool:
+        """
+        Add a tag to a Klaviyo profile's Shopify Tags property.
+
+        Args:
+            email: Customer email address
+            tag_name: Tag to add (e.g., 'first-time-day-pass-2wk-offer')
+
+        Returns:
+            True if successful
+        """
+        if not self.klaviyo_headers or not email or pd.isna(email):
+            return False
+
+        profile_id = self.get_klaviyo_profile_id(str(email).strip())
+        if not profile_id:
+            return False
+
+        try:
+            # First get current Shopify Tags
+            url = f"https://a.klaviyo.com/api/profiles/{profile_id}"
+            response = requests.get(url, headers=self.klaviyo_headers, timeout=30)
+
+            current_tags = []
+            if response.status_code == 200:
+                props = response.json().get('data', {}).get('attributes', {}).get('properties', {})
+                current_tags = props.get('Shopify Tags', [])
+                if isinstance(current_tags, str):
+                    current_tags = [t.strip() for t in current_tags.split(',') if t.strip()]
+
+            # Add new tag if not already present
+            if tag_name not in current_tags:
+                current_tags.append(tag_name)
+
+                # Update profile
+                update_payload = {
+                    'data': {
+                        'type': 'profile',
+                        'id': profile_id,
+                        'attributes': {
+                            'properties': {
+                                'Shopify Tags': current_tags
+                            }
+                        }
+                    }
+                }
+
+                update_response = requests.patch(
+                    url,
+                    headers=self.klaviyo_headers,
+                    json=update_payload,
+                    timeout=30
+                )
+
+                if update_response.status_code in [200, 201, 202, 204]:
+                    print(f"   ✅ Added tag '{tag_name}' to Klaviyo profile")
+                    return True
+                else:
+                    print(f"   ⚠️  Klaviyo profile tag update failed ({update_response.status_code})")
+                    return False
+            else:
+                return True  # Tag already exists
+
+        except Exception as e:
+            print(f"   ⚠️  Klaviyo profile tag error: {e}")
+            return False
+
+    def get_klaviyo_profile_id(self, email: str) -> Optional[str]:
+        """
+        Get a Klaviyo profile ID by email.
+
+        Args:
+            email: Customer email address
+
+        Returns:
+            Profile ID or None if not found
+        """
+        if not self.klaviyo_headers or not email or pd.isna(email):
+            return None
+
+        try:
+            url = f"https://a.klaviyo.com/api/profiles?filter=equals(email,\"{email}\")"
+            response = requests.get(url, headers=self.klaviyo_headers, timeout=30)
+            if response.status_code == 200:
+                data = response.json().get('data', [])
+                if data:
+                    return data[0]['id']
+        except Exception as e:
+            print(f"   ⚠️  Klaviyo profile lookup error: {e}")
+
+        return None
+
     def add_to_klaviyo_list(self, email: str, list_id: str, flag_name: str) -> bool:
         """
         Add a profile to a Klaviyo list to trigger a flow.
@@ -120,20 +212,21 @@ class ShopifyFlagSyncer:
         if not email or pd.isna(email):
             return False
 
-        data = {
-            "data": [{
-                "type": "profile",
-                "attributes": {
-                    "email": str(email).strip()
-                }
-            }]
-        }
+        # First get the profile ID
+        profile_id = self.get_klaviyo_profile_id(str(email).strip())
+        if not profile_id:
+            print(f"   ⚠️  Klaviyo profile not found for {email}")
+            return False
+
+        # Add to list using profile ID
+        payload = {'data': [{'type': 'profile', 'id': profile_id}]}
 
         try:
             response = requests.post(
                 f"https://a.klaviyo.com/api/lists/{list_id}/relationships/profiles",
                 headers=self.klaviyo_headers,
-                json=data
+                json=payload,
+                timeout=30
             )
 
             if response.status_code in [200, 201, 202, 204]:
@@ -816,14 +909,22 @@ class ShopifyFlagSyncer:
                             shopify_customer_id=shopify_id
                         )
 
-                        # Sync to Klaviyo list if this flag has a mapping
-                        klaviyo_list_id = self.klaviyo_flag_list_map.get(flag_name)
-                        if klaviyo_list_id and email and pd.notna(email):
-                            self.add_to_klaviyo_list(
+                        # Sync to Klaviyo: add tag to profile AND add to flow trigger list
+                        if email and pd.notna(email):
+                            # Add tag to Klaviyo profile
+                            self.add_tag_to_klaviyo_profile(
                                 email=str(email),
-                                list_id=klaviyo_list_id,
-                                flag_name=flag_name
+                                tag_name=tag_name
                             )
+
+                            # Add to Klaviyo list if this flag has a mapping (triggers flow)
+                            klaviyo_list_id = self.klaviyo_flag_list_map.get(flag_name)
+                            if klaviyo_list_id:
+                                self.add_to_klaviyo_list(
+                                    email=str(email),
+                                    list_id=klaviyo_list_id,
+                                    flag_name=flag_name
+                                )
                     else:
                         errors += 1
                 else:
